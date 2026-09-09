@@ -1,0 +1,161 @@
+{
+  "format": "stiller-dependency-osv-check/1",
+  "checked_at_utc": "2026-09-08T11:23:50.434471+00:00",
+  "source": "https://api.osv.dev/v1/querybatch",
+  "scope": "Exact public PyPI names and versions only; no source, credentials or local paths sent",
+  "complete": true,
+  "known_advisory_count": 0,
+  "limitation": "A point-in-time known-advisory check is not proof of absence of vulnerabilities, license compliance or source provenance",
+  "packages": [
+    {
+      "name": "annotated-types",
+      "version": "0.8.0",
+      "advisory_ids": []
+    },
+    {
+      "name": "anyio",
+      "version": "4.15.1",
+      "advisory_ids": []
+    },
+    {
+      "name": "attrs",
+      "version": "26.1.0",
+      "advisory_ids": []
+    },
+    {
+      "name": "certifi",
+      "version": "2026.7.22",
+      "advisory_ids": []
+    },
+    {
+      "name": "cffi",
+      "version": "2.1.1",
+      "advisory_ids": []
+    },
+    {
+      "name": "click",
+      "version": "8.5.0",
+      "advisory_ids": []
+    },
+    {
+      "name": "cryptography",
+      "version": "50.0.1",
+      "advisory_ids": []
+    },
+    {
+      "name": "h11",
+      "version": "0.16.0",
+      "advisory_ids": []
+    },
+    {
+      "name": "httpcore",
+      "version": "1.0.9",
+      "advisory_ids": []
+    },
+    {
+      "name": "httpx",
+      "version": "0.28.1",
+      "advisory_ids": []
+    },
+    {
+      "name": "httpx-sse",
+      "version": "0.4.3",
+      "advisory_ids": []
+    },
+    {
+      "name": "idna",
+      "version": "3.19",
+      "advisory_ids": []
+    },
+    {
+      "name": "jsonschema",
+      "version": "4.26.0",
+      "advisory_ids": []
+    },
+    {
+      "name": "jsonschema-specifications",
+      "version": "2025.9.1",
+      "advisory_ids": []
+    },
+    {
+      "name": "mcp",
+      "version": "1.29.0",
+      "advisory_ids": []
+    },
+    {
+      "name": "pycparser",
+      "version": "3.0",
+      "advisory_ids": []
+    },
+    {
+      "name": "pydantic",
+      "version": "2.13.4",
+      "advisory_ids": []
+    },
+    {
+      "name": "pydantic-core",
+      "version": "2.46.4",
+      "advisory_ids": []
+    },
+    {
+      "name": "pydantic-settings",
+      "version": "2.15.0",
+      "advisory_ids": []
+    },
+    {
+      "name": "pyjwt",
+      "version": "2.13.0",
+      "advisory_ids": []
+    },
+    {
+      "name": "python-dotenv",
+      "version": "1.2.3",
+      "advisory_ids": []
+    },
+    {
+      "name": "python-multipart",
+      "version": "0.0.32",
+      "advisory_ids": []
+    },
+    {
+      "name": "pywin32",
+      "version": "312",
+      "advisory_ids": []
+    },
+    {
+      "name": "referencing",
+      "version": "0.37.0",
+      "advisory_ids": []
+    },
+    {
+      "name": "rpds-py",
+      "version": "2026.6.3",
+      "advisory_ids": []
+    },
+    {
+      "name": "sse-starlette",
+      "version": "3.4.11",
+      "advisory_ids": []
+    },
+    {
+      "name": "starlette",
+      "version": "1.6.0",
+      "advisory_ids": []
+    },
+    {
+      "name": "typing-extensions",
+      "version": "4.16.0",
+      "advisory_ids": []
+    },
+    {
+      "name": "typing-inspection",
+      "version": "0.4.4",
+      "advisory_ids": []
+    },
+    {
+      "name": "uvicorn",
+      "version": "0.52.4",
+      "advisory_ids": []
+    }
+  ]
+}

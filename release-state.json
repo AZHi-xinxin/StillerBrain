@@ -1,0 +1,13 @@
+{
+  "format": "stiller-public-release-state/1",
+  "version": "0.1.0-preview.1",
+  "scope": "production-readiness-not-source-archive-integrity",
+  "source_frozen": true,
+  "license_approved": true,
+  "clean_environment_verified": true,
+  "complete_regressions_verified": true,
+  "dependency_audit_complete": false,
+  "privacy_review_complete": false,
+  "user_acceptance_complete": false,
+  "publication_authorized": false
+}

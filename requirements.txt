@@ -1,0 +1,7 @@
+# Direct imports, pinned to the audited development environment.
+# This is not yet a transitive, hash-locked reproducible dependency set.
+mcp==1.29.0
+httpx==0.28.1
+jsonschema==4.26.0
+referencing==0.37.0
+pydantic==2.13.4

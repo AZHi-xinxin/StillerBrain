@@ -1,0 +1,327 @@
+{
+  "format": "stiller-dependency-inventory/1",
+  "platform": "Windows x86_64 CPython 3.14",
+  "source": "official PyPI installation report",
+  "packages": [
+    {
+      "name": "annotated-types",
+      "version": "0.8.0",
+      "sha256": "f072f4d804ea359e4eaf198b1af7a8b0943881a87f31bb764f8bf219bb9419e0",
+      "distribution": "annotated_types-0.8.0-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "MIT",
+      "direct": false,
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ]
+    },
+    {
+      "name": "anyio",
+      "version": "4.15.1",
+      "sha256": "6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7ed101",
+      "distribution": "anyio-4.15.1-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "MIT",
+      "direct": false,
+      "license_classifiers": []
+    },
+    {
+      "name": "attrs",
+      "version": "26.1.0",
+      "sha256": "c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309",
+      "distribution": "attrs-26.1.0-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "MIT",
+      "direct": false,
+      "license_classifiers": []
+    },
+    {
+      "name": "certifi",
+      "version": "2026.7.22",
+      "sha256": "62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775",
+      "distribution": "certifi-2026.7.22-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "MPL-2.0",
+      "direct": false,
+      "license_classifiers": [
+        "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)"
+      ]
+    },
+    {
+      "name": "cffi",
+      "version": "2.1.1",
+      "sha256": "3222ba5d678f80a030e6afbcc33dc1ae5cb45facabb61cee2c7016b8432fde48",
+      "distribution": "cffi-2.1.1-cp314-cp314-win_amd64.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "MIT-0",
+      "direct": false,
+      "license_classifiers": []
+    },
+    {
+      "name": "click",
+      "version": "8.5.0",
+      "sha256": "255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360",
+      "distribution": "click-8.5.0-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "BSD-3-Clause",
+      "direct": false,
+      "license_classifiers": []
+    },
+    {
+      "name": "cryptography",
+      "version": "50.0.1",
+      "sha256": "aed8db4f6d71c51efb89530e12d9464e7bf2923d46c3205dc794a2a93f8c0648",
+      "distribution": "cryptography-50.0.1-cp311-abi3-win_amd64.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "Apache-2.0 OR BSD-3-Clause",
+      "direct": false,
+      "license_classifiers": []
+    },
+    {
+      "name": "h11",
+      "version": "0.16.0",
+      "sha256": "63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86",
+      "distribution": "h11-0.16.0-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "MIT",
+      "direct": false,
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ]
+    },
+    {
+      "name": "httpcore",
+      "version": "1.0.9",
+      "sha256": "2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55",
+      "distribution": "httpcore-1.0.9-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "BSD-3-Clause",
+      "direct": false,
+      "license_classifiers": [
+        "License :: OSI Approved :: BSD License"
+      ]
+    },
+    {
+      "name": "httpx",
+      "version": "0.28.1",
+      "sha256": "d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad",
+      "distribution": "httpx-0.28.1-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "BSD-3-Clause",
+      "direct": true,
+      "license_classifiers": [
+        "License :: OSI Approved :: BSD License"
+      ]
+    },
+    {
+      "name": "httpx-sse",
+      "version": "0.4.3",
+      "sha256": "0ac1c9fe3c0afad2e0ebb25a934a59f4c7823b60792691f779fad2c5568830fc",
+      "distribution": "httpx_sse-0.4.3-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "MIT",
+      "direct": false,
+      "license_classifiers": []
+    },
+    {
+      "name": "idna",
+      "version": "3.19",
+      "sha256": "815e7be7a7806d54abb586dc943addc79e8b2ee16915059658cbeff4b1b43bf4",
+      "distribution": "idna-3.19-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "BSD-3-Clause",
+      "direct": false,
+      "license_classifiers": []
+    },
+    {
+      "name": "jsonschema",
+      "version": "4.26.0",
+      "sha256": "d489f15263b8d200f8387e64b4c3a75f06629559fb73deb8fdfb525f2dab50ce",
+      "distribution": "jsonschema-4.26.0-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "MIT",
+      "direct": true,
+      "license_classifiers": []
+    },
+    {
+      "name": "jsonschema-specifications",
+      "version": "2025.9.1",
+      "sha256": "98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe",
+      "distribution": "jsonschema_specifications-2025.9.1-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "MIT",
+      "direct": false,
+      "license_classifiers": []
+    },
+    {
+      "name": "mcp",
+      "version": "1.29.0",
+      "sha256": "f5a075bb611f23d6f4d080c6a1699fa62772eebc562ba9e66b306ddde1c755f7",
+      "distribution": "mcp-1.29.0-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "MIT",
+      "direct": true,
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ]
+    },
+    {
+      "name": "pycparser",
+      "version": "3.0",
+      "sha256": "b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992",
+      "distribution": "pycparser-3.0-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "BSD-3-Clause",
+      "direct": false,
+      "license_classifiers": []
+    },
+    {
+      "name": "pydantic",
+      "version": "2.13.4",
+      "sha256": "45a282cde31d808236fd7ea9d919b128653c8b38b393d1c4ab335c62924d9aba",
+      "distribution": "pydantic-2.13.4-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "MIT",
+      "direct": true,
+      "license_classifiers": []
+    },
+    {
+      "name": "pydantic-core",
+      "version": "2.46.4",
+      "sha256": "811ff8e9c313ab425368bcbb36e5c4ebd7108c2bbf4e4089cfbb0b01eff63fac",
+      "distribution": "pydantic_core-2.46.4-cp314-cp314-win_amd64.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "MIT",
+      "direct": false,
+      "license_classifiers": []
+    },
+    {
+      "name": "pydantic-settings",
+      "version": "2.15.0",
+      "sha256": "0ba092c291c94baceb5eff768aa0d56400a457585bc0175925a5a5510303da42",
+      "distribution": "pydantic_settings-2.15.0-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "MIT",
+      "direct": false,
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ]
+    },
+    {
+      "name": "pyjwt",
+      "version": "2.13.0",
+      "sha256": "66adcc2aff09b3f1bbd95fc1e1577df8ac8723c978552fd43304c8a290ac5728",
+      "distribution": "pyjwt-2.13.0-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "MIT",
+      "direct": false,
+      "license_classifiers": []
+    },
+    {
+      "name": "python-dotenv",
+      "version": "1.2.3",
+      "sha256": "904552145e8bfed22162c09dab1c2b9b54fefa7b23ba780f4f26ca0316b0f0d9",
+      "distribution": "python_dotenv-1.2.3-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "BSD-3-Clause",
+      "direct": false,
+      "license_classifiers": []
+    },
+    {
+      "name": "python-multipart",
+      "version": "0.0.32",
+      "sha256": "ff6d3f776f16878c894e52e107296ffc890e913c611b1a4ec6c44e2821fe2e23",
+      "distribution": "python_multipart-0.0.32-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "Apache-2.0",
+      "direct": false,
+      "license_classifiers": [
+        "License :: OSI Approved :: Apache Software License"
+      ]
+    },
+    {
+      "name": "pywin32",
+      "version": "312",
+      "sha256": "a4dd3a848290ef724347b19f301045831d8e802fa4464f491b98b1e0a081432e",
+      "distribution": "pywin32-312-cp314-cp314-win_amd64.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "PSF",
+      "direct": false,
+      "license_classifiers": [
+        "License :: OSI Approved :: Python Software Foundation License"
+      ]
+    },
+    {
+      "name": "referencing",
+      "version": "0.37.0",
+      "sha256": "381329a9f99628c9069361716891d34ad94af76e461dcb0335825aecc7692231",
+      "distribution": "referencing-0.37.0-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "MIT",
+      "direct": true,
+      "license_classifiers": []
+    },
+    {
+      "name": "rpds-py",
+      "version": "2026.6.3",
+      "sha256": "0be972be84cfcaf46c8c6edf690ca0f154ac17babf1f6a955a51579b34ad2dc5",
+      "distribution": "rpds_py-2026.6.3-cp314-cp314-win_amd64.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "MIT",
+      "direct": false,
+      "license_classifiers": []
+    },
+    {
+      "name": "sse-starlette",
+      "version": "3.4.11",
+      "sha256": "c7b2244bdff016fe7f64e10075e89a3e6bbf899649cc89b0fe884b5545042453",
+      "distribution": "sse_starlette-3.4.11-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "BSD-3-Clause",
+      "direct": false,
+      "license_classifiers": []
+    },
+    {
+      "name": "starlette",
+      "version": "1.6.0",
+      "sha256": "a86dd39d14bb45f85a3d18525215a9ef0cfd1f192ac793220e72598c90335f0c",
+      "distribution": "starlette-1.6.0-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "BSD-3-Clause",
+      "direct": false,
+      "license_classifiers": []
+    },
+    {
+      "name": "typing-extensions",
+      "version": "4.16.0",
+      "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+      "distribution": "typing_extensions-4.16.0-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "PSF-2.0",
+      "direct": false,
+      "license_classifiers": []
+    },
+    {
+      "name": "typing-inspection",
+      "version": "0.4.4",
+      "sha256": "65b8397ba37ccbce054456aaccddfc91e6e3083c92824df348d96ca832f3f147",
+      "distribution": "typing_inspection-0.4.4-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "MIT",
+      "direct": false,
+      "license_classifiers": []
+    },
+    {
+      "name": "uvicorn",
+      "version": "0.52.4",
+      "sha256": "f86e41a149d7d05a9969337e3946a9c171c06a5d42680896daaba624aeac8da1",
+      "distribution": "uvicorn-0.52.4-py3-none-any.whl",
+      "origin_host": "files.pythonhosted.org",
+      "metadata_license": "BSD-3-Clause",
+      "direct": false,
+      "license_classifiers": []
+    }
+  ],
+  "legal_review_complete": false,
+  "vulnerability_audit_complete": false
+}

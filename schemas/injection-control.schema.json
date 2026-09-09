@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stiller.example/schemas/injection-control.schema.json",
+  "title": "AI-owned automatic injection control",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "scope", "mode", "row_version"],
+  "properties": {
+    "contract_version": {"const": "injection-control/0.1"},
+    "scope": {
+      "enum": [
+        "global",
+        "self_model",
+        "self_governance",
+        "emotional_memory",
+        "learning_memory",
+        "tool_guidance",
+        "planning_memory",
+        "hallucination_vault"
+      ]
+    },
+    "mode": {"enum": ["enabled", "paused", "hard_off", "status_only"]},
+    "row_version": {"type": "integer", "minimum": 0},
+    "active_revision_id": {"type": ["string", "null"], "minLength": 1}
+  }
+}

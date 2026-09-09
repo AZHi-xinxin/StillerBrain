@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:stiller-brain:learning-idea-box:0.2",
+  "title": "Stiller Brain isolated learning idea box",
+  "description": "Physically isolated unverified ideas. These records are exact-query only and never participate in automatic recall, confidence, or merge thresholds.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "text", "trigger_learning_refs", "source_learning_refs", "inference_chain", "uncertainties", "lifecycle"],
+  "properties": {
+    "kind": { "enum": ["idea", "hypothesis"] },
+    "text": { "type": "string", "minLength": 1, "maxLength": 4000 },
+    "trigger_learning_refs": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "type": "string", "pattern": "^learning://.+@[1-9][0-9]*$" } },
+    "source_learning_refs": { "type": "array", "maxItems": 20, "items": { "type": "string", "pattern": "^learning://.+@[1-9][0-9]*$" } },
+    "inference_chain": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 500 } },
+    "uncertainties": { "type": "array", "maxItems": 12, "items": { "type": "string", "minLength": 1, "maxLength": 500 } },
+    "lifecycle": { "enum": ["active", "archived", "promoted"] }
+  },
+  "x-fixed-runtime-label": "【未验证的想法，不是事实】",
+  "x-storage-contract": {
+    "physical_namespace": "separate_sqlite",
+    "automatic_recall": false,
+    "contributes_to_confidence": false,
+    "contributes_to_merge_threshold": false
+  }
+}

@@ -1,0 +1,693 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/memory-foundation/schemas/memory-record.schema.json",
+  "title": "AI-owned Memory Record",
+  "description": "Clean-room specification for one versioned memory record. Retrieval hints create candidates only; recall disclosure is governed separately.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "memory_id",
+    "owner",
+    "memory_space",
+    "memory_type",
+    "created_at",
+    "created_by",
+    "original_event",
+    "source",
+    "event_identity",
+    "evidence",
+    "emotional_snapshot",
+    "current_appraisal",
+    "recall_contract",
+    "sensitivity",
+    "epistemic_status",
+    "index_hints",
+    "version_chain",
+    "lifecycle"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "memory_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent_id", "brain_id", "ownership_mode"],
+      "properties": {
+        "agent_id": { "$ref": "#/$defs/opaqueId" },
+        "brain_id": { "$ref": "#/$defs/opaqueId" },
+        "ownership_mode": { "const": "ai_owned" }
+      }
+    },
+    "memory_space": {
+      "enum": ["normal", "quarantine"]
+    },
+    "memory_type": {
+      "enum": [
+        "episodic",
+        "semantic",
+        "procedural",
+        "self_model",
+        "tool_affordance",
+        "idea",
+        "quarantine"
+      ]
+    },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "created_by": { "$ref": "#/$defs/actor" },
+    "original_event": {
+      "type": "object",
+      "description": "Append-only factual capture. Corrections are new evidence or revisions; these fields are never overwritten.",
+      "readOnly": true,
+      "x-immutable": true,
+      "additionalProperties": false,
+      "required": [
+        "content",
+        "occurred_at",
+        "captured_at",
+        "language",
+        "content_sha256"
+      ],
+      "properties": {
+        "content": { "type": "string", "minLength": 1, "maxLength": 100000 },
+        "occurred_at": { "$ref": "#/$defs/timestamp" },
+        "captured_at": { "$ref": "#/$defs/timestamp" },
+        "language": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 35,
+          "pattern": "^[A-Za-z]{2,3}([_-][A-Za-z0-9]{2,8})*$"
+        },
+        "content_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "source": { "$ref": "#/$defs/source" },
+    "event_identity": { "$ref": "#/$defs/eventIdentity" },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/evidenceItem" }
+    },
+    "emotional_snapshot": { "$ref": "#/$defs/emotionalSnapshot" },
+    "current_appraisal": { "$ref": "#/$defs/currentAppraisal" },
+    "recall_contract": { "$ref": "#/$defs/recallContract" },
+    "sensitivity": { "$ref": "#/$defs/sensitivity" },
+    "epistemic_status": { "$ref": "#/$defs/epistemicStatus" },
+    "index_hints": {
+      "type": "object",
+      "description": "AI-authored retrieval hints. They can nominate a candidate but never authorize disclosure.",
+      "additionalProperties": false,
+      "required": ["authored_by", "topics", "keywords", "entities"],
+      "properties": {
+        "authored_by": { "$ref": "#/$defs/actor" },
+        "topics": { "$ref": "#/$defs/shortStringSet" },
+        "keywords": { "$ref": "#/$defs/shortStringSet" },
+        "entities": { "$ref": "#/$defs/shortStringSet" }
+      }
+    },
+    "version_chain": { "$ref": "#/$defs/versionChain" },
+    "lifecycle": { "$ref": "#/$defs/lifecycle" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "memory_space": { "const": "quarantine" } },
+        "required": ["memory_space"]
+      },
+      "then": {
+        "properties": {
+          "memory_type": { "const": "quarantine" },
+          "lifecycle": {
+            "properties": { "state": { "const": "quarantined" } },
+            "required": ["state"]
+          },
+          "recall_contract": {
+            "properties": {
+              "default_decision": { "const": "defer" },
+              "background_use_allowed": { "const": false },
+              "explicit_request_override": { "const": "ask_first" }
+            },
+            "required": [
+              "default_decision",
+              "background_use_allowed",
+              "explicit_request_override"
+            ]
+          },
+          "epistemic_status": {
+            "properties": {
+              "status": {
+                "enum": ["unverified", "disputed", "hallucination"]
+              }
+            },
+            "required": ["status"]
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "memory_type": { "not": { "const": "quarantine" } },
+          "lifecycle": {
+            "properties": { "state": { "not": { "const": "quarantined" } } }
+          },
+          "epistemic_status": {
+            "properties": {
+              "status": {
+                "enum": ["observed", "reported", "inferred"]
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "opaqueId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]*$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor_type", "actor_id"],
+      "properties": {
+        "actor_type": { "enum": ["human", "ai", "system", "tool"] },
+        "actor_id": { "$ref": "#/$defs/opaqueId" },
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 100 }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "source_type", "originator", "captured_via", "reference"],
+      "properties": {
+        "source_id": { "$ref": "#/$defs/opaqueId" },
+        "source_type": {
+          "enum": [
+            "conversation",
+            "observation",
+            "document",
+            "tool_result",
+            "sensor",
+            "self_reflection",
+            "human_report",
+            "other"
+          ]
+        },
+        "originator": { "$ref": "#/$defs/actor" },
+        "captured_via": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "reference": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "source_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "eventIdentity": {
+      "type": "object",
+      "description": "Explicit duplicate handling. A repeated event is never silently merged or discarded.",
+      "additionalProperties": false,
+      "required": ["event_fingerprint", "duplicate_policy", "related_memory_ids", "rationale"],
+      "properties": {
+        "event_fingerprint": { "$ref": "#/$defs/sha256" },
+        "duplicate_policy": {
+          "enum": ["unique", "coexist", "merge_candidate", "supersedes"]
+        },
+        "related_memory_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/uuid" }
+        },
+        "rationale": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "duplicate_policy": { "const": "unique" } },
+            "required": ["duplicate_policy"]
+          },
+          "then": {
+            "properties": { "related_memory_ids": { "maxItems": 0 } }
+          },
+          "else": {
+            "properties": { "related_memory_ids": { "minItems": 1 } }
+          }
+        }
+      ]
+    },
+    "evidenceItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "kind", "reference", "confidence", "summary"],
+      "properties": {
+        "evidence_id": { "$ref": "#/$defs/opaqueId" },
+        "kind": {
+          "enum": [
+            "raw_event",
+            "source_reference",
+            "corroboration",
+            "contradiction",
+            "derivation"
+          ]
+        },
+        "reference": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "content_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "emotionLabels": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 80 }
+    },
+    "optionalEmotionLabels": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 80 }
+    },
+    "emotionalSnapshot": {
+      "type": "object",
+      "description": "The emotional state captured at formation time; preserved even when later appraisal changes.",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "captured_at",
+        "captured_by",
+        "labels"
+      ],
+      "properties": {
+        "state": { "enum": ["captured", "not_applicable", "unknown"] },
+        "captured_at": { "$ref": "#/$defs/timestamp" },
+        "captured_by": { "$ref": "#/$defs/actor" },
+        "labels": { "$ref": "#/$defs/optionalEmotionLabels" },
+        "valence": { "type": "number", "minimum": -1, "maximum": 1 },
+        "arousal": { "type": "number", "minimum": 0, "maximum": 1 },
+        "intensity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "note": { "type": "string", "maxLength": 2000 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "state": { "const": "captured" } },
+            "required": ["state"]
+          },
+          "then": {
+            "required": ["valence", "arousal", "intensity"],
+            "properties": { "labels": { "minItems": 1 } }
+          },
+          "else": {
+            "required": ["note"],
+            "properties": { "labels": { "maxItems": 0 } },
+            "not": {
+              "anyOf": [
+                { "required": ["valence"] },
+                { "required": ["arousal"] },
+                { "required": ["intensity"] }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "currentAppraisal": {
+      "type": "object",
+      "description": "The present interpretation. It can evolve without replacing the original emotional snapshot.",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "appraised_at",
+        "appraised_by",
+        "summary",
+        "labels",
+        "valence",
+        "arousal",
+        "intensity",
+        "relation_to_initial",
+        "basis_evidence_ids"
+      ],
+      "properties": {
+        "revision": { "type": "integer", "minimum": 1 },
+        "appraised_at": { "$ref": "#/$defs/timestamp" },
+        "appraised_by": { "$ref": "#/$defs/actor" },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "labels": { "$ref": "#/$defs/emotionLabels" },
+        "valence": { "type": "number", "minimum": -1, "maximum": 1 },
+        "arousal": { "type": "number", "minimum": 0, "maximum": 1 },
+        "intensity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "relation_to_initial": {
+          "enum": ["unchanged", "intensified", "softened", "reinterpreted", "mixed"]
+        },
+        "basis_evidence_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/opaqueId" }
+        }
+      }
+    },
+    "gateDecision": {
+      "enum": ["speak", "background_reference", "defer", "ask_first"]
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["condition_id", "signal", "operator", "rationale"],
+      "properties": {
+        "condition_id": { "$ref": "#/$defs/opaqueId" },
+        "signal": {
+          "enum": [
+            "explicit_reference",
+            "semantic_topic",
+            "speech_act",
+            "emotional_tone",
+            "task_type",
+            "relationship_context",
+            "risk_level",
+            "tool_context",
+            "location_state",
+            "time_window",
+            "custom"
+          ]
+        },
+        "operator": {
+          "enum": [
+            "equals",
+            "not_equals",
+            "in",
+            "not_in",
+            "contains",
+            "semantic_match",
+            "gte",
+            "lte",
+            "present",
+            "absent"
+          ]
+        },
+        "value": {
+          "oneOf": [
+            { "type": "string", "maxLength": 1000 },
+            { "type": "number" },
+            { "type": "boolean" },
+            {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 50,
+              "items": {
+                "oneOf": [
+                  { "type": "string", "maxLength": 500 },
+                  { "type": "number" },
+                  { "type": "boolean" }
+                ]
+              }
+            }
+          ]
+        },
+        "threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "custom_key": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "rationale": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "signal": { "const": "custom" } },
+            "required": ["signal"]
+          },
+          "then": { "required": ["custom_key"] }
+        },
+        {
+          "if": {
+            "properties": { "operator": { "enum": ["present", "absent"] } },
+            "required": ["operator"]
+          },
+          "then": { "not": { "required": ["value"] } },
+          "else": { "required": ["value"] }
+        },
+        {
+          "if": {
+            "properties": { "operator": { "const": "semantic_match" } },
+            "required": ["operator"]
+          },
+          "then": { "required": ["threshold"] }
+        }
+      ]
+    },
+    "recallContract": {
+      "type": "object",
+      "description": "AI-authored contextual recall policy. It is authoritative; index hints are not.",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "authored_at",
+        "authored_by",
+        "purpose",
+        "default_decision",
+        "allow_when",
+        "deny_when",
+        "explicit_request_override",
+        "disclosure",
+        "background_use_allowed",
+        "rationale"
+      ],
+      "properties": {
+        "contract_version": { "type": "integer", "minimum": 1 },
+        "authored_at": { "$ref": "#/$defs/timestamp" },
+        "authored_by": { "$ref": "#/$defs/actor" },
+        "purpose": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "default_decision": {
+          "enum": ["background_reference", "defer", "ask_first"],
+          "description": "A memory can only be spoken after an allow condition matches; default disclosure is never speak."
+        },
+        "allow_when": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/condition" }
+        },
+        "deny_when": {
+          "type": "array",
+          "description": "An empty list means there are no explicit deny clauses; unmatched contexts still use the safe default decision.",
+          "items": { "$ref": "#/$defs/condition" }
+        },
+        "explicit_request_override": {
+          "enum": ["never", "ask_first", "allow_after_confirmation"]
+        },
+        "disclosure": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "max_chars"],
+          "properties": {
+            "mode": { "enum": ["summary_only", "bounded_excerpt", "full_if_explicit"] },
+            "max_chars": { "type": "integer", "minimum": 0, "maximum": 100000 }
+          }
+        },
+        "background_use_allowed": { "type": "boolean" },
+        "rationale": { "type": "string", "minLength": 1, "maxLength": 4000 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "deny_when": { "maxItems": 0 } },
+            "required": ["deny_when"]
+          },
+          "then": {
+            "properties": { "default_decision": { "const": "defer" } }
+          }
+        }
+      ]
+    },
+    "sensitivity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "level",
+        "categories",
+        "contains_credentials",
+        "minimum_disclosure",
+        "requires_confirmation",
+        "rationale"
+      ],
+      "properties": {
+        "level": { "enum": ["public", "internal", "private", "intimate", "restricted"] },
+        "categories": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "health",
+              "location",
+              "identity",
+              "credentials",
+              "relationship",
+              "finance",
+              "legal",
+              "sexual",
+              "trauma",
+              "private_memory",
+              "other"
+            ]
+          }
+        },
+        "contains_credentials": {
+          "const": false,
+          "description": "Credential-bearing content must be rejected before it becomes a memory record."
+        },
+        "minimum_disclosure": { "enum": ["background_only", "summary", "excerpt", "full_explicit"] },
+        "requires_confirmation": { "type": "boolean" },
+        "rationale": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      }
+    },
+    "epistemicStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "confidence", "assessed_at", "assessed_by", "basis_evidence_ids"],
+      "properties": {
+        "status": {
+          "enum": ["observed", "reported", "inferred", "disputed", "unverified", "hallucination"]
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "assessed_at": { "$ref": "#/$defs/timestamp" },
+        "assessed_by": { "$ref": "#/$defs/actor" },
+        "basis_evidence_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/opaqueId" }
+        }
+      }
+    },
+    "shortStringSet": {
+      "type": "array",
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+    },
+    "revision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "previous_version",
+        "changed_at",
+        "changed_by",
+        "reason",
+        "change_kind",
+        "changed_paths",
+        "snapshot_hash"
+      ],
+      "properties": {
+        "version": { "type": "integer", "minimum": 1 },
+        "previous_version": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "integer", "minimum": 1 }
+          ]
+        },
+        "changed_at": { "$ref": "#/$defs/timestamp" },
+        "changed_by": { "$ref": "#/$defs/actor" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "change_kind": {
+          "enum": [
+            "create",
+            "appraisal_update",
+            "recall_contract_update",
+            "self_model_update",
+            "correction_note",
+            "lifecycle_update"
+          ]
+        },
+        "changed_paths": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "^/.+"
+          }
+        },
+        "snapshot_hash": { "$ref": "#/$defs/sha256" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "version": { "const": 1 } },
+            "required": ["version"]
+          },
+          "then": {
+            "properties": {
+              "previous_version": { "type": "null" },
+              "change_kind": { "const": "create" }
+            }
+          },
+          "else": {
+            "properties": {
+              "previous_version": { "type": "integer", "minimum": 1 },
+              "change_kind": { "not": { "const": "create" } },
+              "changed_paths": {
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500,
+                  "pattern": "^/(?!original_event(?:/|$)).+"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "versionChain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current_version", "current_hash", "revisions"],
+      "properties": {
+        "current_version": { "type": "integer", "minimum": 1 },
+        "current_hash": { "$ref": "#/$defs/sha256" },
+        "revisions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/revision" }
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "retention_policy"],
+      "properties": {
+        "state": { "enum": ["active", "dormant", "superseded", "quarantined"] },
+        "retention_policy": {
+          "enum": ["keep", "compact_detail_keep_summary", "owner_review"]
+        },
+        "last_reviewed_at": { "$ref": "#/$defs/timestamp" },
+        "superseded_by": { "$ref": "#/$defs/uuid" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "state": { "const": "superseded" } },
+            "required": ["state"]
+          },
+          "then": { "required": ["superseded_by"] }
+        }
+      ]
+    }
+  }
+}

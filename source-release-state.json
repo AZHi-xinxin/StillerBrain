@@ -1,0 +1,29 @@
+{
+  "format": "stiller-source-release-state/1",
+  "version": "0.1.0-preview.1",
+  "distribution": "source-available-development-preview",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "license_official_sha256": "ffcca38841adb694b6f380647e15f17c446a4d1656fed51a1e2041d064c94cc8",
+  "reviewed_frozen_source_files": 120,
+  "core_tests": {"runtime": 406, "mcp": 178, "gateway": 275},
+  "packaging_tests": 22,
+  "final_regressions_verified": true,
+  "source_tree_review_complete": true,
+  "integrity_check": "python -B scripts/check_source_package.py",
+  "integrity_manifest": "SOURCE-PACKAGE-MANIFEST.json",
+  "test_platform": "Windows x86_64 / CPython 3.14.6",
+  "public_starter_smoke": {
+    "passed": true,
+    "components": 3,
+    "tool_catalog_count": 43,
+    "model_requests": 0,
+    "data": "temporary synthetic databases only",
+    "owned_processes_stopped": true,
+    "temporary_state_removed": true
+  },
+  "archive_contains_git_history": false,
+  "github_uploaded_by_agent": false,
+  "production_readiness_certified": false,
+  "real_client_cache_savings_verified": false,
+  "production_gate": "python -B scripts/check_release.py"
+}

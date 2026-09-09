@@ -1,0 +1,496 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/memory-foundation/schemas/gate-decision.schema.json",
+  "title": "Contextual Memory Gate Decision",
+  "description": "Auditable decision for one candidate memory: disclose, use silently as background, defer, or ask first.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "decision_id",
+    "evaluated_at",
+    "gate",
+    "situation_frame",
+    "candidate",
+    "contract_checks",
+    "resolution",
+    "decision",
+    "reason_codes",
+    "rationale",
+    "evidence",
+    "confidence",
+    "payload",
+    "audit"
+  ],
+  "properties": {
+    "schema_version": { "const": "0.1.0" },
+    "decision_id": { "$ref": "#/$defs/uuid" },
+    "evaluated_at": { "$ref": "#/$defs/timestamp" },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate_id", "version", "implementation", "deterministic", "latency_ms"],
+      "properties": {
+        "gate_id": { "$ref": "#/$defs/opaqueId" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "implementation": { "enum": ["rules", "llm", "hybrid"] },
+        "deterministic": { "type": "boolean" },
+        "latency_ms": { "type": "integer", "minimum": 0, "maximum": 600000 }
+      }
+    },
+    "situation_frame": { "$ref": "#/$defs/situationFrame" },
+    "candidate": {
+      "description": "One candidate memory, or null when retrieval produced no candidate. Batches emit one record per candidate.",
+      "oneOf": [
+        { "$ref": "#/$defs/candidate" },
+        { "type": "null" }
+      ]
+    },
+    "contract_checks": {
+      "type": "array",
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/contractCheck" }
+    },
+    "resolution": { "$ref": "#/$defs/resolution" },
+    "decision": { "$ref": "#/$defs/decision" },
+    "reason_codes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/reasonCode" }
+    },
+    "rationale": { "type": "string", "minLength": 1, "maxLength": 4000 },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/decisionEvidence" }
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "payload": {
+      "oneOf": [
+        { "$ref": "#/$defs/speakPayload" },
+        { "$ref": "#/$defs/backgroundPayload" },
+        { "$ref": "#/$defs/deferPayload" },
+        { "$ref": "#/$defs/askFirstPayload" }
+      ]
+    },
+    "audit": { "$ref": "#/$defs/audit" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "decision": { "const": "speak" } },
+        "required": ["decision"]
+      },
+      "then": {
+        "properties": { "payload": { "$ref": "#/$defs/speakPayload" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "decision": { "const": "background_reference" } },
+        "required": ["decision"]
+      },
+      "then": {
+        "properties": { "payload": { "$ref": "#/$defs/backgroundPayload" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "decision": { "const": "defer" } },
+        "required": ["decision"]
+      },
+      "then": {
+        "properties": { "payload": { "$ref": "#/$defs/deferPayload" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "decision": { "const": "ask_first" } },
+        "required": ["decision"]
+      },
+      "then": {
+        "properties": { "payload": { "$ref": "#/$defs/askFirstPayload" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "candidate": { "type": "null" } },
+        "required": ["candidate"]
+      },
+      "then": {
+        "properties": {
+          "decision": { "const": "defer" },
+          "reason_codes": { "contains": { "const": "no_candidate" } },
+          "contract_checks": { "maxItems": 0 },
+          "resolution": {
+            "properties": { "applied_rule": { "const": "no_candidate" } },
+            "required": ["applied_rule"]
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "reason_codes": { "not": { "contains": { "const": "no_candidate" } } },
+          "contract_checks": { "minItems": 1 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "candidate": {
+            "type": "object",
+            "properties": { "memory_space": { "const": "quarantine" } },
+            "required": ["memory_space"]
+          }
+        },
+        "required": ["candidate"]
+      },
+      "then": {
+        "properties": {
+          "decision": { "enum": ["defer", "ask_first"] },
+          "reason_codes": {
+            "contains": { "const": "quarantine_isolation" }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "opaqueId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]*$"
+    },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "decision": {
+      "enum": ["speak", "background_reference", "defer", "ask_first"]
+    },
+    "reasonCode": {
+      "enum": [
+        "explicit_reference",
+        "contract_allow_match",
+        "contract_deny_match",
+        "semantic_relevance",
+        "emotional_compatibility",
+        "context_mismatch",
+        "current_task_conflict",
+        "sensitive_without_confirmation",
+        "low_confidence",
+        "contradiction_present",
+        "quarantine_isolation",
+        "insufficient_context",
+        "duplicate_or_redundant",
+        "safety_boundary",
+        "no_candidate",
+        "custom"
+      ]
+    },
+    "signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signal_id", "type", "value", "confidence"],
+      "properties": {
+        "signal_id": { "$ref": "#/$defs/opaqueId" },
+        "type": {
+          "enum": [
+            "explicit_reference",
+            "semantic_topic",
+            "speech_act",
+            "emotional_tone",
+            "task_type",
+            "relationship_context",
+            "risk_level",
+            "tool_context",
+            "location_state",
+            "time_window",
+            "custom"
+          ]
+        },
+        "value": {
+          "oneOf": [
+            { "type": "string", "maxLength": 1000 },
+            { "type": "number" },
+            { "type": "boolean" },
+            {
+              "type": "array",
+              "maxItems": 50,
+              "items": {
+                "oneOf": [
+                  { "type": "string", "maxLength": 500 },
+                  { "type": "number" },
+                  { "type": "boolean" }
+                ]
+              }
+            }
+          ]
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "situationFrame": {
+      "type": "object",
+      "description": "A compact, privacy-bounded description of the current situation; not a raw conversation dump.",
+      "additionalProperties": false,
+      "required": [
+        "frame_id",
+        "conversation_id",
+        "turn_id",
+        "created_at",
+        "context_digest",
+        "topics",
+        "speech_act",
+        "emotional_tone",
+        "task_type",
+        "risk_level",
+        "explicit_memory_request",
+        "participant_ids",
+        "signals"
+      ],
+      "properties": {
+        "frame_id": { "$ref": "#/$defs/opaqueId" },
+        "conversation_id": { "$ref": "#/$defs/opaqueId" },
+        "turn_id": { "$ref": "#/$defs/opaqueId" },
+        "created_at": { "$ref": "#/$defs/timestamp" },
+        "context_digest": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "topics": {
+          "type": "array",
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        },
+        "speech_act": {
+          "enum": [
+            "statement",
+            "question",
+            "joke",
+            "request",
+            "reflection",
+            "roleplay",
+            "tool_request",
+            "crisis",
+            "other"
+          ]
+        },
+        "emotional_tone": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 80 }
+        },
+        "task_type": {
+          "enum": ["social", "technical", "creative", "planning", "health", "safety", "tool_use", "other"]
+        },
+        "risk_level": { "enum": ["low", "medium", "high", "critical"] },
+        "explicit_memory_request": { "type": "boolean" },
+        "participant_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/opaqueId" }
+        },
+        "signals": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/signal" }
+        }
+      }
+    },
+    "retrieval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rank", "retrievers"],
+      "properties": {
+        "rank": { "type": "integer", "minimum": 1 },
+        "retrievers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["bm25", "vector", "time", "importance", "manual", "other"] }
+        },
+        "scores": {
+          "type": "object",
+          "maxProperties": 30,
+          "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "memory_id",
+        "memory_version",
+        "memory_space",
+        "memory_type",
+        "contract_version",
+        "contract_hash",
+        "retrieval"
+      ],
+      "properties": {
+        "memory_id": { "$ref": "#/$defs/uuid" },
+        "memory_version": { "type": "integer", "minimum": 1 },
+        "memory_space": { "enum": ["normal", "quarantine"] },
+        "memory_type": {
+          "enum": [
+            "episodic",
+            "semantic",
+            "procedural",
+            "self_model",
+            "tool_affordance",
+            "idea",
+            "quarantine"
+          ]
+        },
+        "contract_version": { "type": "integer", "minimum": 1 },
+        "contract_hash": { "$ref": "#/$defs/sha256" },
+        "retrieval": { "$ref": "#/$defs/retrieval" }
+      }
+    },
+    "contractCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clause_id", "clause_type", "matched", "signal_refs", "explanation"],
+      "properties": {
+        "clause_id": { "$ref": "#/$defs/opaqueId" },
+        "clause_type": { "enum": ["allow", "deny", "default", "sensitivity", "quarantine"] },
+        "matched": { "type": "boolean" },
+        "signal_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/opaqueId" }
+        },
+        "explanation": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      }
+    },
+    "resolution": {
+      "type": "object",
+      "description": "Conflict resolution is explicit and auditable: quarantine/deny constraints win before allow clauses, which win before the default.",
+      "additionalProperties": false,
+      "required": ["priority_order", "applied_rule", "conflicting_clause_ids", "explanation"],
+      "properties": {
+        "priority_order": {
+          "const": ["quarantine", "deny", "sensitivity", "allow", "default"]
+        },
+        "applied_rule": {
+          "enum": ["quarantine", "deny", "sensitivity", "allow", "default", "no_candidate"]
+        },
+        "conflicting_clause_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/opaqueId" }
+        },
+        "explanation": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      }
+    },
+    "decisionEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_type", "reference", "supports", "weight", "explanation"],
+      "properties": {
+        "evidence_type": {
+          "enum": [
+            "contract_clause",
+            "situation_signal",
+            "source_evidence",
+            "epistemic_status",
+            "sensitivity_rule",
+            "quarantine_rule"
+          ]
+        },
+        "reference": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "supports": { "$ref": "#/$defs/decision" },
+        "weight": { "type": "number", "minimum": -1, "maximum": 1 },
+        "explanation": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      }
+    },
+    "speakPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "injection_mode", "max_chars", "include_source_citations"],
+      "properties": {
+        "kind": { "const": "speak" },
+        "injection_mode": { "enum": ["summary", "bounded_excerpt", "full"] },
+        "max_chars": { "type": "integer", "minimum": 1, "maximum": 100000 },
+        "include_source_citations": { "type": "boolean" },
+        "caveat": { "type": "string", "maxLength": 1000 }
+      }
+    },
+    "backgroundPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "permitted_uses", "prohibit_disclosure", "summary"],
+      "properties": {
+        "kind": { "const": "background_reference" },
+        "permitted_uses": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["decision_support", "tone_adjustment", "tool_selection", "context_only"] }
+        },
+        "prohibit_disclosure": { "const": true },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      }
+    },
+    "deferPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "retry_condition"],
+      "properties": {
+        "kind": { "const": "defer" },
+        "retry_condition": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "expires_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "askFirstPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "question",
+        "requested_scope",
+        "reason",
+        "timeout_seconds",
+        "on_timeout"
+      ],
+      "properties": {
+        "kind": { "const": "ask_first" },
+        "question": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "requested_scope": { "enum": ["summary", "excerpt", "full"] },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 604800 },
+        "on_timeout": { "enum": ["defer", "background_reference"] }
+      }
+    },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trace_id",
+        "input_hash",
+        "output_hash",
+        "policy_version",
+        "evaluator_id",
+        "reviewer_status",
+        "warnings"
+      ],
+      "properties": {
+        "trace_id": { "$ref": "#/$defs/opaqueId" },
+        "input_hash": { "$ref": "#/$defs/sha256" },
+        "output_hash": { "$ref": "#/$defs/sha256" },
+        "policy_version": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "evaluator_id": { "$ref": "#/$defs/opaqueId" },
+        "reviewer_status": { "enum": ["unreviewed", "accepted", "contested"] },
+        "warnings": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        }
+      }
+    }
+  }
+}

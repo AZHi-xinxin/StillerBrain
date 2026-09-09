@@ -1,0 +1,248 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:stiller-brain:planning-memory:0.1",
+  "title": "Stiller Brain module-five planning memory",
+  "description": "AI-authored plan graph, append-only event ledger, later-wake change candidate, and summary-only recall envelope.",
+  "oneOf": [
+    {"$ref": "#/$defs/plan_content"},
+    {"$ref": "#/$defs/planning_event"},
+    {"$ref": "#/$defs/change_candidate"},
+    {"$ref": "#/$defs/recall_envelope"}
+  ],
+  "$defs": {
+    "plan_ref": {
+      "type": "string",
+      "pattern": "^plan://plan_[0-9a-f]{32}@[1-9][0-9]*$",
+      "maxLength": 96
+    },
+    "short_list": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 160}
+    },
+    "plan_content": {
+      "oneOf": [
+        {"$ref": "#/$defs/legacy_plan_content"},
+        {"$ref": "#/$defs/ordinary_plan_content"}
+      ]
+    },
+    "ordinary_plan_content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind", "track", "title", "original_text", "summary", "reminder",
+        "importance", "presence_mode", "scene_tags", "keywords", "start_at",
+        "due_at", "timezone", "review_after", "allow_coordination_hint",
+        "parent_ref", "dependency_refs", "write_mode"
+      ],
+      "properties": {
+        "kind": {"enum": ["vision", "goal", "milestone", "task", "commitment"]},
+        "track": {"enum": ["internal", "relational"]},
+        "title": {"type": "string", "minLength": 1, "maxLength": 120},
+        "original_text": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 200},
+        "reminder": {"type": "string", "maxLength": 50},
+        "importance": {"type": "integer", "minimum": 0, "maximum": 100},
+        "presence_mode": {"enum": ["relevant", "session_start", "persistent"]},
+        "scene_tags": {"$ref": "#/$defs/short_list"},
+        "keywords": {"$ref": "#/$defs/short_list"},
+        "start_at": {"type": ["string", "null"], "format": "date-time"},
+        "due_at": {"type": ["string", "null"], "format": "date-time"},
+        "timezone": {"type": "string", "minLength": 1, "maxLength": 80},
+        "review_after": {"type": ["string", "null"], "format": "date-time"},
+        "allow_coordination_hint": {"type": "boolean"},
+        "parent_ref": {"oneOf": [{"$ref": "#/$defs/plan_ref"}, {"type": "null"}]},
+        "dependency_refs": {"type": "array", "maxItems": 8, "uniqueItems": true, "items": {"$ref": "#/$defs/plan_ref"}},
+        "write_mode": {"const": "ordinary_record"}
+      }
+    },
+    "legacy_plan_content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind", "track", "title", "original_text", "summary", "reminder",
+        "importance", "presence_mode", "scene_tags", "keywords", "start_at",
+        "due_at", "timezone", "review_after", "allow_coordination_hint",
+        "parent_ref", "dependency_refs", "ai_adoption_statement"
+      ],
+      "properties": {
+        "kind": {"enum": ["vision", "goal", "milestone", "task", "commitment"]},
+        "track": {"enum": ["internal", "relational"]},
+        "title": {"type": "string", "minLength": 1, "maxLength": 120},
+        "original_text": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 200},
+        "reminder": {"type": "string", "maxLength": 50},
+        "importance": {"type": "integer", "minimum": 0, "maximum": 100},
+        "presence_mode": {"enum": ["relevant", "session_start", "persistent"]},
+        "scene_tags": {"$ref": "#/$defs/short_list"},
+        "keywords": {"$ref": "#/$defs/short_list"},
+        "start_at": {"type": ["string", "null"], "format": "date-time"},
+        "due_at": {"type": ["string", "null"], "format": "date-time"},
+        "timezone": {"type": "string", "minLength": 1, "maxLength": 80},
+        "review_after": {"type": ["string", "null"], "format": "date-time"},
+        "allow_coordination_hint": {"type": "boolean"},
+        "parent_ref": {"oneOf": [{"$ref": "#/$defs/plan_ref"}, {"type": "null"}]},
+        "dependency_refs": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/plan_ref"}
+        },
+        "ai_adoption_statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "The current AI's own statement that it chooses to adopt this plan; a human request alone is insufficient."
+        }
+      }
+    },
+    "evidence_anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_kind", "source_ref", "evidence_summary", "provenance"],
+      "properties": {
+        "source_kind": {
+          "enum": ["current_conversation", "tool_result", "document", "human_report", "ai_observation", "cross_module_ref"]
+        },
+        "source_ref": {"type": "string", "minLength": 1, "maxLength": 500},
+        "evidence_summary": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "provenance": {"enum": ["verified", "registered", "reported", "claimed"]}
+      }
+    },
+    "planning_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id", "plan_id", "event_type", "reason", "evidence",
+        "wake_seq", "created_at"
+      ],
+      "properties": {
+        "event_id": {"type": "string", "pattern": "^planevt_[0-9a-f]{32}$"},
+        "plan_id": {"type": "string", "pattern": "^plan_[0-9a-f]{32}$"},
+        "event_type": {
+          "enum": [
+            "created", "revised", "progress", "complete", "pause", "resume",
+            "reopen", "defer_review", "abandon", "archive", "revive", "content_rollback"
+          ]
+        },
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "evidence": {"type": "array", "maxItems": 16, "items": {"$ref": "#/$defs/evidence_anchor"}},
+        "wake_seq": {"type": "integer", "minimum": 0},
+        "created_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "calm_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authorship_confirmed", "current_state_checked", "dependencies_checked",
+        "consequences_reviewed", "rollback_understood", "notes"
+      ],
+      "properties": {
+        "authorship_confirmed": {"const": true},
+        "current_state_checked": {"const": true},
+        "dependencies_checked": {"const": true},
+        "consequences_reviewed": {"const": true},
+        "rollback_understood": {"const": true},
+        "notes": {"type": "string", "minLength": 1, "maxLength": 1000}
+      }
+    },
+    "change_candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_id", "candidate_hash", "candidate_version", "intent",
+        "plan_id", "base_version", "proposed_content", "canonical_diff",
+        "reason", "calm_check", "status", "submitted_wake_seq"
+      ],
+      "properties": {
+        "candidate_id": {"type": "string", "pattern": "^plancand_[0-9a-f]{32}$"},
+        "candidate_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "candidate_version": {"type": "integer", "minimum": 1},
+        "intent": {"enum": ["create", "revise", "abandon", "archive", "revive", "rollback"]},
+        "plan_id": {"type": "string", "pattern": "^plan_[0-9a-f]{32}$"},
+        "base_version": {"type": "integer", "minimum": 0},
+        "proposed_content": {"$ref": "#/$defs/plan_content"},
+        "canonical_diff": {"type": "object"},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "calm_check": {"$ref": "#/$defs/calm_check"},
+        "status": {"enum": ["pending", "accepted", "rejected", "withdrawn", "stale"]},
+        "submitted_wake_seq": {"type": "integer", "minimum": 0}
+      }
+    },
+    "recall_envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "envelope_version", "module", "item_ref", "kind", "semantic_score",
+        "temporal_score", "importance_score", "state", "presentation",
+        "content", "detail_lookup", "frame"
+      ],
+      "properties": {
+        "envelope_version": {"const": "planning-recall-envelope/0.1"},
+        "module": {"const": "planning_memory_module_five"},
+        "item_ref": {"$ref": "#/$defs/plan_ref"},
+        "kind": {"enum": ["vision", "goal", "milestone", "task", "commitment"]},
+        "semantic_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "temporal_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "importance_score": {"type": "number", "minimum": 0, "maximum": 1},
+        "state": {"enum": ["active", "paused"]},
+        "presentation": {"const": "summary_only"},
+        "content": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["summary", "due_hint", "progress_hint"],
+          "properties": {
+            "summary": {"type": "string", "maxLength": 200},
+            "due_hint": {"type": ["string", "null"], "maxLength": 120},
+            "progress_hint": {"type": ["string", "null"], "maxLength": 200}
+          }
+        },
+        "detail_lookup": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["available", "tool", "ref"],
+          "properties": {
+            "available": {"const": true},
+            "tool": {"const": "recall_planning_memory"},
+            "ref": {"$ref": "#/$defs/plan_ref"}
+          }
+        },
+        "frame": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["instruction_authority", "permission_authority", "optional", "mutates_plan"],
+          "properties": {
+            "instruction_authority": {"const": "none"},
+            "permission_authority": {"const": "none"},
+            "optional": {"const": true},
+            "mutates_plan": {"const": false}
+          }
+        }
+      }
+    }
+  },
+  "x-invariants": {
+    "authorship": "ai_self",
+    "human_request_is_not_adoption": true,
+    "graph_acyclic": true,
+    "state_is_event_fold": true,
+    "events_append_only": true,
+    "original_versions_immutable": true,
+    "ordinary_creation": "direct_active_record_without_adoption_or_review_claim",
+    "advanced_create_change_abandon_require_later_wake_review": true,
+    "progress_and_completion_require_evidence": true,
+    "review_after_never_auto_abandons": true,
+    "next_action_is_advisory_and_read_only": true,
+    "automatic_projection": "summary_only",
+    "credentials_rejected_before_storage": true,
+    "owner_model_isolation": true
+  },
+  "x-injection-limits": {
+    "top_internal_items": 1,
+    "total_items": 3,
+    "persistent_slots": 2,
+    "shared_dynamic_budget_is_owned_by_onboarding": true
+  }
+}

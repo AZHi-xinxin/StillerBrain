@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:stiller-brain:self-governance-profile:0.1.0",
+  "title": "AI-authored scoped self-governance content",
+  "description": "Optional natural-language self-governance content authored and activated by the current AI. This schema defines shape, not values or external permissions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "text",
+    "trigger_mode",
+    "scene_tags"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "text": {
+      "description": "The current AI's own first-person governance text. No developer-authored value content is supplied as a default.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "pattern": "^\\s*(?:我|I(?:\\s|['’])|My(?:\\s|$))"
+    },
+    "trigger_mode": {
+      "description": "AI-selected visibility preference. It does not grant external permissions.",
+      "enum": [
+        "manual_only",
+        "scene_relevant"
+      ]
+    },
+    "scene_tags": {
+      "description": "AI-authored scene cues. scene_relevant requires at least one tag; manual_only may use an empty array.",
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80
+      }
+    }
+  },
+  "x-stiller-brain": {
+    "contract": "self-governance/0.1",
+    "allowed_scopes": [
+      "global",
+      "self_revision",
+      "emotional_memory",
+      "learning_memory",
+      "tool_use"
+    ],
+    "optional": true,
+    "may_leave_all_scopes_empty": true,
+    "authorship": "ai_self",
+    "candidate_and_active_isolation": true,
+    "later_real_wake_required_for_activation": true,
+    "external_permission_authority": "none",
+    "developer_value_defaults": false
+  }
+}

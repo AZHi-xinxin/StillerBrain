@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/stiller-brain/schemas/self-revision-gate-decision.schema.json",
+  "title": "SelfRevisionGate Decision",
+  "description": "A deterministic transition decision for an AI-authored self-model candidate. Its seven decisions are intentionally separate from the recall Gatekeeper speak/defer interface; a human objection keeps the candidate pending rather than introducing recall-style defer semantics.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decision",
+    "reason_codes",
+    "next_checkpoint_required",
+    "audit_event_id",
+    "active_pointer_changed",
+    "candidate_id",
+    "revision_id",
+    "active_revision_id",
+    "length_metrics",
+    "safety_prompt"
+  ],
+  "properties": {
+    "decision": {
+      "enum": ["draft_only", "pending", "revise", "activate", "withdraw", "reject", "rollback"]
+    },
+    "reason_codes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 120 }
+    },
+    "next_checkpoint_required": { "type": "boolean" },
+    "audit_event_id": { "type": ["string", "null"] },
+    "active_pointer_changed": { "type": "boolean" },
+    "candidate_id": { "type": ["string", "null"] },
+    "revision_id": { "type": ["string", "null"] },
+    "active_revision_id": { "type": ["string", "null"] },
+    "length_metrics": { "type": "object" },
+    "safety_prompt": { "type": ["string", "null"] }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "decision": { "const": "activate" } }, "required": ["decision"] },
+      "then": {
+        "properties": {
+          "active_pointer_changed": { "const": true },
+          "candidate_id": { "type": "string" },
+          "revision_id": { "type": "string" },
+          "active_revision_id": { "type": "string" },
+          "next_checkpoint_required": { "const": false }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "decision": { "const": "rollback" } }, "required": ["decision"] },
+      "then": {
+        "properties": {
+          "active_pointer_changed": { "const": true },
+          "active_revision_id": { "type": "string" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "decision": { "enum": ["draft_only", "pending", "revise", "withdraw", "reject"] } }, "required": ["decision"] },
+      "then": { "properties": { "active_pointer_changed": { "const": false } } }
+    }
+  ]
+}

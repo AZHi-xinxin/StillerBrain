@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/stiller-brain/schemas/self-revision-event.schema.json",
+  "title": "Append-only Self Revision Event",
+  "description": "One immutable audit event for candidate creation, review, activation, objection, injection or rollback.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "model_id",
+    "candidate_id",
+    "revision_id",
+    "event_type",
+    "checkpoint_id",
+    "actor",
+    "decision",
+    "reason_codes",
+    "details",
+    "created_at"
+  ],
+  "properties": {
+    "event_id": { "type": "string", "pattern": "^evt_[a-f0-9]{32}$" },
+    "model_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "candidate_id": { "type": ["string", "null"] },
+    "revision_id": { "type": ["string", "null"] },
+    "event_type": {
+      "enum": [
+        "candidate_rejected_pre_storage",
+        "candidate_pending",
+        "candidate_draft_only",
+        "candidate_rechecked_pending",
+        "candidate_recheck_blocked",
+        "candidate_activation_blocked",
+        "candidate_withdraw_blocked",
+        "candidate_activated",
+        "candidate_withdrawn",
+        "candidate_rejected",
+        "human_objection_recorded",
+        "human_objection_resolved",
+        "emergency_rollback",
+        "rollback_blocked",
+        "identity_injected"
+      ]
+    },
+    "checkpoint_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "actor": { "enum": ["ai", "human", "system"] },
+    "decision": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "reason_codes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 120 }
+    },
+    "details": { "type": "object" },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

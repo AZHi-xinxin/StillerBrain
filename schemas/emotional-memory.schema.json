@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:stiller-brain:emotional-memory:0.2.0",
+  "title": "AI-authored Emotional Memory",
+  "description": "A module-two memory whose original event is immutable and whose interpretation is append-only versioned.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "memory_type",
+    "original_text",
+    "summary",
+    "primary_emotion",
+    "origin",
+    "confidence",
+    "sensitivity",
+    "context_policy"
+  ],
+  "properties": {
+    "memory_type": {
+      "enum": ["shared_event", "feeling", "relationship", "meaningful_dialogue", "emotional_reflection", "integration"]
+    },
+    "original_text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "AI-authored narration. The AI may choose first, second, third, or another grammatical-person style; grammar alone never determines authorship."
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "AI-authored summary in the grammatical-person style selected by the AI."
+    },
+    "primary_emotion": {
+      "enum": ["joy", "affection", "trust", "gratitude", "longing", "relief", "pride", "hope", "sadness", "fear", "anger", "hurt", "disappointment", "shame", "guilt", "loneliness", "tenderness", "concern", "surprise", "calm", "mixed", "other"]
+    },
+    "secondary_emotions": {
+      "type": "array",
+      "maxItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/emotion"}
+    },
+    "importance": {"type": "integer", "minimum": 0, "maximum": 100, "default": 50},
+    "origin": {
+      "enum": ["firsthand", "reported", "inferred"],
+      "description": "firsthand is only this AI instance's direct current experience; human/OB/legacy or prior-instance material is reported; interpretations and unobserved claims are inferred. Split mixed claims."
+    },
+    "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+    "sensitivity": {"enum": ["public", "internal", "private", "intimate", "restricted"]},
+    "context_policy": {"enum": ["normal", "neutral_hint", "ask_first", "never_auto"]},
+    "keywords": {"$ref": "#/$defs/hints"},
+    "entities": {"$ref": "#/$defs/hints"},
+    "referent_bindings": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {"$ref": "#/$defs/referentBinding"},
+      "description": "Optional referent metadata. unresolved and ambiguous are valid non-blocking states and do not change memory confidence, ranking, or recall eligibility."
+    },
+    "recall_mode": {"enum": ["normal", "summary_only", "never"], "default": "normal"},
+    "allow_contexts": {"$ref": "#/$defs/contexts"},
+    "deny_contexts": {"$ref": "#/$defs/contexts"},
+    "default_decision": {"enum": ["background_reference", "defer", "ask_first"], "default": "background_reference"},
+    "explicit_request_override": {"enum": ["never", "ask_first", "allow_after_confirmation"], "default": "allow_after_confirmation"},
+    "disclosure": {"enum": ["summary_only", "bounded_excerpt", "full_if_explicit"], "default": "bounded_excerpt"}
+  },
+  "$defs": {
+    "emotion": {
+      "enum": ["joy", "affection", "trust", "gratitude", "longing", "relief", "pride", "hope", "sadness", "fear", "anger", "hurt", "disappointment", "shame", "guilt", "loneliness", "tenderness", "concern", "surprise", "calm", "mixed", "other"]
+    },
+    "hints": {
+      "type": "array",
+      "maxItems": 24,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 200}
+    },
+    "contexts": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 300}
+    },
+    "referentBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field_path",
+        "surface_form",
+        "occurrence_index",
+        "resolution_status",
+        "confidence"
+      ],
+      "properties": {
+        "field_path": {"enum": ["/original_text", "/summary"]},
+        "surface_form": {"type": "string", "minLength": 1, "maxLength": 200},
+        "occurrence_index": {"type": "integer", "minimum": 0},
+        "entity_ref": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "resolution_status": {"enum": ["resolved", "unresolved", "ambiguous"]},
+        "confidence": {"type": "integer", "minimum": 0, "maximum": 100}
+      }
+    }
+  },
+  "x-invariants": {
+    "original_text_immutable": true,
+    "interpretation_append_only": true,
+    "credentials_rejected_before_storage": true,
+    "automatic_sensitive_original_disclosure": false,
+    "narrative_voice": "ai_selected_first_second_or_third_person",
+    "referent_bindings_optional": true,
+    "referent_unresolved_non_blocking": true,
+    "rewrite_assist_default": false,
+    "rewrite_assist_persisted_as_memory_preference": false,
+    "automatic_injection_framed_as_evidence_not_instruction": true,
+    "model_asserted_emergency_never_expands_disclosure": true
+  }
+}

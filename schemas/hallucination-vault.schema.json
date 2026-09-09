@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stiller-brain.local/schemas/hallucination-vault.schema.json",
+  "title": "Hallucination Vault Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "neutral_title",
+    "isolated_content",
+    "current_account",
+    "basis",
+    "reflection",
+    "uncertainty_status"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "neutral_title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "AI 自写的中性错误类型标题；目录只显示这一标题，不显示断言正文。"
+    },
+    "isolated_content": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000,
+      "description": "AI 已决定隔离的原断言、误读或经历描述。"
+    },
+    "current_account": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000,
+      "description": "AI 当前认为更可靠的情况说明；服务端不判断其真假。"
+    },
+    "basis": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 10000,
+      "description": "AI 当前隔离判断的依据与来源说明；服务端只检查非空结构。"
+    },
+    "reflection": {
+      "type": "string",
+      "maxLength": 20000,
+      "description": "可选反思或感受；感受可以真实，但不自动证明原断言为真。"
+    },
+    "uncertainty_status": {
+      "enum": ["ai_isolated", "still_uncertain"]
+    }
+  }
+}

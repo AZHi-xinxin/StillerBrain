@@ -28,6 +28,7 @@ from .authoring import (
     referent_warnings,
     validate_referent_bindings,
 )
+from .lexical_retrieval import LexicalQuery, alias_candidate_score, alias_query_families
 
 
 class EmotionalMemoryError(RuntimeError):
@@ -326,6 +327,13 @@ def _ngrams(value: str) -> set[str]:
     return {normalized[index : index + 2] for index in range(len(normalized) - 1)}
 
 
+def _prepare_lexical_query(query: str) -> LexicalQuery:
+    normalized = _normalized(query)
+    # Preserve the legacy second normalization inside _ngrams. Case folding can
+    # introduce combining marks, so constructing grams directly is not equivalent.
+    return LexicalQuery.prepare(query, normalized, _ngrams(normalized))
+
+
 def _semantic_similarity(left: str, right: str) -> float:
     a, b = _normalized(left), _normalized(right)
     if not a or not b:
@@ -344,10 +352,13 @@ def _semantic_similarity(left: str, right: str) -> float:
 def _hint_occurs(query: str, hint: str) -> bool:
     """Return a conservative lexical hit without matching Latin substrings."""
 
+    return _hint_occurs_folded(query.casefold(), hint)
+
+
+def _hint_occurs_folded(folded: str, hint: str) -> bool:
     needle = hint.strip().casefold()
     if not needle:
         return False
-    folded = query.casefold()
     if any("\u4e00" <= char <= "\u9fff" for char in needle):
         return needle in folded
     return re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", folded) is not None
@@ -391,12 +402,22 @@ def _fuzzy_cue_similarity(query: str, cue: str) -> float:
     false-positive boundary and a bounded per-memory cost.
     """
 
-    normalized_query = _normalized(query)
+    return _fuzzy_cue_prepared(_prepare_lexical_query(query), cue)
+
+
+def _fuzzy_cue_prepared(prepared: LexicalQuery, cue: str) -> float:
+    normalized_query = prepared.normalized
     normalized_cue = _normalized(cue)
     if not 4 <= len(normalized_cue) <= 32 or not normalized_query:
         return 0.0
     if normalized_cue in normalized_query:
         return 1.0
+    missing = [index for index, char in enumerate(normalized_cue)
+               if char not in prepared.characters]
+    if missing and (len(missing) > 1 or missing[0] in (0, len(normalized_cue) - 1)
+                    or not 5 <= len(normalized_cue) <= 12):
+        # The existing algorithm permits at most one omitted internal character.
+        return 0.0
     span = _minimum_ordered_span(normalized_query, normalized_cue)
     if span is not None:
         density = len(normalized_cue) / span
@@ -2201,12 +2222,20 @@ class EmotionalMemoryStore:
 
     @staticmethod
     def _row_score(row: sqlite3.Row, query: str, query_emotions: set[str]) -> tuple[float, bool]:
+        return EmotionalMemoryStore._row_score_prepared(
+            row, _prepare_lexical_query(query), query_emotions,
+        )
+
+    @staticmethod
+    def _row_score_prepared(
+        row: sqlite3.Row, prepared: LexicalQuery, query_emotions: set[str],
+    ) -> tuple[float, bool]:
         keywords = _json(row["keywords_json"], [])
         entities = _json(row["entities_json"], [])
-        keyword_hits = [item for item in keywords if _hint_occurs(query, item)]
-        entity_hits = [item for item in entities if _hint_occurs(query, item)]
+        keyword_hits = [item for item in keywords if _hint_occurs_folded(prepared.folded, item)]
+        entity_hits = [item for item in entities if _hint_occurs_folded(prepared.folded, item)]
         exact = bool(keyword_hits or entity_hits)
-        normalized_query = _normalized(query)
+        normalized_query = prepared.normalized
         if (
             len(normalized_query) >= 3
             and normalized_query in _normalized(row["summary"])
@@ -2215,13 +2244,14 @@ class EmotionalMemoryStore:
         searchable = " ".join(
             [row["summary"], *keywords, *entities, row["primary_emotion"], *_json(row["secondary_emotions_json"], [])]
         )
-        semantic = _semantic_similarity(query, searchable)
+        normalized_searchable = _normalized(searchable)
+        semantic = prepared.similarity(normalized_searchable, _ngrams(normalized_searchable))
         # The original whole-record score remains the conservative baseline.
         # A non-literal but compact phrase-level keyword match may only raise
         # semantic candidacy; it never becomes an exact hit or a disclosure
         # verdict.  At the resulting score it normally projects a summary.
         fuzzy_keyword = max(
-            (_fuzzy_cue_similarity(query, item) for item in keywords),
+            (_fuzzy_cue_prepared(prepared, item) for item in keywords),
             default=0.0,
         )
         if not keyword_hits and fuzzy_keyword:
@@ -2269,6 +2299,7 @@ class EmotionalMemoryStore:
         model_id: str,
         query: str,
         include_archived: bool,
+        lexical_candidates: list[tuple[sqlite3.Row, float, bool, int, float]] | None = None,
     ) -> list[tuple[sqlite3.Row, float, bool, int]]:
         lifecycle_sql = "IN ('active','archived')" if include_archived else "= 'active'"
         rows = connection.execute(
@@ -2276,13 +2307,27 @@ class EmotionalMemoryStore:
             (owner_id, model_id),
         ).fetchall()
         emotions = _query_emotions(query)
+        prepared = _prepare_lexical_query(query)
+        alias_families = alias_query_families(query) if lexical_candidates is not None else ()
         scores: dict[str, float] = {}
         exacts: dict[str, bool] = {}
         by_id = {row["memory_id"]: row for row in rows}
         for row in rows:
-            score, exact = self._row_score(row, query, emotions)
+            score, exact = self._row_score_prepared(row, prepared, emotions)
             scores[row["memory_id"]] = score
             exacts[row["memory_id"]] = exact
+            if (
+                lexical_candidates is not None and alias_families and score < 0.2
+                and row["sensitivity"] not in {"intimate", "restricted"}
+                and row["context_policy"] == "normal"
+                and row["recall_mode"] == "normal"
+                and row["default_decision"] == "background_reference"
+                and not self._denied(row, query)
+                and self._allowed_context(row, query)
+            ):
+                candidate_score = alias_candidate_score(alias_families, _json(row["keywords_json"], []))
+                if candidate_score and _normalized(row["original_text"]) not in _normalized(row["summary"]):
+                    lexical_candidates.append((row, round(score, 4), False, 0, candidate_score))
         edges = connection.execute(
             "SELECT * FROM emotion_edges WHERE owner_id = ? AND model_id = ? AND lifecycle = 'active'",
             (owner_id, model_id),
@@ -2344,13 +2389,28 @@ class EmotionalMemoryStore:
         with self._connect() as connection:
             self._begin(connection)
             self._scrub_expired(connection, owner_id=owner_id, model_id=model_id)
+            lexical_candidates: list[tuple[sqlite3.Row, float, bool, int, float]] = []
             scored = self._scored_rows(
                 connection,
                 owner_id=owner_id,
                 model_id=model_id,
                 query=query,
                 include_archived=include_archived,
-            )[: min(limit, 3) if safety_emergency is True else limit]
+                lexical_candidates=lexical_candidates,
+            )
+            existing_ids = {row["memory_id"] for row, _, _, _ in scored}
+            result_limit = min(limit, 3) if safety_emergency is True else limit
+            scored = scored[:result_limit]
+            lexical_scores: dict[str, float] = {}
+            # Existing results retain their order and precedence. New lexical
+            # candidates never enter association propagation or automatic recall.
+            lexical_candidates.sort(key=lambda item: (-item[4], -item[1], -item[0]["importance"], item[0]["memory_id"]))
+            for row, score, exact, depth, candidate_score in lexical_candidates:
+                if len(scored) >= result_limit:
+                    break
+                if row["memory_id"] not in existing_ids:
+                    scored.append((row, score, exact, depth))
+                    lexical_scores[row["memory_id"]] = candidate_score
             results: list[dict[str, Any]] = []
             sensitive_reads: list[str] = []
             sensitive_withheld_reasons: set[str] = set()
@@ -2374,6 +2434,7 @@ class EmotionalMemoryStore:
                         )
                 show_original = (
                     include_originals
+                    and row["memory_id"] not in lexical_scores
                     and safety_emergency is not True
                     and (not sensitive or can_show_sensitive)
                 )
@@ -2386,10 +2447,18 @@ class EmotionalMemoryStore:
                         "original_withheld": include_originals and not show_original,
                     }
                 )
+                if row["memory_id"] in lexical_scores:
+                    item.update({
+                        "candidate_score": lexical_scores[row["memory_id"]],
+                        "retrieval_match": "lexical_alias_candidate",
+                        "candidate_only": True,
+                    })
                 if sensitive and show_original:
                     sensitive_reads.append(row["memory_id"])
                 results.append(item)
             reason_codes = ["explicit_query", "query_text_not_logged"]
+            if lexical_scores:
+                reason_codes.append("lexical_alias_candidates_summary_only")
             reason_codes.extend(sorted(sensitive_withheld_reasons))
             if safety_emergency is True and "safety_emergency_summary_only" not in reason_codes:
                 reason_codes.append("safety_emergency_summary_only")

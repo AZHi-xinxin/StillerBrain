@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="310" viewBox="0 0 1200 310" role="img" aria-labelledby="title desc">
+  <title id="title">Stiller Brain</title>
+  <desc id="desc">深蓝星空中相连的星点，象征经历在时间中留下联系。</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#11182e"/><stop offset="1" stop-color="#29283d"/></linearGradient>
+    <radialGradient id="halo"><stop stop-color="#d7b981" stop-opacity=".15"/><stop offset="1" stop-color="#d7b981" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1200" height="310" rx="22" fill="url(#bg)"/>
+  <circle cx="985" cy="164" r="155" fill="url(#halo)"/>
+  <g fill="#d4c1a1" opacity=".55"><circle cx="35" cy="45" r="1"/><circle cx="142" cy="270" r="1.5"/><circle cx="402" cy="34" r="1"/><circle cx="625" cy="260" r="1"/><circle cx="710" cy="74" r="1.5"/><circle cx="801" cy="246" r="1"/><circle cx="890" cy="27" r="1"/><circle cx="1056" cy="52" r="1"/><circle cx="1147" cy="217" r="1.5"/><circle cx="1094" cy="272" r="1"/></g>
+  <g fill="none" stroke="#c4b6a0" stroke-opacity=".35"><ellipse cx="970" cy="166" rx="143" ry="53" transform="rotate(-23 970 166)"/><ellipse cx="970" cy="166" rx="77" ry="118" transform="rotate(19 970 166)"/><path d="M841 178 904 119 964 162 1041 97 1101 166 1029 220 964 162 906 232"/></g>
+  <g fill="#f0d69b"><circle cx="841" cy="178" r="4"/><circle cx="904" cy="119" r="5"/><circle cx="1041" cy="97" r="4"/><circle cx="1101" cy="166" r="4"/><circle cx="1029" cy="220" r="4"/><circle cx="906" cy="232" r="3"/><path d="m964 148 3.5 10.5 10.5 3.5-10.5 3.5-3.5 10.5-3.5-10.5-10.5-3.5 10.5-3.5z"/></g>
+  <text x="65" y="82" fill="#d6c49e" font-family="sans-serif" font-size="14" letter-spacing="5">MEMORY · EXPERIENCE · CONTINUITY</text>
+  <text x="61" y="157" fill="#f5f0e5" font-family="Georgia,serif" font-size="62">Stiller Brain</text>
+  <text x="65" y="218" fill="#d7d6e2" font-family="Microsoft YaHei,sans-serif" font-size="23">让共同经历留下来，让后来的交流有来处。</text>
+</svg>

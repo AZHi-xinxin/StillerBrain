@@ -1,7 +1,8 @@
 {
   "format": "stiller-source-package/1",
   "distribution": "source-available-development-preview",
-  "version": "0.1.0-preview.1",
+  "version": "0.1.0-preview.2",
+  "base_public_commit": "a1abd690d9b25c5a73ec78e15e8720e4beaf4ec9",
   "files": [
     {
       "path": ".env.example",
@@ -9,15 +10,15 @@
     },
     {
       "path": ".gitattributes",
-      "sha256": "e67a38bd89ecc88a17277d89e86f58e013474f9d005d2f24e2c04b5f84fbb95a"
+      "sha256": "bbb2d7a184650b17af72593ec0bc4ad50d7b1464ec7e27c497a600c391935604"
     },
     {
       "path": ".gitignore",
-      "sha256": "74c15c3b1338745208f7ed80715b45a5d067e646521557ecec0663510d19556b"
+      "sha256": "66866af0662448a4045f234331516ca9752af45fd349a2557fe714d9a850336b"
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "2a041eca33954485733f4a5243452c5f62c5121412164e44634cb7a437a00c72"
+      "sha256": "1d56fd46e141f5c74725e7aab821c20602b872b3ff4f13a2d48265269d37968c"
     },
     {
       "path": "COMMERCIAL-LICENSE.md",
@@ -29,11 +30,11 @@
     },
     {
       "path": "LICENSE",
-      "sha256": "ffcca38841adb694b6f380647e15f17c446a4d1656fed51a1e2041d064c94cc8"
+      "sha256": "75f5f2ae732cdc31adf8ad90a42ed4ed47476b3f27fcdf90de13e79d6788309d"
     },
     {
       "path": "NOTICE",
-      "sha256": "3f8d42f7b31d00bf5c2dd2ecef658fa735b2eb483bc2726d789a26ee7ca7e0e6"
+      "sha256": "24867c4c6ff9033cbd963484f20293d746dab4ff6ee82b347934397906aa33fc"
     },
     {
       "path": "PRIVACY.md",
@@ -41,7 +42,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "f1cca729fc1441e9596eb49b0fb07347b6dd562a977c50a2f8f5067f40bceb8a"
+      "sha256": "bf5b4a6b4c0475bc2f825fd398822747dad91e3af87f59068fe00f5fbfae2f9a"
     },
     {
       "path": "SECURITY.md",
@@ -49,7 +50,7 @@
     },
     {
       "path": "SOURCE-PROVENANCE.md",
-      "sha256": "52958f42ad847c710575ed5b140ffcfe615e8884dd68a77b3ed84d2b31dc8a0d"
+      "sha256": "8531ee52ed037218f6cb29548165d137aa487286fff952025e24c07553da4ef1"
     },
     {
       "path": "THIRD_PARTY_NOTICES.md",
@@ -68,6 +69,10 @@
       "sha256": "9ca0cf65cf7270f8ad3e80b051552b435be00b241db10de4613313c405e30ba7"
     },
     {
+      "path": "docs/GUIDE.md",
+      "sha256": "fecfe1ab15ee4d3a3e191fd2a2d33cb91f44f3935bea4cd0a367e347dee3c988"
+    },
+    {
       "path": "docs/LICENSING-DECISION.md",
       "sha256": "ea4232271f89f19572a4bac248e3ea04c02eafc3ac759cf83f029e2b11a811f2"
     },
@@ -76,8 +81,36 @@
       "sha256": "ab77a9b951ed1802e15b4d7c2bc438c5f6288b2d58368e9cd9f7e2b4e794cfc2"
     },
     {
+      "path": "docs/MEMORY-DECAY-DESIGN.md",
+      "sha256": "2cd3f3bc929fd433c9f593857ef01aca471576cad3c898b463dd620136c2fcaf"
+    },
+    {
+      "path": "docs/OPERATIONS.md",
+      "sha256": "0709775925d91cc893e42b12b2283418832c67890e503b25db84ec5a2d44772c"
+    },
+    {
+      "path": "docs/PHILOSOPHY.md",
+      "sha256": "13e8737b4c17cca17a37a6f63eccec5fabda717a736cac2b86a1ec174e2741a4"
+    },
+    {
       "path": "docs/RELEASE-CHECKLIST.md",
       "sha256": "837fa2c43ed2d651d4854a9a33057f8324e13b3294a1be7d0fa7a4e999f2c1fb"
+    },
+    {
+      "path": "docs/RETRIEVAL.md",
+      "sha256": "05461e5969125e71067b1b135de1cabeaf3f065f52d2b1200583733fde171356"
+    },
+    {
+      "path": "docs/TOOLS.md",
+      "sha256": "819b757fdb8968dd579a70b0096188d790592800576139bc08a2a1ab886e0503"
+    },
+    {
+      "path": "docs/UPDATE-VALIDATION.md",
+      "sha256": "5c3bac58b8ca7fa87e24ad0828416966778630c7f315f9d7033495a4156a2300"
+    },
+    {
+      "path": "docs/assets/stiller-cover.svg",
+      "sha256": "aab807e733f2eefaa1d38ea895334284a67c5b97955488b9bfa099606c41bc1c"
     },
     {
       "path": "docs/dependency-inventory.json",
@@ -268,6 +301,14 @@
       "sha256": "862520b1c2dcad9ad520941cccc191233332b831631ac9a64e9f5273c44a62c5"
     },
     {
+      "path": "packaging_tests/test_operations.py",
+      "sha256": "3663d804bafa93b65c64b9ea3518ce7aa6ca66df69a070c80a6f586ac431d50c"
+    },
+    {
+      "path": "packaging_tests/test_operations_local_smoke.py",
+      "sha256": "66fec50c35a6b3c768171400fb236745e8079ba367357b14d2de59417c5253ea"
+    },
+    {
       "path": "packaging_tests/test_source_package.py",
       "sha256": "c35849f730e5b86589c5e136267b1d7ebe36c0ec56842680df7dbefcfcbb20d6"
     },
@@ -277,11 +318,11 @@
     },
     {
       "path": "release-state.json",
-      "sha256": "7a50990c9588c4b2552d7b6bf6716ceacd0c4bb9750e64a24bee15fdc3c069c7"
+      "sha256": "da48849305e1359dff137d578b5530214aac9c0306ca9930956c00dab1eed95a"
     },
     {
       "path": "requirements-windows-py314.lock",
-      "sha256": "1b963365b913846ae9047e21d67315fc160f62166d9da5e813c946b5909e1ec6"
+      "sha256": "30fc51c699fb1bfdcfb05565e7ff886be0685b87f0d2e7cb78727ae6fa03101d"
     },
     {
       "path": "requirements.txt",
@@ -373,7 +414,7 @@
     },
     {
       "path": "runtime/emotional_memory.py",
-      "sha256": "e05abd8f3be8fff30f4935a001fdd94f55da4cde1659c2cefae7508342ace835"
+      "sha256": "1553835b8d12eb0d02b81e942f8d8b93b37d04aa2e2d15d2575a7d06b236dfbf"
     },
     {
       "path": "runtime/execution_binding.py",
@@ -394,6 +435,10 @@
     {
       "path": "runtime/learning_memory.py",
       "sha256": "fbbc2f70f94575107356d3e917de98a419c50ccddb1102fd449c415100348eca"
+    },
+    {
+      "path": "runtime/lexical_retrieval.py",
+      "sha256": "2dac4223a7b37a9f2e6dd0ffb6b766a8e3690034ce108c1357b50c9bb500afad"
     },
     {
       "path": "runtime/mixed_recall.py",
@@ -488,8 +533,16 @@
       "sha256": "27536dcf9282eaf0fd5590b67d0465c0f8dae1c7692f872c4e00497da9d127c4"
     },
     {
+      "path": "scripts/stiller_ops.py",
+      "sha256": "e140c0218449481a557e55cc345dc57be2a06a88886ea14a80bbc214949bab15"
+    },
+    {
+      "path": "scripts/windows_process_job.py",
+      "sha256": "98551c4eaf63b1e779f83a0c44dea039a62a6d56c3b1f3a870b00bcc3349bc50"
+    },
+    {
       "path": "source-release-state.json",
-      "sha256": "e9ea0c87c1047978ab7fa7e66b74252244e66d9497d81e815d41db30b803c148"
+      "sha256": "183ae4b9dbde5e2ce54d9884bfedd117f9f6d2d372c06f2e8334c4fd8b146fbe"
     },
     {
       "path": "tests/__init__.py",
@@ -578,6 +631,10 @@
     {
       "path": "tests/test_planning_persistent_r4h34.py",
       "sha256": "257dded67872f4bc7d9e2eb162b3cf1c55ea7180a2b8b95fe0295aa2b1d45cb8"
+    },
+    {
+      "path": "tests/test_retrieval_lexical.py",
+      "sha256": "68ae208180dd8fedb019589802cf5e658647c65b026863548f2570d4d1b0f168"
     },
     {
       "path": "tests/test_self_governance.py",

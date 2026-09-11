@@ -1,8 +1,12 @@
 # 源码来源与审查范围
 
-对应发布：`0.1.0-preview.1`，ST 源码开发预览。公开项目署名：**昕昕 & 阿止**。
+对应发布：`0.1.0-preview.2`，ST 源码开发预览。公开项目署名：**昕昕 & 阿止**。
 
-## 当前包来自什么
+本次增量从公开提交 `a1abd690d9b25c5a73ec78e15e8720e4beaf4ec9` 的归档建立独立候选，新增运维入口、合成测试及说明，修改情感检索和首页文档。未从用户运行目录打包数据库、配置、聊天或附件；没有引入新第三方依赖。增量验证见 [UPDATE-VALIDATION](docs/UPDATE-VALIDATION.md)。
+
+下文 120 文件的逐项一致性是前一预览版的来源复核记录，不代表修改后的所有文件仍与旧基线逐字相同。本版完整文件集合与哈希以当前 `SOURCE-PACKAGE-MANIFEST.json` 为准。
+
+## 前一预览版的基线来源
 
 本版使用 `cache-preview-frozen-20260908` 基线中明确列入允许清单的 ST Python 实现、测试和 JSON schema，再加入公开部署、依赖、授权及发布检查文件。核心目录为 `runtime/`、`mcp_server/`、`rikkahub_gateway/`、`schemas/` 和 `tests/`。
 

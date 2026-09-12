@@ -42,7 +42,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "cc5c845d7a13f9a3a5a8d1a6d7d5ec0365ff44702d46fbe878c82d4b3dce585e"
+      "sha256": "dd540468a49d0ae51fe5d8684789ef90b9155c8f18a167f2aa0a1bb1cb4d5df6"
     },
     {
       "path": "RELEASE-NOTES-preview.3.md",
@@ -94,7 +94,7 @@
     },
     {
       "path": "docs/PHILOSOPHY.md",
-      "sha256": "f4be7b60fe80f4241a60ba0b80809b789930cfc450e72209fa0bd4acdd06d8f1"
+      "sha256": "42de53c92a8164818a8b47a1285f2545f62b99202f0181a7cc79858be8956219"
     },
     {
       "path": "docs/RELEASE-CHECKLIST.md",

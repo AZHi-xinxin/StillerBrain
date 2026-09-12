@@ -415,6 +415,16 @@ class SelfModelAccessService:
     supplying a different identifier in a tool call.
     """
 
+    def recall_memory(self, *, query: str = "", module: str | None = None,
+                      limit: int = 20, cursor: str | None = None) -> dict[str, Any]:
+        from .unified_recall_service import UnifiedRecallAccessService
+        return UnifiedRecallAccessService(
+            services={"emotional_memory": self.emotional, "learning_memory": self.learning,
+                      "planning_memory": self.planning, "tool_guidance": self.tool_guidance},
+            owner_id=self.owner_id, model_id=self.model_id, onboarding=self.onboarding,
+            simple=self.ordinary_memory_access,
+        ).recall(query=query, module=module, limit=limit, cursor=cursor)
+
     def __init__(
         self,
         store: SelfModelStore,
@@ -431,6 +441,7 @@ class SelfModelAccessService:
         planning: Any | None = None,
         hallucination_vault: Any | None = None,
         direct_client_principal: str = "official-deepseek-direct",
+        ordinary_memory_access: bool = False,
     ) -> None:
         if not isinstance(model_id, str) or not model_id.strip():
             raise ValueError("model_id must not be empty")
@@ -448,6 +459,12 @@ class SelfModelAccessService:
         self.injection_control = injection_control
         self.planning = planning
         self.hallucination_vault = hallucination_vault
+        if type(ordinary_memory_access) is not bool:
+            raise ValueError("ordinary_memory_access must be a bool")
+        # Server-selected profile, never a tool argument or an environment lookup.
+        # This selects simple-profile display/readable instructions only, never
+        # write authorization. Ordinary writes still require active module one.
+        self.ordinary_memory_access = ordinary_memory_access
         if (
             not isinstance(direct_client_principal, str)
             or not direct_client_principal.strip()
@@ -475,6 +492,54 @@ class SelfModelAccessService:
         if self.onboarding is None:
             raise SelfRevisionError("module-one onboarding gate is not configured")
         return self.onboarding.state(owner_id=self.owner_id, model_id=self.model_id)
+
+    def _module_access_display(
+        self, module: str, status: dict[str, Any]
+    ) -> bool:
+        """Whether module instructions can be shown; this is not write access."""
+        ordinary_modules = {
+            "emotional_memory", "learning_memory", "tool_guidance", "planning_memory",
+            "self_governance_profile", "injection_control", "shared_person_authoring",
+        }
+        return bool(status["module_one_unlocked"]) or (
+            self.ordinary_memory_access and module in ordinary_modules
+        )
+
+    def _module_status_display(
+        self, module: str, status: dict[str, Any], available_status: str = "available"
+    ) -> str:
+        if status["module_one_unlocked"]:
+            return "available" if self.ordinary_memory_access else available_status
+        return "read_only" if self._module_access_display(module, status) else "locked"
+
+    def _ordinary_access_note(self, status: dict[str, Any]) -> dict[str, Any]:
+        writable = bool(status["module_one_unlocked"])
+        return {
+            "profile": "simple-memory-v1",
+            "ordinary_memory_readable": True,
+            "ordinary_memory_writable": writable,
+            "ordinary_memory_status": "available" if writable else "read_only",
+            "module_one_required_for_ordinary_writes": True,
+            "instruction": (
+                ("模块一已激活，普通记忆可读写。" if writable else
+                 "模块一尚未激活，普通记忆目前只读；可查询已有内容，完成模块一审核并激活后再新增、修改或整合。")
+                + "实际身份与写入上下文由服务端认证绑定。读取无需模块一密码；经服务端验证的网关注入"
+                "走网关权限流程，直连只有模块一写改需要部署密码。身份依据服务端绑定，不依据模型名称。"
+                "stbrain_help 是可直接读取的静态帮助；stbrain_open(view='recall')查询普通记忆，manual/review仍需当前连接的相应绑定。"
+                "模块一候选保存、复核和激活是不同事件；幻觉黑匣子保持独立隔离规则。"
+            ),
+        }
+
+    def _manual_context_ref(
+        self, module: str, open_context: dict[str, Any], status: dict[str, Any]
+    ) -> str | None:
+        # A static ordinary manual is readable before module one is active. Do not
+        # pass its unrelated legacy ref to a review-material authorization path,
+        # create an ordinary-operation context, or claim candidates were presented.
+        if (self.ordinary_memory_access and not status["module_one_unlocked"]
+                and self._module_access_display(module, status)):
+            return None
+        return open_context.get("write_context_ref")
 
     def _progression_required(self, reason: str = "progression_required") -> dict[str, Any]:
         status = self._onboarding_status()
@@ -693,44 +758,28 @@ class SelfModelAccessService:
         if self.emotional is not None:
             emotional_status = self.emotional.status()
             result["module_two"] = {
-                "status": (
-                    emotional_status["status"]
-                    if status["module_one_unlocked"]
-                    else "locked"
-                ),
+                "status": self._module_status_display("emotional_memory", status, emotional_status["status"]),
                 "row_version": emotional_status["row_version"],
                 "counts": emotional_status["counts"],
             }
         if self.learning is not None:
             learning_status = self.learning.status()
             result["module_three"] = {
-                "status": (
-                    learning_status["status"]
-                    if status["module_one_unlocked"]
-                    else "locked"
-                ),
+                "status": self._module_status_display("learning_memory", status, learning_status["status"]),
                 "row_version": learning_status["row_version"],
                 "counts": learning_status["counts"],
             }
         if self.tool_guidance is not None:
             tool_status = self.tool_guidance.status()
             result["module_four"] = {
-                "status": (
-                    tool_status["status"]
-                    if status["module_one_unlocked"]
-                    else "locked"
-                ),
+                "status": self._module_status_display("tool_guidance", status, tool_status["status"]),
                 "row_version": tool_status["row_version"],
                 "counts": tool_status["counts"],
             }
         if self.governance is not None:
             governance_status = self.governance.status()
             result["self_governance"] = {
-                "status": (
-                    "available"
-                    if status["module_one_unlocked"]
-                    else "locked"
-                ),
+                "status": self._module_status_display("self_governance_profile", status),
                 "configured_scope_count": governance_status[
                     "configured_scope_count"
                 ],
@@ -743,7 +792,7 @@ class SelfModelAccessService:
         if self.authoring_rewrite is not None:
             authoring_status = self.authoring_rewrite.status()
             result["shared_person_authoring"] = {
-                "status": "available" if status["module_one_unlocked"] else "locked",
+                "status": self._module_status_display("shared_person_authoring", status),
                 "row_version": authoring_status["row_version"],
                 "rewrite_assist_default": False,
                 "content_exposed": False,
@@ -751,7 +800,7 @@ class SelfModelAccessService:
         if self.injection_control is not None:
             injection_status = self.injection_control.status()
             result["injection_control"] = {
-                "status": "available" if status["module_one_unlocked"] else "locked",
+                "status": self._module_status_display("injection_control", status),
                 "global_mode": injection_status["global_mode"],
                 "scope_versions": {
                     scope: item["row_version"]
@@ -762,11 +811,7 @@ class SelfModelAccessService:
         if self.planning is not None:
             planning_status = self.planning.status()
             result["module_five"] = {
-                "status": (
-                    planning_status["status"]
-                    if status["module_one_unlocked"]
-                    else "locked"
-                ),
+                "status": self._module_status_display("planning_memory", status, planning_status["status"]),
                 "row_version": planning_status["row_version"],
                 "counts": planning_status["counts"],
                 "content_exposed": False,
@@ -779,6 +824,8 @@ class SelfModelAccessService:
                 "row_version": vault_status["row_version"],
                 "content_exposed": False,
             }
+        if self.ordinary_memory_access:
+            result["access_profile"] = self._ordinary_access_note(status)
         return result
 
     def open_brain(
@@ -907,11 +954,7 @@ class SelfModelAccessService:
                     [
                         {
                             "module": "injection_control",
-                            "status": (
-                                "available"
-                                if current_status["module_one_unlocked"]
-                                else "locked"
-                            ),
+                            "status": self._module_status_display("injection_control", current_status),
                             "purpose": "AI 自己控制各模块自动注入的开关、暂停与紧急制动；不删除内容。",
                         }
                     ]
@@ -922,11 +965,7 @@ class SelfModelAccessService:
                     [
                         {
                             "module": "self_governance_profile",
-                            "status": (
-                                "available"
-                                if current_status["module_one_unlocked"]
-                                else "locked"
-                            ),
+                            "status": self._module_status_display("self_governance_profile", current_status),
                             "purpose": "可选、分范围、由 AI 自己写作和激活的治理正文。",
                         }
                     ]
@@ -937,11 +976,7 @@ class SelfModelAccessService:
                     [
                         {
                             "module": "emotional_memory_module_two",
-                            "status": (
-                                self.emotional.status()["status"]
-                                if current_status["module_one_unlocked"]
-                                else "locked"
-                            ),
+                            "status": self._module_status_display("emotional_memory", current_status, self.emotional.status()["status"]),
                             "purpose": "AI 自己维护的情感、人际经历、关联召回与短期连续层。",
                         }
                     ]
@@ -952,11 +987,7 @@ class SelfModelAccessService:
                     [
                         {
                             "module": "learning_memory_module_three",
-                            "status": (
-                                self.learning.status()["status"]
-                                if current_status["module_one_unlocked"]
-                                else "locked"
-                            ),
+                            "status": self._module_status_display("learning_memory", current_status, self.learning.status()["status"]),
                             "purpose": "AI 自己维护的可复用理解、证据、对照、合并与隔离创意。",
                         }
                     ]
@@ -967,11 +998,7 @@ class SelfModelAccessService:
                     [
                         {
                             "module": "tool_guidance_module_four",
-                            "status": (
-                                self.tool_guidance.status()["status"]
-                                if current_status["module_one_unlocked"]
-                                else "locked"
-                            ),
+                            "status": self._module_status_display("tool_guidance", current_status, self.tool_guidance.status()["status"]),
                             "purpose": "AI 自己维护的具体工具使用认知、场景联想、版本与失败经验。",
                         }
                     ]
@@ -982,11 +1009,7 @@ class SelfModelAccessService:
                     [
                         {
                             "module": "planning_memory_module_five",
-                            "status": (
-                                self.planning.status()["status"]
-                                if current_status["module_one_unlocked"]
-                                else "locked"
-                            ),
+                            "status": self._module_status_display("planning_memory", current_status, self.planning.status()["status"]),
                             "purpose": "AI 自己采纳的计划图、承诺、证据进展与可回滚事件账本。",
                         }
                     ]
@@ -1052,9 +1075,9 @@ class SelfModelAccessService:
                 "它提供跨唤醒连续性线索，但不把这些文本宣称为不间断主观意识或不可质疑的事实。"
             ),
             "public_workflow": [
-                "普通情感、学习、规划新增：直接 remember_memory(module, content)；正常网关自动绑定，无需先 open、手填版本或另轮审核。短说明用 stbrain_help。",
-                "普通小改用 revise_memory(target_ref, changes)，只改允许的摘要或检索元数据；计划进度用 advance_plan，保留已读目标版本、事件序号和真实证据，不手填模块行版本。",
-                "按需要用 recall_* 主动查询记忆；学习全量目录用 recall_learning_memory(view='inventory')。活动自我与审计历史用 query_self_model。",
+                "模块一首次完成并激活后，普通情感、学习、规划新增直接用 remember_memory(module, content)；正常网关及 simple-memory-v1 自动绑定，无需先 open、手填模块版本或另轮审核。说明用 stbrain_help。",
+                "普通内容修订用 revise_memory(target_ref, changes)：按模块修改原文 original_text 或 current_understanding、摘要、情绪、来源、标签等作者字段，保留旧版本。计划进度用 advance_plan，保留已读目标版本、事件序号和真实证据，不手填模块行版本。",
+                "跨脑主动查找用 stbrain_open(view='recall', query=查询词)；query为空查看四普通脑完整分页目录，按返回的cursor续页，按detail_lookup查看原文。各recall_*精确读取仍保留；活动自我与审计历史用query_self_model。",
                 "高级操作需要说明或复核材料时，用 stbrain_open(view='manual', module=对应模块)；默认 summary 仅返回上下文摘要与版本，不是已读候选的证明。",
                 "专用高级写工具使用本轮实际 write_context_ref、目标版本及对应动作契约；模块一候选审核与激活仍须跨真实唤醒。",
             ],
@@ -1086,34 +1109,34 @@ class SelfModelAccessService:
             ),
             "module_one_content_schema": self.content_schema(),
         }
-        if self.emotional is not None and current_status["module_one_unlocked"]:
+        if self.emotional is not None and self._module_access_display("emotional_memory", current_status):
             result["emotional_memory"] = self.emotional.manual()
-        if self.learning is not None and current_status["module_one_unlocked"]:
+        if self.learning is not None and self._module_access_display("learning_memory", current_status):
             result["learning_memory"] = self.learning.manual(
-                write_context_ref=open_context.get("write_context_ref")
+                write_context_ref=self._manual_context_ref("learning_memory", open_context, current_status)
             )
-        if self.tool_guidance is not None and current_status["module_one_unlocked"]:
+        if self.tool_guidance is not None and self._module_access_display("tool_guidance", current_status):
             result["tool_guidance"] = self.tool_guidance.manual(
-                write_context_ref=open_context.get("write_context_ref")
+                write_context_ref=self._manual_context_ref("tool_guidance", open_context, current_status)
             )
-        if self.governance is not None and current_status["module_one_unlocked"]:
+        if self.governance is not None and self._module_access_display("self_governance_profile", current_status):
             governance_manual = self.governance.manual()
             governance_manual["current_action_contract"] = (
                 self.governance.current_action_contract(
-                    write_context_ref=open_context.get("write_context_ref")
+                    write_context_ref=self._manual_context_ref("self_governance_profile", open_context, current_status)
                 )
             )
             result["self_governance_profile"] = governance_manual
         if (
             self.injection_control is not None
-            and current_status["module_one_unlocked"]
+            and self._module_access_display("injection_control", current_status)
         ):
             result["injection_control"] = self.injection_control.manual(
-                write_context_ref=open_context.get("write_context_ref")
+                write_context_ref=self._manual_context_ref("injection_control", open_context, current_status)
             )
-        if self.planning is not None and current_status["module_one_unlocked"]:
+        if self.planning is not None and self._module_access_display("planning_memory", current_status):
             result["planning_memory"] = self.planning.manual(
-                write_context_ref=open_context.get("write_context_ref")
+                write_context_ref=self._manual_context_ref("planning_memory", open_context, current_status)
             )
         if (
             self.hallucination_vault is not None
@@ -1122,9 +1145,30 @@ class SelfModelAccessService:
             result["hallucination_vault"] = self.hallucination_vault.manual(
                 write_context_ref=open_context.get("write_context_ref")
             )
-        if self.authoring_rewrite is not None and current_status["module_one_unlocked"]:
+        if self.authoring_rewrite is not None and self._module_access_display("shared_person_authoring", current_status):
             result["shared_person_authoring"] = self.authoring_rewrite.manual()
         result.update(open_context)
+        if self.ordinary_memory_access:
+            result["access_profile"] = self._ordinary_access_note(current_status)
+            for module in ("emotional_memory", "learning_memory", "tool_guidance", "planning_memory",
+                           "self_governance_profile", "injection_control", "shared_person_authoring"):
+                if isinstance(result.get(module), dict):
+                    entry = dict(result[module])
+                    if isinstance(entry.get("status"), dict):
+                        entry["runtime_status"] = entry["status"]
+                    entry["status"] = self._module_status_display(module, current_status)
+                    entry["access_status"] = entry["status"]
+                    result[module] = entry
+            result["public_workflow"] = [
+                result["access_profile"]["instruction"],
+                "先用 recall_* 查询已有记忆；模块一激活后再用 remember_memory、revise_memory 或对应普通模块工具写入。",
+                "修改保留版本历史；有目标版本冲突时先重读，保存以工具实际回执为准。",
+                "模块一候选完整材料、独立复核和激活仍按当前阶段及真实唤醒边界办理。",
+            ]
+            result["safety_rules"][0] = (
+                "普通记忆写入以模块一完成并激活为前提，读取已有内容可用。"
+                "模块一及其他高级流程使用本轮真实上下文与版本，宿主凭据不进入模型上下文。"
+            )
         return _strip_private_binding_fields(result)
 
     def _compact_open_result(
@@ -1166,7 +1210,7 @@ class SelfModelAccessService:
             available_modules.append(name)
             status = component.status()
             entry: dict[str, Any] = {
-                "status": "available" if unlocked else "locked",
+                "status": self._module_status_display(name, current_status),
                 version_key: status["row_version"],
             }
             counts = status.get("counts", {})
@@ -1186,7 +1230,7 @@ class SelfModelAccessService:
             # only integer CAS versions, never full status, counts derived from
             # bodies, candidate text, or action contracts in the summary.
             result[name] = {
-                "status": "available" if unlocked else "locked",
+                "status": self._module_status_display(name, current_status),
                 "scope_versions": {
                     scope: item["row_version"]
                     for scope, item in status["scopes"].items()
@@ -1207,6 +1251,20 @@ class SelfModelAccessService:
             "同一真实用户回合内复用引用，并使用每次成功写入返回的新版本。"
             "新回合不可复用旧引用。摘要不代表已完整阅读任何候选；复核前请求对应模块手册。"
         )
+        if self.ordinary_memory_access:
+            result["access_profile"] = self._ordinary_access_note(current_status)
+            result["write_usage"] = (
+                ("模块一已激活，普通记忆可通过对应工具读写。" if unlocked else
+                 "模块一尚未激活，普通记忆目前只读；可用 recall_* 查询已有内容，激活后再进行普通写入。")
+                + "写入由服务端认证绑定，目标版本冲突时先查询再修改。"
+                "本结果的 write_context_available 和根引用仅描述模块一/旧高级流程上下文，"
+                "普通读写状态以对应模块的 read_only/available 为准。候选仍须按模块一真实阶段复核和激活；摘要不代表已阅读候选。"
+            )
+            result["manual_access"]["instruction"] = (
+                "静态帮助用stbrain_help；普通记忆只读查询用stbrain_open(view='recall')，summary/manual/review仍需相应连接绑定。"
+                "绑定有效时用 view=manual、module=对应模块名读取说明；"
+                "模块一候选材料另按实际复核流程展示。"
+            )
         return result
 
     def _selected_open_manual(
@@ -1221,7 +1279,7 @@ class SelfModelAccessService:
         result["manual_module"] = module
         # No blanket claim that an entire brain or every candidate was presented.
         result.pop("review_material_presented", None)
-        ref = open_context.get("write_context_ref")
+        ref = self._manual_context_ref(module, open_context, current_status)
         if module == "self_revision":
             state = current_status["state"]
             result["continuation"] = open_context.get("continuation")
@@ -1244,7 +1302,7 @@ class SelfModelAccessService:
             "shared_person_authoring": self.authoring_rewrite,
         }
         component = components[module]
-        if component is None or not current_status["module_one_unlocked"]:
+        if component is None or not self._module_access_display(module, current_status):
             result["manual_available"] = False
             result["manual_reason_code"] = (
                 "module_not_configured" if component is None else "module_one_required"
@@ -1263,6 +1321,13 @@ class SelfModelAccessService:
         # emotional/tool manuals nested their version under status, which made
         # a model switch paths merely because it requested instructions.
         entry = {**result.get(module, {}), **manual}
+        if self.ordinary_memory_access:
+            # Preserve a nested runtime status as information, but do not let a
+            # component's storage-ready status overwrite the effective access label.
+            entry["access_status"] = self._module_status_display(module, current_status)
+            if isinstance(entry.get("status"), dict):
+                entry["runtime_status"] = entry["status"]
+            entry["status"] = entry["access_status"]
         version_key = {
             "emotional_memory": "row_version",
             "learning_memory": "learning_row_version",
@@ -1277,6 +1342,9 @@ class SelfModelAccessService:
                 entry[version_key] = manual_status["row_version"]
         result[module] = entry
         result["manual_available"] = True
+        if self.ordinary_memory_access and not current_status["module_one_unlocked"]:
+            result["manual_scope"] = "instructions_only"
+            result["review_material_presented"] = False
         return result
 
     def open_brain_direct(self, *, grant_ref: str) -> dict[str, Any]:
@@ -1458,7 +1526,7 @@ class SelfModelAccessService:
                 },
                 "facets": {
                     "purpose": "由 AI 自选的情境侧面；可以为空对象。",
-                    "when_visible": "模块一 live 后由宿主按情境选择。",
+                    "when_visible": "模块一 live 且自我注入开启后，默认宿主按本轮用户文字与自定key/原正文做本地词句匹配，相关完整侧面进入动态预算余量，最多3项；无相关线索或放不下时本轮省略。宿主显式facet_names仍按名选，显式[]不选。",
                 },
                 "anchor_references": {
                     "purpose": "可复核来源引用；可以为空数组，不自动注入。",

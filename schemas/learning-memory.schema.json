@@ -81,15 +81,15 @@
         "keywords": { "type": "array", "maxItems": 24, "items": { "type": "string", "minLength": 1, "maxLength": 200 } },
         "entities": { "type": "array", "maxItems": 24, "items": { "type": "string", "minLength": 1, "maxLength": 200 } },
         "epistemic_status": {
-          "enum": ["observed", "reported", "inferred", "disputed", "hallucination"],
+          "enum": ["observed", "reported", "inferred", "unmarked", "disputed", "hallucination"],
           "description": "Deprecated server-derived compatibility projection; new callers do not set this field."
         },
         "source_basis": {
-          "enum": ["observed", "reported", "inferred"],
-          "description": "Origin axis only; it never expresses opposition or challenge."
+          "enum": ["observed", "reported", "inferred", "unmarked"],
+          "description": "observed=亲历或观察；reported=转述；inferred=推断；unmarked=未标注。修订时省略保留原值。来源与断言审查各自独立。"
         },
         "claim_review": { "$ref": "#/$defs/claim_review" },
-        "confidence": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "confidence": { "type": ["integer", "null"], "minimum": 0, "maximum": 100, "description": "0–100 为作者评分；null 为未标注。统一修订 changes.confidence=null 清除评分；省略保留原值。" },
         "time_sensitivity": { "enum": ["timeless", "stable", "volatile"] },
         "valid_as_of": { "type": "string", "maxLength": 80 },
         "review_after": { "type": "string", "maxLength": 80 },
@@ -104,7 +104,7 @@
         "disclosure": { "enum": ["summary_only", "bounded_excerpt", "full_if_explicit"] },
         "lifecycle": { "enum": ["active", "pending_review", "archived", "quarantined", "superseded"] },
         "referent_bindings": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/referent_binding" } },
-        "provenance_badge": { "enum": ["firsthand", "reported", "inferred"] }
+        "provenance_badge": { "enum": ["firsthand", "reported", "inferred", "unmarked"] }
       }
     },
     "evidence": {
@@ -411,9 +411,10 @@
             "preceding_context_summary": { "type": "string", "maxLength": 240 },
             "uncertainties": { "type": "array", "maxItems": 8, "items": { "type": "string" } },
             "epistemic_label": { "type": "string" },
-            "source_basis": { "enum": ["observed", "reported", "inferred", "legacy_unknown"] },
+            "source_basis": { "enum": ["observed", "reported", "inferred", "unmarked", "legacy_unknown"] },
+            "source_confidence_label": { "type": "string" },
             "claim_review_status": { "enum": ["ordinary", "challenged", "rejected"] },
-            "provenance_badge": { "enum": ["firsthand", "reported", "inferred"] },
+            "provenance_badge": { "enum": ["firsthand", "reported", "inferred", "unmarked"] },
             "contrast_hint": { "type": "string" }
           }
         },

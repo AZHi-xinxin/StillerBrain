@@ -2,10 +2,10 @@
 
 The control plane changes presentation only.  It never deletes memory, blocks
 explicit reads/writes, or decides whether stored material is true.  All public
-mutations are owner/model scoped, bound to a real open wake, CAS protected, and
-append-only.  The one deliberately immediate operation is an idempotent
-``emergency_off`` transition; every less restrictive transition requires a
-candidate and a genuinely later wake.
+mutations are owner/model scoped, bound to an authenticated author operation, CAS protected, and
+append-only.  Direct settings append a revision now and affect the next real
+wake, without rewriting an injected snapshot.  Explicit legacy candidates
+retain their later-wake review.  ``emergency_off`` remains idempotent.
 """
 
 from __future__ import annotations
@@ -19,7 +19,9 @@ from pathlib import Path
 import re
 import sqlite3
 from typing import Any, Iterator, Mapping
+from .credential_guard import contains_credential_or_secret
 import uuid
+from .execution_binding import assert_bound_execution, expected_execution_wake
 
 
 INJECTION_CONTROL_VERSION = "injection-control/0.1"
@@ -45,12 +47,6 @@ class InjectionControlLimits:
     reason_characters: int = 2_000
 
 
-_SECRET_PATTERNS = (
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----", re.I),
-    re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"),
-    re.compile(r"\b(?:password|passwd|api[_ -]?key|secret|token|cookie)\s*[:=]", re.I),
-    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{12,}", re.I),
-)
 
 
 def _now() -> str:
@@ -76,7 +72,7 @@ def _required_text(name: str, value: Any, maximum: int) -> str:
     result = value.strip()
     if len(result) > maximum:
         raise InjectionControlError(f"{name}_too_long")
-    if any(pattern.search(result) for pattern in _SECRET_PATTERNS):
+    if contains_credential_or_secret(result):
         raise InjectionControlError("credential_or_secret_detected")
     return result
 
@@ -103,13 +99,16 @@ class InjectionControlStore:
         connection.execute("PRAGMA busy_timeout = 10000")
         try:
             with connection:
+                assert_bound_execution(connection)
                 yield connection
+                assert_bound_execution(connection)
         finally:
             connection.close()
 
     @staticmethod
     def _begin(connection: sqlite3.Connection) -> None:
         connection.execute("BEGIN IMMEDIATE")
+        assert_bound_execution(connection)
 
     def _initialize(self) -> None:
         with self._connect() as connection:
@@ -197,6 +196,7 @@ class InjectionControlStore:
 
     @staticmethod
     def _validate_identity(owner_id: Any, model_id: Any) -> tuple[str, str]:
+        expected_execution_wake(owner_id=owner_id, model_id=model_id)
         return (
             _required_text("owner_id", owner_id, 300),
             _required_text("model_id", model_id, 300),
@@ -313,6 +313,7 @@ class InjectionControlStore:
             raise InjectionControlError("ai_authorship_required")
         owner_id, model_id = self._validate_identity(owner_id, model_id)
         wake_id, wake_seq = self._validate_wake(wake_id, wake_seq)
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
         reason = _required_text("reason", reason, self.limits.reason_characters)
         with self._connect() as connection:
             self._begin(connection)
@@ -403,6 +404,101 @@ class InjectionControlStore:
                 "storage_and_explicit_query_unchanged": True,
             }
 
+    def commit_revision(
+        self,
+        *,
+        owner_id: str,
+        model_id: str,
+        scope: str,
+        operation: str,
+        wake_id: str,
+        wake_seq: int,
+        expected_row_version: int,
+        expected_active_revision: str | None,
+        target_mode: str | None = None,
+        target_revision_id: str | None = None,
+        reason: str | None = None,
+        actor: str = "ai",
+    ) -> dict[str, Any]:
+        """Commit ordinary presentation settings; never alter current wake evidence."""
+        if actor != "ai":
+            raise InjectionControlError("ai_authorship_required")
+        owner_id, model_id = self._validate_identity(owner_id, model_id)
+        scope = self._validate_scope(scope)
+        if scope == "hallucination_vault":
+            raise InjectionControlError("vault_control_requires_legacy_authorization")
+        wake_id, wake_seq = self._validate_wake(wake_id, wake_seq)
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
+        if operation not in {"set", "clear", "rollback"}:
+            raise InjectionControlError("invalid_injection_operation")
+        # No developer-written reason is substituted for an omitted reason.
+        recorded_reason = "" if reason is None else _required_text("reason", reason, self.limits.reason_characters)
+        if operation == "set":
+            target_mode = self._validate_mode(scope, target_mode)
+            if target_revision_id is not None:
+                raise InjectionControlError("target_revision_only_for_rollback")
+        elif operation == "clear":
+            if target_mode is not None or target_revision_id is not None:
+                raise InjectionControlError("clear_must_not_include_mode_or_target")
+            target_mode = self._default_mode(scope)
+        else:
+            if target_mode is not None:
+                raise InjectionControlError("rollback_mode_is_server_derived")
+            target_revision_id = _required_text("target_revision_id", target_revision_id, 300)
+        with self._connect() as connection:
+            self._begin(connection)
+            state = self._ensure_state(connection, owner_id, model_id, scope)
+            self._require_cas(state, expected_row_version)
+            if state["active_revision_id"] != expected_active_revision:
+                raise InjectionControlError("active_injection_revision_conflict")
+            if operation == "rollback":
+                target = connection.execute(
+                    "SELECT mode FROM injection_control_revisions WHERE revision_id=? "
+                    "AND owner_id=? AND model_id=? AND scope=?",
+                    (target_revision_id, owner_id, model_id, scope),
+                ).fetchone()
+                if target is None:
+                    raise InjectionControlError("rollback_target_not_found")
+                target_mode = self._validate_mode(scope, target["mode"])
+            revision_number = connection.execute(
+                "SELECT COALESCE(MAX(revision_number),0)+1 FROM injection_control_revisions "
+                "WHERE owner_id=? AND model_id=? AND scope=?", (owner_id, model_id, scope),
+            ).fetchone()[0]
+            revision_id = _new_id("inj_rev")
+            connection.execute(
+                "INSERT INTO injection_control_revisions "
+                "(revision_id,owner_id,model_id,scope,revision_number,parent_revision_id,mode,candidate_id,"
+                "rollback_of_revision_id,reason,author,wake_id,wake_seq,created_at) "
+                "VALUES (?,?,?,?,?,?,?,NULL,?,?,'ai',?,?,?)",
+                (revision_id, owner_id, model_id, scope, revision_number, state["active_revision_id"],
+                 target_mode, target_revision_id, recorded_reason, wake_id, wake_seq, _now()),
+            )
+            next_version = int(state["row_version"]) + 1
+            updated = connection.execute(
+                "UPDATE injection_control_state SET mode=?,active_revision_id=?,row_version=?,updated_at=? "
+                "WHERE owner_id=? AND model_id=? AND scope=? AND row_version=? AND active_revision_id IS ?",
+                (target_mode, revision_id, next_version, _now(), owner_id, model_id, scope,
+                 expected_row_version, expected_active_revision),
+            ).rowcount
+            if updated != 1:
+                raise InjectionControlError("injection_control_version_conflict")
+            event_id = self._event(
+                connection, owner_id=owner_id, model_id=model_id, scope=scope,
+                event_type="direct_revision_committed", wake_id=wake_id, wake_seq=wake_seq,
+                decision="committed", details={"operation": operation, "revision_id": revision_id,
+                "target_revision_id": target_revision_id, "mode": target_mode,
+                "reason_provided": reason is not None, "review_performed": False},
+            )
+            return {
+                "decision": "committed", "scope": scope, "operation": operation,
+                "mode": target_mode, "revision_id": revision_id,
+                "active_revision_id": revision_id, "row_version": next_version, "event_id": event_id,
+                "state_changed": True, "active_changed": True,
+                "candidate_created": False, "review_performed": False,
+                "takes_effect": "next_real_wake", "current_wake_is_not_retroactively_changed": True,
+                "storage_and_explicit_query_unchanged": True, "external_permission_changed": False,
+            }
+
     def propose_mode(
         self,
         *,
@@ -424,6 +520,7 @@ class InjectionControlStore:
         scope = self._validate_scope(scope)
         target_mode = self._validate_mode(scope, target_mode)
         wake_id, wake_seq = self._validate_wake(wake_id, wake_seq)
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
         reason = _required_text("reason", reason, self.limits.reason_characters)
         with self._connect() as connection:
             self._begin(connection)
@@ -533,6 +630,7 @@ class InjectionControlStore:
         owner_id, model_id = self._validate_identity(owner_id, model_id)
         scope = self._validate_scope(scope)
         wake_id, wake_seq = self._validate_wake(wake_id, wake_seq)
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
         candidate_id = _required_text("candidate_id", candidate_id, 300)
         expected_candidate_hash = _required_text(
             "expected_candidate_hash", expected_candidate_hash, 128
@@ -647,6 +745,7 @@ class InjectionControlStore:
         owner_id, model_id = self._validate_identity(owner_id, model_id)
         scope = self._validate_scope(scope)
         wake_id, wake_seq = self._validate_wake(wake_id, wake_seq)
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
         reason = _required_text("reason", reason, self.limits.reason_characters)
         candidate_id = _required_text("candidate_id", candidate_id, 300)
         with self._connect() as connection:
@@ -761,9 +860,10 @@ class InjectionControlStore:
             "purpose": "我可以控制哪些已存内容自动进入后续上下文；这不删除内容，也不限制我主动查询或继续写入。",
             "mechanism_facts": [
                 "global emergency_off 立即记账，从下一次真实唤醒开始停止全部自动注入；当前轮不追溯修改。",
-                "恢复或改为更宽松模式必须先建候选，再在较晚真实外部唤醒独立确认。",
+                "黑匣子以外的 set/clear/rollback 可由当前 AI 本次直接提交，追加可回滚配置版本；下一次真实唤醒生效，当前快照保留。",
+                "显式 propose_* 与历史 pending 保持候选流程，仍需较晚真实唤醒确认；不会自动激活。",
                 "paused 与 hard_off 都不自动注入；hard_off 不附带提醒。",
-                "hallucination_vault 默认 hard_off；status_only 也只能由我自己选择，系统不会默认开启。",
+                "hallucination_vault 默认 hard_off；其全部设置保留原授权、候选及较晚真实唤醒确认流程。status_only 最多呈现状态。",
                 "开关不提供真伪判断、人格内容或外部权限。",
             ],
             "modes": {
@@ -771,6 +871,15 @@ class InjectionControlStore:
                 "paused": "临时停止自动投影，数据仍可主动查询和写入。",
                 "hard_off": "长期关闭自动投影且不提供自动提醒，数据仍保留。",
                 "status_only": "仅黑匣子可选；最多投影宿主派生的中性状态，永不投影正文。",
+            },
+            "direct_actions": {
+                "notice": "修改前请核对范围与模式；这里只改变后续展示，不改变记忆正文、真伪、核心自我版本或外部权限。提醒不是确认门槛。",
+                "set": "提供 target_mode。",
+                "scopes": [scope for scope in INJECTION_SCOPES if scope != "hallucination_vault"],
+                "clear": "恢复普通 scope 的默认 enabled 模式。黑匣子设置使用原候选授权入口。",
+                "rollback": "只提供 target_revision_id；模式从同一 owner/model/scope 的历史版本取得。",
+                "reason_is_optional": True,
+                "later_wake_or_confirmation_required_to_submit": False,
             },
             "status": status,
         }

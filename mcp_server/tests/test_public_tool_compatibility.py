@@ -225,7 +225,18 @@ class PublicToolCompatibilityTests(unittest.TestCase):
         ):
             properties = self.schemas[name]["properties"]
             self.assertEqual(200, properties["idempotency_key"]["maxLength"])
-            self.assertIs(True, properties["ai_confirmation"]["const"])
+            if name == "remember_planning_memory":
+                self.assertIs(True, properties["ai_confirmation"]["const"])
+                self.assert_invalid_in_both_views(name, {**arguments, "ai_confirmation": None})
+            else:
+                self.assertEqual(
+                    [{"type": "boolean", "const": True}, {"type": "null"}],
+                    properties["ai_confirmation"]["anyOf"],
+                )
+                self.assert_valid_in_both_views(name, {**arguments, "ai_confirmation": None, "calm_check": None})
+                omitted = {key: value for key, value in arguments.items()
+                           if key not in {"ai_confirmation", "calm_check"}}
+                self.assert_valid_in_both_views(name, omitted)
             for changes in ({"ai_confirmation": False}, {"idempotency_key": "x" * 201}):
                 invalid = {**arguments, **changes}
                 self.assert_invalid_in_both_views(name, invalid)
@@ -235,7 +246,10 @@ class PublicToolCompatibilityTests(unittest.TestCase):
         self.assertIn("milestone", rules["hierarchy"])
         self.assertIn("My", rules["authorship"])
         self.assertIn("200", rules["idempotency_key"])
-        self.assertIn("较晚真实唤醒", rules["confirmation"])
+        self.assertIn("本次决定采用的最终计划", rules["confirmation"])
+        self.assertIn("ai_confirmation=true", rules["confirmation"])
+        self.assertIn("exact hash", rules["confirmation"])
+        self.assertNotIn("较晚真实唤醒", rules["confirmation"])
 
     def test_schema_inlining_keeps_reference_sibling_constraints(self) -> None:
         original = {"$ref": "#/$defs/short_list", "maxItems": 1}
@@ -254,22 +268,27 @@ class PublicToolCompatibilityTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 public_contract._inline_planning_input_schema({"$ref": "#/$defs/cycle"})
 
-    def test_tool_guidance_machine_tags_match_reviewed_static_constraints(self) -> None:
+    def test_tool_guidance_natural_tags_match_reviewed_static_constraints(self) -> None:
         module_schema = json.loads(
             (Path(__file__).parents[2] / "schemas" / "tool-guidance.schema.json").read_text(
                 encoding="utf-8"
             )
         )
         tags = self.schemas["remember_tool_guidance"]["properties"]["scenario_tags"]
-        self.assertEqual(module_schema["$defs"]["tagList"]["items"], tags["items"])
-        self.assertEqual(16, tags["maxItems"])
-        self.assertEqual(1, tags["minItems"])
-        self.assertTrue(tags["uniqueItems"])
-        self.assertIn("scenario_examples", tags["description"])
+        array = next(option for option in tags["anyOf"] if option.get("type") == "array")
+        self.assertEqual(module_schema["$defs"]["tagList"]["items"], array["items"])
+        self.assertEqual(16, array["maxItems"])
+        self.assertEqual(0, array["minItems"])
+        self.assertTrue(array["uniqueItems"])
+        self.assertIsNone(tags["default"])
+        self.assertIn("中文", tags["description"])
         validator = Draft202012Validator(tags)
+        self.assertTrue(validator.is_valid(None))
+        self.assertTrue(validator.is_valid([]))
         self.assertTrue(validator.is_valid(["home.arrival", "room-light_1"]))
+        self.assertTrue(validator.is_valid(["回家了", "准备睡觉", "home arrival", "-start"]))
         invalid_tags = (
-            [], ["回家"], ["home arrival"], [""], ["-start"],
+            [""], ["   "], ["回家\n开灯"], ["home\x00arrival"],
             ["x" * 129], ["same", "same"],
             [f"scene.{index}" for index in range(17)],
         )
@@ -283,7 +302,7 @@ class PublicToolCompatibilityTests(unittest.TestCase):
         self.assertIsNone(revised["default"])
         self.assertTrue(Draft202012Validator(revised).is_valid(None))
         self.assertTrue(Draft202012Validator(revised).is_valid(["home.arrival"]))
-        self.assertFalse(Draft202012Validator(revised).is_valid(["回家"]))
+        self.assertTrue(Draft202012Validator(revised).is_valid(["回家"]))
 
     def test_tool_guidance_risk_descriptions_do_not_change_existing_choices(self) -> None:
         for name in ("remember_tool_guidance", "revise_tool_guidance"):

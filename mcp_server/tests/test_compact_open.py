@@ -273,7 +273,7 @@ class CompactOpenStateTests(unittest.TestCase):
         self.assertEqual(0, self.proof_count("candidate_full_review", wake))
         self.assertIsNone(opened.get("continuation"))
 
-    def test_planning_summary_is_not_review_proof_but_selected_manual_is(self) -> None:
+    def test_planning_legacy_candidate_manual_exposes_exact_review_without_weakening_binding(self) -> None:
         self.bootstrap_live()
         planning = PlanningMemoryAccessService(
             PlanningMemoryStore(self.database),
@@ -283,9 +283,17 @@ class CompactOpenStateTests(unittest.TestCase):
         )
         self.service.planning = planning
         opened = self.service.open_brain(view="summary")
-        pending = planning.remember(
-            write_context_ref=opened["write_context_ref"],
-            expected_planning_version=planning.status()["row_version"],
+        # Public remember now stores an active plan immediately. Construct only
+        # this historical pending fixture through the explicit legacy primitive.
+        binding = self.onboarding.current_open_write_context(
+            owner_id=self.service.owner_id, model_id=self.service.model_id,
+            write_context_ref=opened["write_context_ref"], required_scope="planning_memory",
+        )
+        self.assertTrue(binding["write_context_available"])
+        pending = planning.store.propose_create(
+            owner_id=self.service.owner_id, model_id=self.service.model_id,
+            wake_id=binding["wake_id"], wake_seq=binding["wake_seq"],
+            expected_row_version=planning.status()["row_version"],
             content=plan_content("纯隔离规划验例"),
             reason="我选择保存这条隔离验例。",
             calm_check=calm(),
@@ -298,28 +306,40 @@ class CompactOpenStateTests(unittest.TestCase):
         self.wake("planning-summary-later")
         summary = self.service.open_brain(view="summary")
 
-        def review(version: int) -> dict:
-            return planning.review(
-                write_context_ref=summary["write_context_ref"],
-                expected_planning_version=version,
-                candidate_id=candidate["candidate_id"],
-                expected_candidate_version=candidate["candidate_version"],
-                expected_candidate_hash=candidate["candidate_hash"],
-                expected_base_version=candidate["base_version"],
-                decision="accept",
-                correctness_assessment="我完整复核了纯隔离规划验例。",
-                calm_check=calm(),
-                reason="我独立决定接受这条隔离验例。",
-                ai_confirmation=True,
+        def review(version: int, **overrides) -> dict:
+            arguments = dict(
+                write_context_ref=summary["write_context_ref"], expected_planning_version=version,
+                candidate_id=candidate["candidate_id"], expected_candidate_version=candidate["candidate_version"],
+                expected_candidate_hash=candidate["candidate_hash"], expected_base_version=candidate["base_version"],
+                decision="accept", reason="我明确决定接受这条隔离验例。", ai_confirmation=True,
             )
+            return planning.review(**{**arguments, **overrides})
 
-        denied = review(planning.status()["row_version"])
-        self.assertEqual("reject", denied["decision"])
-        self.assertIn("candidate_not_fully_presented", denied["reason_codes"])
+        self.assertNotIn("pending_changes", summary["planning_memory"])
+        # Summary is not full candidate content, but a presentation stamp is no
+        # longer authorization. Exact hash, version, current binding and CAS are.
+        for override, reason in (
+            ({"write_context_ref": opened["write_context_ref"]}, "brain_open_required"),
+            ({"expected_candidate_hash": "0" * 64}, "candidate_hash_mismatch"),
+            ({"expected_candidate_version": candidate["candidate_version"] + 1}, "candidate_version_mismatch"),
+            ({"expected_base_version": candidate["base_version"] + 1}, "candidate_base_mismatch"),
+        ):
+            version = planning.status()["row_version"]
+            denied = review(version, **override)
+            self.assertEqual("reject", denied["decision"])
+            self.assertIn(reason, denied["reason_codes"])
+            self.assertFalse(denied["state_changed"])
+            self.assertEqual(version, planning.status()["row_version"])
+        version = planning.status()["row_version"]
+        stale_row = review(version - 1)
+        self.assertIn("planning_row_version_conflict", stale_row["reason_codes"])
+        self.assertFalse(stale_row["state_changed"])
+        self.assertEqual(version, planning.status()["row_version"])
         selected = self.service.open_brain(view="manual", module="planning_memory")
         self.assertEqual(summary["write_context_ref"], selected["write_context_ref"])
         projection = selected["planning_memory"]
         self.assertTrue(projection["pending_changes"][0]["fully_presented"])
+        self.assertFalse(projection["pending_changes"][0]["review_requires_later_wake"])
         self.assertEqual(candidate["candidate_hash"], projection["pending_changes"][0]["candidate_hash"])
         self.assertEqual("candidate_accepted", review(projection["planning_row_version"])["decision"])
 

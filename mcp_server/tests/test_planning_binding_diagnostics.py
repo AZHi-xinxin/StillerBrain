@@ -59,8 +59,8 @@ class FakeStore:
             "planning_row_version": 8,
         }
 
-    propose_create = _write
-    propose_revision = _write
+    remember_direct = _write
+    revise_direct = _write
     record_event = _write
     review_change = _write
 
@@ -316,11 +316,11 @@ class PlanningBindingSyntheticCASTests(OfflineTestCase):
                     "idempotency_key": "synthetic-first",
                 }
                 accepted = service.remember(**fields)
-                self.assertEqual("candidate_pending", accepted["decision"])
-                self.assertIs(False, accepted["active_plan_changed"])
+                self.assertEqual("stored", accepted["decision"])
+                self.assertIs(True, accepted["active_plan_changed"])
                 after = service.status()
                 self.assertEqual(before["row_version"] + 1, after["row_version"])
-                self.assertEqual(1, after["counts"]["pending_changes"])
+                self.assertEqual(0, after["counts"]["pending_changes"])
                 fields["idempotency_key"] = "synthetic-stale-version"
                 rejected = service.remember(**fields)
                 self.assertEqual(["planning_row_version_conflict"], rejected["reason_codes"])

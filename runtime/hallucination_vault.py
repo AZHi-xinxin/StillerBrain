@@ -22,6 +22,7 @@ import re
 import sqlite3
 import threading
 from typing import Any, Iterator, Mapping, Protocol
+from .credential_guard import contains_credential_or_secret
 import uuid
 
 
@@ -36,12 +37,6 @@ _UNCERTAINTY_STATUSES = frozenset({"ai_isolated", "still_uncertain"})
 _RESTORE_ACTIONS = frozenset({"activate", "reject", "withdraw"})
 _FIRST_PERSON = re.compile(r"^\s*(?:我|I(?:\s|['’])|My(?:\s|$))", re.I)
 _LEARNING_REF = re.compile(r"^learning://(?P<id>[A-Za-z0-9_-]+)@(?P<version>[1-9][0-9]*)$")
-_SECRET_PATTERNS = (
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----", re.I),
-    re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"),
-    re.compile(r"\b(?:password|passwd|api[_ -]?key|secret|token|cookie)\s*[:=]", re.I),
-    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{12,}", re.I),
-)
 
 
 class HallucinationVaultError(ValueError):
@@ -102,8 +97,7 @@ def _true(name: str, value: Any) -> None:
 
 
 def _contains_secret(value: Any) -> bool:
-    text = _canonical(value)
-    return any(pattern.search(text) for pattern in _SECRET_PATTERNS)
+    return contains_credential_or_secret(value)
 
 
 def _row_dict(row: sqlite3.Row) -> dict[str, Any]:

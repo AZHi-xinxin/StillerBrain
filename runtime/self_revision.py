@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping, Optional, Sequence
+from .credential_guard import contains_credential_or_secret as _credential_guard
 
 
 DEFAULT_BOOTSTRAP_SAFETY_PROMPT = (
@@ -55,13 +56,6 @@ _LIFECYCLE_EVENTS = {
     "candidate_activated": "activated",
 }
 
-_SECRET_PATTERNS = (
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----", re.I),
-    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{12,}", re.I),
-    re.compile(r"\b(?:sk|api)[-_][A-Za-z0-9_-]{16,}\b", re.I),
-    re.compile(r"\b(?:password|passwd|api[_ -]?key|secret|token|cookie)\s*[:=]", re.I),
-    re.compile(r"(?:密码|口令|私钥|令牌|密钥)\s*[:：=]", re.I),
-)
 _PRIVATE_FACT_PATTERNS = (
     re.compile(r"\b1[3-9]\d{9}\b"),
     re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I),
@@ -102,8 +96,7 @@ def contains_credential_or_secret(value: Any) -> bool:
     detectors.  It never returns or records the matching text.
     """
 
-    joined = "\n".join(_all_strings(value))
-    return any(pattern.search(joined) for pattern in _SECRET_PATTERNS)
+    return _credential_guard(value)
 
 
 def _now() -> str:

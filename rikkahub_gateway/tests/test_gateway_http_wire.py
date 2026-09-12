@@ -242,7 +242,7 @@ class GatewayProgressiveStreamTests(unittest.TestCase):
         stream = _GatedSSEStream(
             [
                 b'data: {"choices":[{"delta":{"reasoning_content":"phase-one."}}]}\n\n',
-                b'data: {"choices":[{"delta":{"reasoning_content":"phase-two."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+                b'data: {"choices":[{"delta":{"reasoning_content":"phase-two.","content":"answer."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
             ],
             pause_after=0,
         )

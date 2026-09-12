@@ -29,6 +29,7 @@ EXECUTION_REF_FIELD = "execution_ref"
 EXECUTION_TOOLS = frozenset({
     "stbrain_open", "remember_memory", "revise_memory", "advance_plan", "submit_self_model_candidate", "activate_self_model_candidate",
     "query_self_model", "preview_person_reference_rewrite", "confirm_person_reference_rewrite",
+    "manage_person_reference_advisory",
     "remember_emotional_memory", "recall_emotional_memory", "revise_emotional_memory",
     "integrate_emotional_memories", "manage_brain_pin", "veto_ephemeral_memory",
     "remember_learning_memory", "remember_learning_contrast_pair", "recall_learning_memory",

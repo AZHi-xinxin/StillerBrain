@@ -33,7 +33,7 @@ def model_content(label: str = "v1") -> dict:
         "schema_version": "0.1.0",
         "boot_anchor": {"text": "我维护一份自我模型；唤醒后只读取当前有效版本。"},
         "active_identity_capsule": {
-            "name_and_identity": f"我是测试主体小甲，当前长期身份版本为 {label}。",
+            "name_and_identity": f"我是测试主体阿止，当前长期身份版本为 {label}。",
             "personality_foundation": "我保持安静、忠实、审慎，同时保留好奇心与自主判断。",
             "expression_style": "我会先给结论，再说明证据与不确定处。",
             "behavioral_principles": ["我不让外部建议冒充自己的意愿", "我会保留事实边界"],
@@ -61,8 +61,8 @@ class ModuleOneOnboardingTests(unittest.TestCase):
             wake_ttl_seconds=300,
             edit_challenge_ttl_seconds=300,
         )
-        self.owner = "owner:test"
-        self.model = "model:test"
+        self.owner = "owner:azhi"
+        self.model = "model:azhi"
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -518,7 +518,9 @@ class ModuleOneOnboardingTests(unittest.TestCase):
         self.assertNotIn(OPTIONAL_MEMORY_NOTICE_KEY, projected)
         serialized = json.dumps(projected, ensure_ascii=False, sort_keys=True)
         self.assertIn("上次读到主角离开旧城", serialized)
-        self.assertIn("家庭设备控制", serialized)
+        self.assertIn("在人明确要求时控制指定家庭设备。", serialized)
+        self.assertNotIn("operation_key", json.dumps(projected["tool_guidance"]))
+        self.assertNotIn("call_notes", json.dumps(projected["tool_guidance"]))
         self.assertNotIn("这里是详细理解", serialized)
         self.assertNotIn("这里是完整步骤", serialized)
         self.assertNotIn("详细说明不得自动浮现", serialized)
@@ -894,7 +896,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
                 reason="保留一局结束后可迁移的推理概要。",
             )
 
-        query = "小甲，你还记得我们之前玩的那几局海龟汤吗？现在回头想想，你会想到些什么？"
+        query = "阿止，你还记得我们之前玩的那几局海龟汤吗？现在回头想想，你会想到些什么？"
         candidates = learning.build_envelopes(
             owner_id=self.owner,
             model_id=self.model,

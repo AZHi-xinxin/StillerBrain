@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from mcp_server.learning_service import LearningMemoryAccessService
-from mcp_server.public_contract import learning_calm_check_input_schema
+from tests.learning_legacy_fixtures import legacy_integration_candidate
 from mcp_server.service import SelfModelAccessService, _strip_private_binding_fields
 from runtime import ModuleOneOnboardingStore, SelfModelStore
 from runtime.learning_memory import LearningMemoryStore
@@ -200,6 +200,15 @@ class LearningMemoryAccessServiceTests(unittest.TestCase):
             **self.card(suffix),
         )
 
+    def legacy_integration(self, *, write_context_ref, expected_learning_version, **fields):
+        """Load a synthetic pre-simplification pending row for compatibility tests."""
+        binding = self.learning._binding(write_context_ref)
+        assert binding is not None
+        return legacy_integration_candidate(
+            self.learning_store, owner_id=self.learning.owner_id, model_id=self.learning.model_id,
+            wake_id=binding["wake_id"], wake_seq=binding["wake_seq"],
+            expected_row_version=expected_learning_version, **fields)
+
     def assert_review_call_contract(self, call: dict) -> None:
         required = set(call["required_arguments"])
         self.assertEqual(len(required), len(call["required_arguments"]))
@@ -216,11 +225,9 @@ class LearningMemoryAccessServiceTests(unittest.TestCase):
             caller_authored,
             set(call["caller_authored_argument_schemas"]),
         )
-        self.assertEqual(
-            learning_calm_check_input_schema(),
-            call["caller_authored_argument_schemas"]["calm_check"],
-        )
-        self.assertEqual({"ai_confirmation": True}, call["required_confirmation"])
+        self.assertNotIn("calm_check", call["caller_authored_argument_schemas"])
+        self.assertNotIn("correctness_assessment", call["required_arguments"])
+        self.assertEqual(["accept"], call["confirmation_applies_to"])
         self.assertEqual("rejected", call["unknown_arguments"])
 
     def test_all_access_is_locked_before_module_one_without_side_effects(self) -> None:
@@ -306,7 +313,7 @@ class LearningMemoryAccessServiceTests(unittest.TestCase):
 
         recalled = self.learning.recall(target_ref=stored["item_ref"])
         self.assertEqual("recalled", recalled["decision"])
-        self.assertEqual("learning-tools/5", recalled["contract_version"])
+        self.assertEqual("learning-tools/6", recalled["contract_version"])
         content = recalled["results"][0]["content"]
         self.assertTrue(content["summary"].startswith("她"))
         self.assertEqual("unresolved", content["referent_bindings"][0]["resolution_status"])
@@ -566,6 +573,23 @@ class LearningMemoryAccessServiceTests(unittest.TestCase):
         self.assertEqual(["challenge_evidence_ref_not_found"], rejected["reason_codes"])
         self.assertEqual(0, self.learning.status()["row_version"])
 
+    def test_author_revise_and_integrate_need_no_ritual_arguments(self) -> None:
+        self.activate_module_one()
+        self.wake("minimal-author-submission")
+        opened = self.service.open_brain()
+        one = self.remember(opened=opened, version=0, suffix="one")
+        two = self.remember(opened=opened, version=1, suffix="two")
+        changed = self.learning.revise(
+            write_context_ref=opened["write_context_ref"], expected_learning_version=2,
+            target_ref=one["item_ref"], changes={"current_understanding": "Author changed this understanding."})
+        self.assertEqual("applied", changed["decision"])
+        integrated = self.learning.integrate(
+            write_context_ref=opened["write_context_ref"], expected_learning_version=3,
+            source_learning_ids=[changed["item_ref"], two["item_ref"]], synthesis_kind="summary",
+            **self.card("direct synthesis"))
+        self.assertEqual("applied", integrated["decision"])
+        self.assertEqual(0, self.learning.status()["counts"]["pending_changes"])
+
     def test_new_wake_open_fully_presents_pending_candidate_and_exact_review_call(self) -> None:
         self.activate_module_one()
         self.wake("learning-integration-author")
@@ -582,7 +606,7 @@ class LearningMemoryAccessServiceTests(unittest.TestCase):
             "notes": "我已检查两张来源卡、反证、关系与回滚边界。",
             "evidence_refs": [first["item_ref"], second["item_ref"]],
         }
-        candidate = self.learning.integrate(
+        candidate = self.legacy_integration(
             write_context_ref=opened["write_context_ref"],
             expected_learning_version=2,
             source_learning_ids=[first["learning_id"], second["learning_id"]],
@@ -601,12 +625,9 @@ class LearningMemoryAccessServiceTests(unittest.TestCase):
 
         same_wake = self.service.open_brain()["learning_memory"]
         self.assertEqual(candidate["candidate_id"], same_wake["pending_changes"][0]["candidate_id"])
-        self.assertTrue(same_wake["pending_changes"][0]["review_requires_later_wake"])
-        self.assertEqual([], same_wake["current_action_contract"]["allowed_calls"])
-        self.assertEqual(
-            "later_real_wake_required",
-            same_wake["current_action_contract"]["blocked_candidates"][0]["reason"],
-        )
+        self.assertFalse(same_wake["pending_changes"][0]["review_requires_later_wake"])
+        self.assertEqual(1, len(same_wake["current_action_contract"]["allowed_calls"]))
+        self.assertEqual([], same_wake["current_action_contract"]["blocked_candidates"])
 
         self.wake("learning-integration-review")
         later_open = self.service.open_brain()
@@ -621,21 +642,7 @@ class LearningMemoryAccessServiceTests(unittest.TestCase):
         self.assert_review_call_contract(call)
         self.assertEqual(candidate["candidate_hash"], call["fixed_arguments"]["expected_candidate_hash"])
         self.assertEqual(0, call["fixed_arguments"]["expected_base_version"])
-        calm_schema = call["caller_authored_argument_schemas"]["calm_check"]
-        self.assertFalse(calm_schema["additionalProperties"])
-        self.assertEqual(
-            {
-                "evidence_sufficient",
-                "counterevidence_checked",
-                "scope_changed",
-                "affected_links_checked",
-                "single_turn_pressure_absent",
-                "rollback_understood",
-                "notes",
-                "evidence_refs",
-            },
-            set(calm_schema["required"]),
-        )
+        self.assertNotIn("calm_check", call["caller_authored_argument_schemas"])
 
         reviewed = self.learning.review(
             write_context_ref=later_open["write_context_ref"],
@@ -666,7 +673,7 @@ class LearningMemoryAccessServiceTests(unittest.TestCase):
             "notes": "已检查两张来源卡、反证、关系与回滚边界。",
             "evidence_refs": [first["item_ref"], second["item_ref"]],
         }
-        candidate = self.learning.integrate(
+        candidate = self.legacy_integration(
             write_context_ref=opened["write_context_ref"],
             expected_learning_version=2,
             source_learning_ids=[first["learning_id"], second["learning_id"]],
@@ -728,7 +735,7 @@ class LearningMemoryAccessServiceTests(unittest.TestCase):
             "notes": "已检查两张来源卡、反证、关系与回滚边界。",
             "evidence_refs": [first["item_ref"], second["item_ref"]],
         }
-        candidate = self.learning.integrate(
+        candidate = self.legacy_integration(
             write_context_ref=opened["write_context_ref"],
             expected_learning_version=2,
             source_learning_ids=[first["learning_id"], second["learning_id"]],

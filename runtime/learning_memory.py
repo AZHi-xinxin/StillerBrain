@@ -22,6 +22,9 @@ import sqlite3
 from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
 import unicodedata
 from uuid import uuid4
+from .credential_guard import contains_credential_or_secret
+from .execution_binding import assert_bound_execution, expected_execution_wake
+from .lexical_retrieval import explicit_alias_match, prepare_explicit_alias_query
 
 from .authoring import (
     AUTHORING_ADVISORY,
@@ -50,8 +53,8 @@ LEARNING_REVIEW_MATERIAL_MAX_JSON = 64_000
 LEARNING_REVIEW_PROJECTION_MAX_JSON = 96_000
 
 LEARNING_KINDS = frozenset({"concept", "fact", "procedure", "skill", "lesson", "strategy"})
-EPISTEMIC_STATUSES = frozenset({"observed", "reported", "inferred", "disputed", "hallucination"})
-SOURCE_BASES = frozenset({"observed", "reported", "inferred"})
+EPISTEMIC_STATUSES = frozenset({"observed", "reported", "inferred", "unmarked", "disputed", "hallucination"})
+SOURCE_BASES = frozenset({"observed", "reported", "inferred", "unmarked"})
 CLAIM_REVIEW_STATUSES = frozenset({"ordinary", "challenged", "rejected"})
 TIME_SENSITIVITIES = frozenset({"timeless", "stable", "volatile"})
 SENSITIVITIES = frozenset({"public", "internal", "private", "intimate", "restricted"})
@@ -84,13 +87,6 @@ NARRATIVE_FIELDS = frozenset({
     "/title", "/summary", "/current_understanding", "/steps",
     "/application_contexts", "/preceding_context_summary", "/uncertainties",
 })
-
-_SECRET_PATTERNS = (
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----", re.I),
-    re.compile(r"\b(?:api[ _-]?key|token|password|passwd|secret|cookie)\s*[:=]\s*[^\s,;]{6,}", re.I),
-    re.compile(r"\b(?:sk|ghp|xox[baprs])[-_][A-Za-z0-9_-]{12,}\b"),
-    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/-]{12,}=*", re.I),
-)
 
 # These names are removed recursively by the public MCP boundary because they
 # carry host capabilities elsewhere.  A learning link's free-form ``basis``
@@ -154,7 +150,7 @@ def _walk(value: Any) -> Iterable[str]:
 
 
 def _contains_secret(*values: Any) -> bool:
-    return any(pattern.search(text) for value in values for text in _walk(value) for pattern in _SECRET_PATTERNS)
+    return contains_credential_or_secret(values)
 
 
 def _review_safe_value(value: Any) -> Any:
@@ -294,6 +290,17 @@ def _percent(name: str, value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 100:
         raise LearningMemoryError(f"{name}_invalid")
     return value
+
+
+def _optional_confidence(value: Any) -> int | None:
+    return None if value is None else _percent("confidence", value)
+
+
+def _source_confidence_label(content: Mapping[str, Any]) -> str:
+    source = {"observed": "亲历或观察", "reported": "转述或引述",
+              "inferred": "推断"}.get(_source_basis(content), "未标注")
+    score = content.get("confidence")
+    return f"来源：{source}；可信度：{'未标注' if score is None else str(score) + '%'}"
 
 
 def _normalized(value: str) -> str:
@@ -979,7 +986,9 @@ class LearningMemoryStore:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 30000")
         try:
+            assert_bound_execution(connection)
             yield connection
+            assert_bound_execution(connection)
             connection.commit()
         except Exception:
             connection.rollback()
@@ -990,6 +999,7 @@ class LearningMemoryStore:
     @staticmethod
     def _begin(connection: sqlite3.Connection) -> None:
         connection.execute("BEGIN IMMEDIATE")
+        assert_bound_execution(connection)
 
     def _initialize(self) -> None:
         with self._connect() as connection:
@@ -1035,6 +1045,11 @@ class LearningMemoryStore:
                     source_position INTEGER NOT NULL, source_version INTEGER NOT NULL,
                     source_hash TEXT NOT NULL, source_action TEXT NOT NULL, created_at TEXT NOT NULL,
                     PRIMARY KEY(candidate_id, source_learning_id), UNIQUE(candidate_id, source_position)
+                );
+                CREATE TABLE IF NOT EXISTS learning_direct_integrations (
+                    integration_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL,
+                    model_id TEXT NOT NULL, target_ref TEXT NOT NULL,
+                    created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS learning_change_candidates (
                     candidate_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, model_id TEXT NOT NULL,
@@ -1110,6 +1125,7 @@ class LearningMemoryStore:
                     )
 
     def ensure_state(self, *, owner_id: str, model_id: str) -> None:
+        expected_execution_wake(owner_id=owner_id, model_id=model_id)
         owner_id = _text("owner_id", owner_id, 200)
         model_id = _text("model_id", model_id, 200)
         with self._connect() as connection:
@@ -1294,7 +1310,7 @@ class LearningMemoryStore:
             # Deprecated compatibility projection.  It is server-derived for
             # all 0.3 writes; callers choose the two independent axes below.
             "epistemic_status": epistemic_status,
-            "confidence": _percent("confidence", fields.get("confidence")),
+            "confidence": _optional_confidence(fields.get("confidence")),
             "time_sensitivity": _enum(
                 "time_sensitivity", fields.get("time_sensitivity", "stable"), TIME_SENSITIVITIES
             ),
@@ -1333,6 +1349,7 @@ class LearningMemoryStore:
             "observed": "firsthand",
             "reported": "reported",
             "inferred": "inferred",
+            "unmarked": "unmarked",
         }.get(source_basis, "inferred")
         content["provenance_badge"] = (
             provenance_default
@@ -1864,6 +1881,10 @@ class LearningMemoryStore:
         allowed = required | {"steps", "preceding_context_summary"}
         if set(value) - allowed or not required <= set(value):
             raise LearningMemoryError("contrast_claim_shape_invalid")
+        # This dedicated disputed-pair contract remains unchanged this round;
+        # optional ordinary-memory defaults do not relax its explicit fields.
+        _enum("source_basis", value.get("source_basis"), SOURCE_BASES - {"unmarked"})
+        _percent("confidence", value.get("confidence"))
         evidence_items = self._validate_evidence(evidence)
         fields = {
             **dict(shared_fields),
@@ -1888,6 +1909,7 @@ class LearningMemoryStore:
         preserve_original_text: bool = False,
         **fields: Any,
     ) -> dict[str, Any]:
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
         if type(preserve_original_text) is not bool:
             raise LearningMemoryError("preserve_original_text_invalid")
         self.ensure_state(owner_id=owner_id, model_id=model_id)
@@ -2165,6 +2187,7 @@ class LearningMemoryStore:
         misuse a quarantine label, predict the first generated item_ref, or
         stitch two partially successful writes together.
         """
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
 
         self.ensure_state(owner_id=owner_id, model_id=model_id)
         correctness = _text("correctness_assessment", correctness_assessment, 2000)
@@ -2375,6 +2398,7 @@ class LearningMemoryStore:
             "content": content,
             "knowledge_axes": {
                 "source_basis": _source_basis(content),
+                "source_confidence_label": _source_confidence_label(content),
                 "claim_review_status": _claim_review_status(content),
                 "legacy_compatibility": "claim_review" not in content,
             },
@@ -2490,7 +2514,10 @@ class LearningMemoryStore:
             "integration.source_hash, version.mutable_hash AS source_version_hash, "
             "version.mutable_json AS source_snapshot_json, "
             "source.current_json AS source_current_json "
-            "FROM learning_change_candidates AS candidate "
+            "FROM (SELECT candidate_id, owner_id, model_id, target_ref, created_at "
+            "FROM learning_change_candidates WHERE status='accepted' "
+            "UNION ALL SELECT integration_id AS candidate_id, owner_id, model_id, "
+            "target_ref, created_at FROM learning_direct_integrations) AS candidate "
             "JOIN learning_integrations AS integration "
             "ON integration.candidate_id=candidate.candidate_id "
             "JOIN learning_items AS source "
@@ -2501,7 +2528,6 @@ class LearningMemoryStore:
             "ON version.learning_id=integration.source_learning_id "
             "AND version.version=integration.source_version "
             "WHERE candidate.owner_id=? AND candidate.model_id=? "
-            "AND candidate.status='accepted' "
             "AND source.lifecycle IN ('active','archived','superseded') "
             "ORDER BY candidate.created_at, integration.source_position",
             (owner_id, model_id),
@@ -2709,7 +2735,8 @@ class LearningMemoryStore:
                     "domain": "" if restricted_stub else content["domain"],
                     "scene_tags": [] if restricted_stub else list(content["scene_tags"]),
                     "keywords": [] if restricted_stub else list(content["keywords"]),
-                    "confidence": int(content["confidence"]),
+                    "confidence": content["confidence"],
+                    "source_confidence_label": _source_confidence_label(content),
                     "importance": int(content["importance"]),
                     "source_basis": _source_basis(content),
                     "claim_review_status": _claim_review_status(content),
@@ -2920,6 +2947,9 @@ class LearningMemoryStore:
             )
             integration_matches: dict[str, list[str]] = {}
             natural_matches: dict[str, dict[str, Any]] = {}
+            alias_query = prepare_explicit_alias_query(query.strip()) if has_query else None
+            alias_matches: dict[str, dict[str, object]] = {}
+            alias_candidates: list[tuple[float, sqlite3.Row]] = []
             scored: list[tuple[float, sqlite3.Row]] = []
             for row in rows:
                 if target_version is not None and row["current_version"] != target_version and not include_versions:
@@ -2946,11 +2976,31 @@ class LearningMemoryStore:
                         integration_matches[row["learning_id"]] = lineage_refs
                 if has_target or score >= 0.15:
                     scored.append((score, row))
+                elif alias_query is not None:
+                    content = json.loads(row["current_json"])
+                    alias_match = explicit_alias_match(alias_query, [
+                        content.get("title", ""), content.get("summary", ""),
+                        *content.get("scene_tags", []), *content.get("keywords", []),
+                    ])
+                    if alias_match:
+                        alias_matches[row["learning_id"]] = alias_match
+                        alias_candidates.append((score, row))
             scored.sort(key=lambda pair: (-pair[0], -int(pair[1]["current_version"]), pair[1]["learning_id"]))
+            # Existing literal/subject/lineage hits keep their priority. These
+            # extra candidates never alter the automatic query score or graph.
+            alias_candidates.sort(key=lambda pair: (
+                -float(alias_matches[pair[1]["learning_id"]]["score"]), -pair[0], pair[1]["learning_id"],
+            ))
+            scored.extend(alias_candidates)
             results: list[dict[str, Any]] = []
             for score, row in scored[:limit]:
                 item = self._public_item(row)
                 item["semantic_score"] = round(score, 4)
+                if row["learning_id"] in alias_matches:
+                    alias_match = alias_matches[row["learning_id"]]
+                    item.update({"retrieval_evidence": alias_match,
+                                 "retrieval_match": "lexical_alias_candidate",
+                                 "candidate_only": True, "candidate_score": alias_match["score"]})
                 natural_evidence = natural_matches.get(row["learning_id"])
                 if natural_evidence is not None and score == natural_evidence["score"]:
                     item["retrieval_evidence"] = natural_evidence
@@ -3213,6 +3263,7 @@ class LearningMemoryStore:
                 contrast = row["learning_id"] in contrast_ids
                 low_confidence_hint = (
                     _source_basis(content) in {"reported", "inferred"}
+                    and content["confidence"] is not None
                     and content["confidence"] < 50
                 )
                 neutral_hint = content["context_policy"] == "neutral_hint" or low_confidence_hint
@@ -3224,6 +3275,7 @@ class LearningMemoryStore:
                     "source_basis": _source_basis(content),
                     "claim_review_status": _claim_review_status(content),
                     "provenance_badge": content["provenance_badge"],
+                    "source_confidence_label": _source_confidence_label(content),
                 }
                 if scene_match and content["preceding_context_summary"]:
                     projected["preceding_context_summary"] = content["preceding_context_summary"]
@@ -3397,120 +3449,49 @@ class LearningMemoryStore:
         expected_row_version: int, learning_id: str, expected_item_version: int,
         changes: Mapping[str, Any], reason: str,
     ) -> dict[str, Any]:
-        """Append a small display/retrieval revision, without asserting correctness.
-
-        Exact item CAS is supplied by the caller, not inferred from latest content.
-        Knowledge body, evidence, claim review, lifecycle and disclosure are kept
-        byte-for-byte at the JSON value level; no candidate or verification event
-        is manufactured. Advanced semantic revision retains its existing workflow.
-        """
-        from .execution_binding import assert_bound_execution, expected_execution_wake
-
-        allowed = {"title", "summary", "domain", "keywords", "entities", "importance"}
-        if not isinstance(changes, Mapping) or not changes:
-            raise LearningMemoryError("changes_required")
-        if set(changes) - allowed:
-            raise LearningMemoryError("ordinary_revision_requires_advanced")
+        """Append an author revision to a learning card; no new review candidate."""
         if type(expected_item_version) is not int or expected_item_version < 1:
             raise LearningMemoryError("learning_item_version_conflict")
-        learning_id = _text("learning_id", learning_id, 200)
-        reason = _text("reason", reason, 2000)
-        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
-        cleaned: dict[str, Any] = {}
-        for key, value in changes.items():
-            if key in {"title", "summary"}:
-                cleaned[key] = _text(key, value, getattr(self.limits, key))
-            elif key == "domain":
-                if not isinstance(value, str):
-                    raise LearningMemoryError("domain_required")
-                cleaned[key] = _text(key, value, 160, optional=True)
-            elif key == "importance":
-                cleaned[key] = _percent(key, value)
-            else:
-                if not isinstance(value, list):
-                    raise LearningMemoryError(f"{key}_invalid")
-                cleaned[key] = _strings(key, value, 24, 200)
-        if _contains_secret(cleaned, reason):
-            raise LearningMemoryError("credential_or_secret_detected")
-        with self._connect() as connection:
-            self._begin(connection)
-            assert_bound_execution(connection)
-            row = self._item(connection, owner_id, model_id, learning_id)
-            if row["current_version"] != expected_item_version:
-                raise LearningMemoryError("learning_item_version_conflict")
-            before = json.loads(row["current_json"])
-            if row["lifecycle"] != "active" or _claim_review_status(before) != "ordinary":
-                raise LearningMemoryError("ordinary_revision_requires_advanced")
-            proposed = {**before, **cleaned}
-            # Preserve identity bindings; a summary edit cannot silently detach
-            # an occurrence and leave its binding pointing to different text.
-            for binding in before.get("referent_bindings", []):
-                field = binding["field_path"].removeprefix("/")
-                if field in cleaned and before.get(field) != proposed.get(field):
-                    text = proposed[field]
-                    if (not isinstance(text, str)
-                            or text.count(binding["surface_form"]) <= binding["occurrence_index"]):
-                        raise LearningMemoryError("ordinary_revision_referent_change_requires_advanced")
-            if len(_canonical(proposed)) > self.limits.total_json:
-                raise LearningMemoryError("learning_content_too_large")
-            canonical_diff = self._canonical_diff(before, proposed)
-            if not canonical_diff:
-                raise LearningMemoryError("no_effective_change")
-            new_row_version = self._advance_state(
-                connection, owner_id=owner_id, model_id=model_id,
-                expected_row_version=expected_row_version, activate=True,
-            )
-            next_version = expected_item_version + 1
-            connection.execute(
-                "UPDATE learning_items SET current_version=?,current_json=?,current_hash=?,updated_at=? "
-                "WHERE learning_id=? AND current_version=?",
-                (next_version, _canonical(proposed), _sha256(proposed), _iso(),
-                 learning_id, expected_item_version),
-            )
-            self._insert_version(
-                connection, learning_id=learning_id, version=next_version,
-                previous_version=expected_item_version, content=proposed,
-                ai_diff="server_computed_fields:" + ",".join(sorted(canonical_diff)),
-                canonical_diff=canonical_diff,
-                correctness_assessment="未执行独立核验；仅修改摘要或检索元数据，不改变原知识正文及核验状态。",
-                reason=reason, wake_id=wake_id,
-            )
-            event_id = self._audit(
-                connection, owner_id=owner_id, model_id=model_id, learning_id=learning_id,
-                wake_id=wake_id, action="revise_ordinary", decision="applied",
-                reason_codes=["ordinary_projection_change_applied"],
-                details={"version": next_version, "changed_fields": sorted(canonical_diff),
-                         "diff_origin": "server_computed", "verification_performed": False},
-            )
+        result = self.revise(
+            owner_id=owner_id, model_id=model_id, wake_id=wake_id, wake_seq=wake_seq,
+            expected_row_version=expected_row_version,
+            target_ref=f"learning://{learning_id}@{expected_item_version}",
+            expected_target_version=expected_item_version, changes=changes, reason=reason,
+        )
         return {"decision": "revised", "id": learning_id,
-                "ref": f"learning://{learning_id}@{next_version}", "version": next_version,
-                "previous_version": expected_item_version, "learning_row_version": new_row_version,
-                "event_id": event_id, "state_changed": True}
+                "ref": result["item_ref"], "version": result["item_version"],
+                "previous_version": expected_item_version,
+                "learning_row_version": result["learning_row_version"],
+                "event_id": result["event_id"], "state_changed": True}
 
     def revise(
         self, *, owner_id: str, model_id: str, wake_id: str, wake_seq: int,
-        expected_row_version: int, target_ref: str, expected_target_version: int,
-        action: str, change_class: str, classification_actor: str,
-        classification_basis: list[str], correctness_assessment: str, diff: str, reason: str,
+        expected_row_version: int, target_ref: str, expected_target_version: int | None = None,
+        action: str = "change", change_class: str = "semantic_change",
+        classification_actor: str | None = None,
+        classification_basis: list[str] | None = None,
+        correctness_assessment: str = "", diff: str = "", reason: str = "",
         changes: Mapping[str, Any] | None = None, add_evidence: list[dict[str, Any]] | None = None,
         add_verification_event: Mapping[str, Any] | None = None,
         links: list[dict[str, Any]] | None = None, calm_check: Mapping[str, Any] | None = None,
         ai_confirmation: bool = False, rollback_to_version: int | None = None,
     ) -> dict[str, Any]:
-        self.ensure_state(owner_id=owner_id, model_id=model_id)
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
         if action not in {"change", "rollback"}:
             raise LearningMemoryError("revision_action_invalid")
         if change_class not in SMALL_CHANGES | MAJOR_CHANGES:
             raise LearningMemoryError("change_class_invalid")
-        if classification_actor != "ai_self":
-            raise LearningMemoryError("classification_actor_must_be_ai_self")
-        basis = _strings("classification_basis", classification_basis, 12, 400)
-        if not basis:
-            raise LearningMemoryError("classification_basis_required")
-        correctness = _text("correctness_assessment", correctness_assessment, 2000)
-        ai_diff = _text("diff", diff, 2000)
-        reason = _text("reason", reason, 2000)
-        learning_id, _ = self._parse_target_ref(target_ref)
+        # The explicit author call submits this revision. Legacy self-rating
+        # fields remain optional audit input, never proof of calm or correctness.
+        basis = _strings("classification_basis", classification_basis or [], 12, 400)
+        correctness = _text("correctness_assessment", correctness_assessment, 2000, optional=True)
+        ai_diff = _text("diff", diff, 2000, optional=True)
+        reason = _text("reason", reason, 2000, optional=True)
+        learning_id, ref_version = self._parse_target_ref(target_ref)
+        if expected_target_version is None:
+            expected_target_version = ref_version
+        if isinstance(expected_target_version, bool) or ref_version != expected_target_version:
+            raise LearningMemoryError("learning_target_version_conflict")
         change_values = dict(changes or {})
         evidence_items = self._validate_evidence(add_evidence)
         link_items = self._validate_links(
@@ -3539,6 +3520,15 @@ class LearningMemoryStore:
             row = self._item(connection, owner_id, model_id, learning_id)
             if isinstance(expected_target_version, bool) or row["current_version"] != expected_target_version:
                 raise LearningMemoryError("learning_target_version_conflict")
+            base_version_row = connection.execute(
+                "SELECT mutable_json, mutable_hash FROM learning_versions WHERE learning_id=? AND version=?",
+                (learning_id, expected_target_version),
+            ).fetchone()
+            if (base_version_row is None
+                or base_version_row["mutable_hash"] != row["current_hash"]
+                or _sha256(json.loads(base_version_row["mutable_json"])) != row["current_hash"]
+                or _sha256(json.loads(row["current_json"])) != row["current_hash"]):
+                raise LearningMemoryError("learning_target_integrity_mismatch")
             self._validate_link_targets(
                 connection,
                 owner_id=owner_id,
@@ -3552,19 +3542,24 @@ class LearningMemoryStore:
                 if isinstance(rollback_to_version, bool) or not isinstance(rollback_to_version, int) or rollback_to_version < 1:
                     raise LearningMemoryError("rollback_to_version_required")
                 version_row = connection.execute(
-                    "SELECT mutable_json FROM learning_versions WHERE learning_id=? AND version=?",
+                    "SELECT mutable_json, mutable_hash FROM learning_versions WHERE learning_id=? AND version=?",
                     (learning_id, rollback_to_version),
                 ).fetchone()
                 if version_row is None:
                     raise LearningMemoryError("rollback_version_not_found")
                 proposed = json.loads(version_row["mutable_json"])
+                if _sha256(proposed) != version_row["mutable_hash"]:
+                    raise LearningMemoryError("rollback_version_integrity_mismatch")
+                proposed = self._validate_content(proposed, preserve_original_text=True)
                 rollback_target = rollback_to_version
             else:
                 unknown = set(change_values) - (set(before) | {"source_basis", "claim_review"})
                 if unknown:
                     raise LearningMemoryError(f"unsupported_change_field:{sorted(unknown)[0]}")
                 proposed_fields = {**before, **change_values}
-                proposed = self._validate_content(proposed_fields)
+                if "source_basis" in before and set(change_values) & {"epistemic_status", "provenance_badge"}:
+                    raise LearningMemoryError("derived_field_use_source_basis")
+                proposed = self._validate_content(proposed_fields, preserve_original_text=True)
             available_challenge_refs = {
                 str(item["source_ref"]) for item in evidence_items
             }
@@ -3590,78 +3585,10 @@ class LearningMemoryStore:
                     raise LearningMemoryError("contrast_cannot_mark_claim_challenged")
             canonical_diff = self._canonical_diff(before, proposed)
             changed_fields = set(canonical_diff)
-            allowed_small = {
-                "typo": {"title", "summary", "current_understanding", "preceding_context_summary", "referent_bindings"},
-                "metadata": {"domain", "keywords", "entities", "importance", "valid_as_of", "review_after", "referent_bindings"},
-                "source_addition": set(),
-            }
-            semantic_fields = {
-                "kind", "summary", "current_understanding", "steps", "application_contexts",
-                "scene_tags", "preceding_context_summary", "uncertainties", "epistemic_status",
-                "source_basis", "claim_review",
-                "confidence", "lifecycle", "time_sensitivity", "allow_contexts", "deny_contexts",
-                "context_policy", "recall_mode", "disclosure",
-            }
-            effective_major = change_class in MAJOR_CHANGES
-            if change_class in SMALL_CHANGES and changed_fields - allowed_small[change_class]:
-                effective_major = True
-            if change_class == "typo":
-                effective_major = effective_major or len(changed_fields) != 1
-                if len(changed_fields) == 1:
-                    typo_field = next(iter(changed_fields))
-                    if typo_field != "referent_bindings" and not _looks_like_typo(
-                        before.get(typo_field), proposed.get(typo_field)
-                    ):
-                        effective_major = True
-            if change_class == "source_addition" and changed_fields:
-                effective_major = True
-            # Relationship changes can alter how future knowledge is interpreted;
-            # they are never smuggled through a small source-only amendment.
-            if link_items:
-                effective_major = True
-            if action == "rollback" and changed_fields & semantic_fields:
-                effective_major = True
+            if row["lifecycle"] == "quarantined" and proposed["lifecycle"] != "quarantined":
+                raise LearningMemoryError("quarantine_restore_required")
             if not changed_fields and not evidence_items and add_verification_event is None and not links:
                 raise LearningMemoryError("empty_revision")
-            if effective_major:
-                if ai_confirmation is not True:
-                    raise LearningMemoryError("ai_confirmation_required")
-                calm = _validate_calm_check(calm_check)
-                source_snapshot = {
-                    "base_ref": f"learning://{learning_id}@{row['current_version']}",
-                    "base_hash": row["current_hash"],
-                    "base_content": before,
-                    "rollback_to_version": rollback_target,
-                    "pending_evidence": evidence_items,
-                    "pending_verification_event": verification_item,
-                    "pending_links": link_items,
-                }
-                candidate_id, candidate_hash, new_row_version = self._create_candidate(
-                    connection, owner_id=owner_id, model_id=model_id, wake_id=wake_id,
-                    wake_seq=wake_seq, expected_row_version=expected_row_version,
-                    target_ref=f"learning://{learning_id}@{row['current_version']}",
-                    base_version=row["current_version"], change_class=change_class,
-                    classification_basis=basis, proposed=proposed, ai_diff=ai_diff,
-                    correctness_assessment=correctness, calm_check=calm, reason=reason,
-                    source_snapshot=source_snapshot,
-                )
-                return {
-                    "decision": "candidate_pending",
-                    "reason_codes": ["major_change_candidate_created", "later_real_wake_required",
-                                     *( ["edit_class_upgraded"] if change_class in SMALL_CHANGES else [] )],
-                    "candidate_id": candidate_id,
-                    "candidate_hash": candidate_hash,
-                    "base_version": row["current_version"],
-                    "candidate_version": 1,
-                    "learning_row_version": new_row_version,
-                    "state_changed": True,
-                    "pointer_changed": False,
-                }
-
-            if changed_fields - allowed_small[change_class]:
-                raise LearningMemoryError("major_review_required")
-            if change_class == "typo" and len(changed_fields) != 1:
-                raise LearningMemoryError("typo_single_field_required")
             new_row_version = self._advance_state(
                 connection, owner_id=owner_id, model_id=model_id,
                 expected_row_version=expected_row_version, activate=True,
@@ -3693,14 +3620,15 @@ class LearningMemoryStore:
             event_id = self._audit(
                 connection, owner_id=owner_id, model_id=model_id, learning_id=learning_id,
                 wake_id=wake_id, action="revise", decision="applied",
-                reason_codes=["small_change_applied"],
+                reason_codes=["author_revision_applied"],
                 details={"version": next_version, "changed_fields": sorted(changed_fields),
                          "evidence_count": len(evidence_ids), "link_count": len(link_ids)},
             )
         return {
             "decision": "applied",
-            "reason_codes": ["small_change_applied"],
+            "reason_codes": ["author_revision_applied"],
             "learning_id": learning_id,
+            "item_ref": f"learning://{learning_id}@{next_version}",
             "item_version": next_version,
             "learning_row_version": new_row_version,
             "rollback_ref": f"learning-rollback://{learning_id}@{row['current_version']}",
@@ -3750,33 +3678,58 @@ class LearningMemoryStore:
     def integrate(
         self, *, owner_id: str, model_id: str, wake_id: str, wake_seq: int,
         expected_row_version: int, source_learning_ids: list[str], synthesis_kind: str,
-        classification_actor: str, classification_basis: list[str],
-        correctness_assessment: str, diff: str, calm_check: Mapping[str, Any], reason: str,
+        classification_actor: str | None = None, classification_basis: list[str] | None = None,
+        correctness_assessment: str = "", diff: str = "",
+        calm_check: Mapping[str, Any] | None = None, reason: str = "",
         source_action: str = "keep", merge_suggestion_id: str | None = None,
+        source_versions: Mapping[str, int] | None = None,
         create_idea: bool = False, idea_kind: str | None = None, idea_text: str | None = None,
         idea_inference_chain: list[str] | None = None, idea_uncertainties: list[str] | None = None,
         **fields: Any,
     ) -> dict[str, Any]:
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
         self.ensure_state(owner_id=owner_id, model_id=model_id)
         if not isinstance(source_learning_ids, list) or not 2 <= len(source_learning_ids) <= 20:
             raise LearningMemoryError("source_learning_ids_invalid")
+        if any(not isinstance(source, str) for source in source_learning_ids):
+            raise LearningMemoryError("source_learning_ids_invalid")
         if len(set(source_learning_ids)) != len(source_learning_ids):
             raise LearningMemoryError("duplicate_source_learning_id")
+        pinned_sources: dict[str, int] = {}
+        if source_versions is not None and not isinstance(source_versions, Mapping):
+            raise LearningMemoryError("source_versions_invalid")
+        if source_versions and any(
+            not isinstance(key, str) or isinstance(value, bool)
+            or not isinstance(value, int) or value < 1
+            for key, value in source_versions.items()
+        ):
+            raise LearningMemoryError("source_versions_invalid")
+        for source in source_learning_ids:
+            if not isinstance(source, str):
+                raise LearningMemoryError("source_learning_ids_invalid")
+            if source.startswith("learning://"):
+                source_id, version = self._parse_target_ref(source)
+                if source_versions and source_id in source_versions and source_versions[source_id] != version:
+                    raise LearningMemoryError("learning_source_version_conflict")
+            else:
+                source_id, version = source, (source_versions or {}).get(source)
+            if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+                raise LearningMemoryError("source_version_required")
+            if source_id in pinned_sources:
+                raise LearningMemoryError("duplicate_source_learning_id")
+            pinned_sources[source_id] = version
+        if source_versions and set(source_versions) - set(pinned_sources):
+            raise LearningMemoryError("source_versions_invalid")
         if synthesis_kind not in {"summary", "generalization", "contrast", "procedure"}:
             raise LearningMemoryError("synthesis_kind_invalid")
         if source_action not in {"keep", "archive_after_accept"}:
             raise LearningMemoryError("source_action_invalid")
         if synthesis_kind == "contrast" and source_action != "keep":
             raise LearningMemoryError("contrast_sources_must_be_kept")
-        if classification_actor != "ai_self":
-            raise LearningMemoryError("classification_actor_must_be_ai_self")
-        basis = _strings("classification_basis", classification_basis, 12, 400)
-        if not basis:
-            raise LearningMemoryError("classification_basis_required")
-        correctness = _text("correctness_assessment", correctness_assessment, 2000)
-        ai_diff = _text("diff", diff, 2000)
-        reason = _text("reason", reason, 2000)
-        calm = _validate_calm_check(calm_check)
+        basis = _strings("classification_basis", classification_basis or [], 12, 400)
+        correctness = _text("correctness_assessment", correctness_assessment, 2000, optional=True)
+        ai_diff = _text("diff", diff, 2000, optional=True)
+        reason = _text("reason", reason, 2000, optional=True)
         content = self._validate_content(fields)
         if synthesis_kind == "generalization" and _source_basis(content) == "observed":
             raise LearningMemoryError("generalization_must_be_inferred_or_reported")
@@ -3786,21 +3739,33 @@ class LearningMemoryStore:
             ai_diff,
             reason,
             basis,
-            calm,
+            calm_check,
             idea_text if create_idea else None,
             idea_inference_chain if create_idea else None,
             idea_uncertainties if create_idea else None,
         ):
             raise LearningMemoryError("credential_or_secret_detected")
         target_learning_id = _new_id("learn")
-        target_ref = f"learning://{target_learning_id}@0"
+        target_ref = f"learning://{target_learning_id}@1"
         with self._connect() as connection:
             self._begin(connection)
             source_snapshot_items: list[dict[str, Any]] = []
-            review_source_contents: list[dict[str, Any]] = []
-            for source_id in source_learning_ids:
+            source_rows: list[sqlite3.Row] = []
+            for source_id, expected_source_version in pinned_sources.items():
                 row = self._item(connection, owner_id, model_id, source_id)
-                review_source_contents.append(json.loads(row["current_json"]))
+                if row["current_version"] != expected_source_version:
+                    raise LearningMemoryError("learning_source_version_conflict")
+                if row["lifecycle"] == "quarantined":
+                    raise LearningMemoryError("integration_source_quarantined")
+                version = connection.execute(
+                    "SELECT mutable_hash, mutable_json FROM learning_versions WHERE learning_id=? AND version=?",
+                    (source_id, row["current_version"]),
+                ).fetchone()
+                if (version is None or version["mutable_hash"] != row["current_hash"]
+                    or _sha256(json.loads(version["mutable_json"])) != version["mutable_hash"]
+                    or _sha256(json.loads(row["current_json"])) != row["current_hash"]):
+                    raise LearningMemoryError("integration_source_integrity_mismatch")
+                source_rows.append(row)
                 source_snapshot_items.append({
                     "learning_id": source_id,
                     "ref": f"learning://{source_id}@{row['current_version']}",
@@ -3830,28 +3795,77 @@ class LearningMemoryStore:
                 "synthesis_kind": synthesis_kind,
                 "merge_suggestion_id": merge_suggestion_id,
             }
-            candidate_id, candidate_hash, new_row_version = self._create_candidate(
-                connection, owner_id=owner_id, model_id=model_id, wake_id=wake_id,
-                wake_seq=wake_seq, expected_row_version=expected_row_version,
-                target_ref=target_ref, base_version=0, change_class="generalization",
-                classification_basis=basis, proposed=content, ai_diff=ai_diff,
-                correctness_assessment=correctness, calm_check=calm, reason=reason,
-                source_snapshot=source_snapshot, source_action=source_action,
-                review_source_contents=review_source_contents,
+            available_challenge_refs = {
+                str(evidence["source_ref"])
+                for source_id in pinned_sources
+                for evidence in connection.execute(
+                    "SELECT source_ref FROM learning_evidence WHERE learning_id=? AND status='active'",
+                    (source_id,),
+                ).fetchall()
+            }
+            _validate_challenge_evidence_refs(content, available_challenge_refs)
+            new_row_version = self._advance_state(
+                connection, owner_id=owner_id, model_id=model_id,
+                expected_row_version=expected_row_version, activate=True,
+            )
+            now = _iso()
+            connection.execute(
+                "INSERT INTO learning_items "
+                "(learning_id, owner_id, model_id, kind, lifecycle, current_version, current_json, "
+                "current_hash, created_wake_id, created_wake_seq, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
+                (target_learning_id, owner_id, model_id, content["kind"], content["lifecycle"],
+                 _canonical(content), _sha256(content), wake_id, wake_seq, now, now),
+            )
+            self._insert_version(
+                connection, learning_id=target_learning_id, version=1, previous_version=None,
+                content=content, ai_diff=ai_diff, canonical_diff=self._canonical_diff({}, content),
+                correctness_assessment=correctness, reason=reason, wake_id=wake_id,
+            )
+            integration_id = _new_id("l3integration")
+            connection.execute(
+                "INSERT INTO learning_direct_integrations "
+                "(integration_id, owner_id, model_id, target_ref, created_at) VALUES (?, ?, ?, ?, ?)",
+                (integration_id, owner_id, model_id, target_ref, now),
             )
             for position, source in enumerate(source_snapshot_items):
                 connection.execute(
                     "INSERT INTO learning_integrations "
                     "(candidate_id, source_learning_id, source_position, source_version, source_hash, source_action, created_at) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (candidate_id, source["learning_id"], position, source["version"],
+                    (integration_id, source["learning_id"], position, source["version"],
                      source["hash"], source_action, _iso()),
                 )
+            # The legacy spelling means archive after this explicit submission.
+            # Archive by appending versions too; never rewrite or erase originals.
+            if source_action == "archive_after_accept":
+                for row in source_rows:
+                    before = json.loads(row["current_json"])
+                    archived = {**before, "lifecycle": "archived"}
+                    next_version = row["current_version"] + 1
+                    connection.execute(
+                        "UPDATE learning_items SET lifecycle='archived', current_version=?, "
+                        "current_json=?, current_hash=?, updated_at=? WHERE learning_id=?",
+                        (next_version, _canonical(archived), _sha256(archived), now, row["learning_id"]),
+                    )
+                    self._insert_version(
+                        connection, learning_id=row["learning_id"], version=next_version,
+                        previous_version=row["current_version"], content=archived, ai_diff="",
+                        canonical_diff=self._canonical_diff(before, archived),
+                        correctness_assessment="", reason=reason, wake_id=wake_id,
+                    )
             if merge_suggestion_id:
                 connection.execute(
                     "UPDATE learning_merge_suggestions SET status='accepted' WHERE suggestion_id=?",
                     (merge_suggestion_id,),
                 )
+            event_id = self._audit(
+                connection, owner_id=owner_id, model_id=model_id, learning_id=target_learning_id,
+                wake_id=wake_id, action="integrate", decision="applied",
+                reason_codes=["author_integration_applied"],
+                details={"integration_id": integration_id, "sources": source_snapshot,
+                         "source_action": source_action},
+            )
         idea_result: dict[str, Any] | None = None
         if create_idea:
             try:
@@ -3870,36 +3884,38 @@ class LearningMemoryStore:
             except LearningIdeaBoxError as exc:
                 idea_result = {"decision": "idea_rejected", "reason_codes": [str(exc)]}
         return {
-            "decision": "candidate_pending",
-            "reason_codes": ["learning_integration_candidate_created", "later_real_wake_required"],
-            "candidate_id": candidate_id,
-            "candidate_hash": candidate_hash,
-            "candidate_version": 1,
+            "decision": "applied",
+            "reason_codes": ["author_integration_applied"],
+            "integration_id": integration_id,
+            "learning_id": target_learning_id,
+            "item_ref": target_ref,
+            "item_version": 1,
+            "event_id": event_id,
             "target_ref": target_ref,
             "base_version": 0,
             "learning_row_version": new_row_version,
             "source_snapshot": source_snapshot_items,
             "idea_box": idea_result,
             "state_changed": True,
-            "pointer_changed": False,
+            "pointer_changed": True,
         }
 
     def review_change(
         self, *, owner_id: str, model_id: str, wake_id: str, wake_seq: int,
         expected_row_version: int, candidate_id: str, expected_candidate_version: int,
         expected_candidate_hash: str, expected_base_version: int, action: str,
-        correctness_assessment: str, calm_check: Mapping[str, Any], reason: str,
-        ai_confirmation: bool,
+        correctness_assessment: str = "", calm_check: Mapping[str, Any] | None = None,
+        reason: str = "", ai_confirmation: bool = False,
     ) -> dict[str, Any]:
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
         self.ensure_state(owner_id=owner_id, model_id=model_id)
         if action not in {"accept", "reject"}:
             raise LearningMemoryError("review_action_invalid")
-        if ai_confirmation is not True:
+        if action == "accept" and ai_confirmation is not True:
             raise LearningMemoryError("ai_confirmation_required")
-        correctness = _text("correctness_assessment", correctness_assessment, 2000)
-        reason = _text("reason", reason, 2000)
-        calm = _validate_calm_check(calm_check)
-        if _contains_secret(correctness, reason, calm):
+        correctness = _text("correctness_assessment", correctness_assessment, 2000, optional=True)
+        reason = _text("reason", reason, 2000, optional=True)
+        if _contains_secret(correctness, reason, calm_check):
             raise LearningMemoryError("credential_or_secret_detected")
         with self._connect() as connection:
             self._begin(connection)
@@ -3917,24 +3933,17 @@ class LearningMemoryStore:
                 raise LearningMemoryError("stale_candidate")
             if expected_base_version != candidate["base_version"]:
                 raise LearningMemoryError("stale_candidate")
-            if wake_seq <= candidate["created_wake_seq"]:
-                raise LearningMemoryError("later_real_wake_required")
-            if (
-                candidate["presented_wake_id"] != wake_id
-                or candidate["presented_wake_seq"] != wake_seq
+            presentation_mode = candidate["presented_review_mode"]
+            if action == "accept" and (
+                presentation_mode != "full"
                 or candidate["presented_candidate_hash"] != candidate["candidate_hash"]
             ):
-                raise LearningMemoryError("candidate_not_fully_presented")
-            presentation_mode = candidate["presented_review_mode"]
-            if presentation_mode not in {"full", "metadata_only"}:
-                raise LearningMemoryError("candidate_not_fully_presented")
-            if action == "accept" and presentation_mode != "full":
                 raise LearningMemoryError("candidate_not_fully_presented")
 
             # Rejection is the safe, non-activating escape hatch for an old,
             # stale or otherwise unrenderable queue head.  It still requires
-            # the exact candidate identity, a later real wake, current-wake
-            # presentation and row CAS, but it must not depend on the source
+            # the exact candidate identity and row CAS, but not a repeated
+            # presentation or the source
             # remaining acceptable for activation.  Otherwise one damaged
             # oldest candidate can permanently hide every later candidate.
             if action == "reject":
@@ -3965,6 +3974,23 @@ class LearningMemoryStore:
                 }
 
             source_snapshot = json.loads(candidate["source_snapshot_json"])
+            proposed = json.loads(candidate["proposed_json"])
+            canonical_diff = json.loads(candidate["canonical_diff_json"])
+            candidate_material = {
+                "proposed": proposed, "canonical_diff": canonical_diff,
+                "base_version": candidate["base_version"],
+                "creation_row_version": candidate["creation_row_version"],
+                "source_snapshot": source_snapshot,
+                "calm_check": json.loads(candidate["calm_check_json"]),
+                "classification_actor": candidate["classification_actor"],
+                "classification_basis": json.loads(candidate["classification_basis_json"]),
+                "server_classification": candidate["server_classification"],
+            }
+            if not hmac.compare_digest(_sha256(candidate_material), candidate["candidate_hash"]):
+                raise LearningMemoryError("candidate_content_hash_mismatch")
+            if _contains_secret(candidate_material):
+                raise LearningMemoryError("credential_or_secret_detected")
+            proposed = self._validate_content(proposed)
             target_ref = candidate["target_ref"]
             target_id: str
             current_row: sqlite3.Row | None = None
@@ -3976,18 +4002,26 @@ class LearningMemoryStore:
                     or current_row["current_hash"] != source_snapshot.get("base_hash")
                 ):
                     raise LearningMemoryError("stale_candidate")
+                if current_row["lifecycle"] == "quarantined" and proposed["lifecycle"] != "quarantined":
+                    raise LearningMemoryError("quarantine_restore_required")
             else:
                 target_id = target_ref.removeprefix("learning://").split("@", 1)[0]
                 for source in source_snapshot.get("sources", []):
                     row = self._item(connection, owner_id, model_id, source["learning_id"])
                     if row["current_version"] != source["version"] or row["current_hash"] != source["hash"]:
                         raise LearningMemoryError("stale_candidate")
+                    if row["lifecycle"] == "quarantined":
+                        raise LearningMemoryError("integration_source_quarantined")
+                    version = connection.execute(
+                        "SELECT mutable_hash FROM learning_versions WHERE learning_id=? AND version=?",
+                        (source["learning_id"], source["version"]),
+                    ).fetchone()
+                    if version is None or version["mutable_hash"] != source["hash"]:
+                        raise LearningMemoryError("stale_candidate")
             new_row_version = self._advance_state(
                 connection, owner_id=owner_id, model_id=model_id,
                 expected_row_version=expected_row_version, activate=True,
             )
-            proposed = json.loads(candidate["proposed_json"])
-            canonical_diff = json.loads(candidate["canonical_diff_json"])
             now = _iso()
             if current_row is None:
                 next_version = 1
@@ -4050,9 +4084,20 @@ class LearningMemoryStore:
                 )
             if candidate["source_action"] == "archive_after_accept" and source_snapshot.get("synthesis_kind") != "contrast":
                 for source in source_snapshot.get("sources", []):
+                    row = self._item(connection, owner_id, model_id, source["learning_id"])
+                    before = json.loads(row["current_json"])
+                    archived = {**before, "lifecycle": "archived"}
+                    next_source_version = row["current_version"] + 1
                     connection.execute(
-                        "UPDATE learning_items SET lifecycle='archived', updated_at=? WHERE learning_id=?",
-                        (now, source["learning_id"]),
+                        "UPDATE learning_items SET lifecycle='archived', current_version=?, "
+                        "current_json=?, current_hash=?, updated_at=? WHERE learning_id=?",
+                        (next_source_version, _canonical(archived), _sha256(archived), now, source["learning_id"]),
+                    )
+                    self._insert_version(
+                        connection, learning_id=source["learning_id"], version=next_source_version,
+                        previous_version=row["current_version"], content=archived, ai_diff="",
+                        canonical_diff=self._canonical_diff(before, archived),
+                        correctness_assessment="", reason=reason, wake_id=wake_id,
                     )
             connection.execute(
                 "UPDATE learning_change_candidates SET status='accepted', updated_at=? WHERE candidate_id=?",
@@ -4061,13 +4106,12 @@ class LearningMemoryStore:
             event_id = self._audit(
                 connection, owner_id=owner_id, model_id=model_id, learning_id=target_id,
                 candidate_id=candidate_id, wake_id=wake_id, action="review_change", decision="accepted",
-                reason_codes=["candidate_accepted_later_wake"],
-                details={"candidate_hash": candidate["candidate_hash"], "version": next_version,
-                         "review_calm_hash": _sha256(calm)},
+                reason_codes=["legacy_candidate_accepted"],
+                details={"candidate_hash": candidate["candidate_hash"], "version": next_version},
             )
         return {
             "decision": "accepted",
-            "reason_codes": ["candidate_accepted_later_wake"],
+            "reason_codes": ["legacy_candidate_accepted"],
             "candidate_id": candidate_id,
             "learning_id": target_id,
             "item_ref": f"learning://{target_id}@{next_version}",
@@ -4208,7 +4252,7 @@ class LearningMemoryStore:
                 )
                 if unsafe_review_material:
                     fully_presented = False
-                review_requires_later_wake = wake_seq <= row["created_wake_seq"]
+                review_requires_later_wake = False
                 review_frame = {
                     "semantic_role": "pending_learning_review_material",
                     "instruction_authority": "none",
@@ -4220,8 +4264,8 @@ class LearningMemoryStore:
                         "owner-scoped AI self-review requested through explicit stbrain_open"
                     ),
                     "submit_time_calm_check": (
-                        "withheld_non_authoritative_audit_input; "
-                        "the reviewer must author a fresh calm_check"
+                        "withheld_legacy_audit_input; not evidence of calm or correctness; "
+                        "no repeated calm_check required"
                     ),
                 }
                 candidate_identity: dict[str, Any] = {
@@ -4277,6 +4321,14 @@ class LearningMemoryStore:
                     }
                 candidate["review_projection_hash"] = _sha256(candidate)
                 presentation_mode = "full" if fully_presented else "metadata_only"
+                # A smaller later projection does not erase proof that this
+                # exact candidate was previously delivered in full. Acceptance
+                # still rechecks the candidate and source content integrity.
+                recorded_mode = (
+                    "full" if row["presented_review_mode"] == "full"
+                    and row["presented_candidate_hash"] == row["candidate_hash"]
+                    else presentation_mode
+                )
                 connection.execute(
                     "UPDATE learning_change_candidates SET presented_wake_id=?, "
                     "presented_wake_seq=?, presented_candidate_hash=?, presented_review_mode=?, "
@@ -4286,7 +4338,7 @@ class LearningMemoryStore:
                         wake_id,
                         wake_seq,
                         row["candidate_hash"],
-                        presentation_mode,
+                        recorded_mode,
                         _iso(),
                         _iso(),
                         row["candidate_id"],

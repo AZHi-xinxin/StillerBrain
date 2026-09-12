@@ -1,136 +1,178 @@
-# ST 日常使用与按需手册：public-tools/20 / brain-open/2（r4h38 本地候选）
+# 日常调用与按需展开协议：public-tools/20 / brain-open/2
 
-本说明对应 public-tools/20 的 43 个工具候选目录，不是已部署或手机验收成功声明。
-public-tools/19 保留给既有 r4h36 候选；本轮不改历史版本或其冻结证据。
-新增 review 分段视图仍由原 `stbrain_open` 承载，已接线并通过隔离流程测试；完整验证记录见任务目录，尚未发布。
-使用 ST 不需要沙箱、shell、文件路径或 grep。
+[日常指南](../docs/GUIDE.md) · [工具目录](../docs/TOOLS.md) · [MCP 组件](README.md)
 
-## 普通新增：一次调用
+当前公开契约为 `public-tools/20`，默认展开协议为 `brain-open/2`。本文以 `simple-memory-v1` 为主；简化与兼容目录均为 44 个公开工具，工具集合差异见 [TOOLS](../docs/TOOLS.md)。客户端使用当前工具 Schema 组织真实调用。
 
-正常网关路径直接调用 `remember_memory(module, content)`，仅这两个参数必填：
+## 1. 普通保存
 
-| module | 内容 |
-|---|---|
-| `emotional_memory` | 人际经历、感受与重要对话 |
-| `learning_memory` | 知识、经验或当前理解 |
-| `planning_memory` | 计划、任务或承诺 |
+```text
+remember_memory(module, content)
+```
 
-正文保留实际传入的原文，长度为 1–2000 字符；`title`、`summary` 等为可选组织信息。
-默认 `source_basis=reported` 不是独立核验。普通计划直接成为活动记录，但不授权或自动执行外部操作。
+仅 `module`、`content` 必填，正文长度为 1–2000 字符。
 
-不需要先 `stbrain_open`，不手填内部引用或模块版本，不提交候选，不等另轮审核。
-宿主绑定准确的当前调用并取得版本；不要编造或复用 `execution_ref`。
-以实际 `decision=stored`、`stored=true` 回执为准；未知或不完整回执先核查，不自动重复写入。
-短说明可按需要调用 `stbrain_help()`，它不是存入前置步骤。
+| module | 内容 | kind 省略值 |
+| --- | --- | --- |
+| `emotional_memory` | 经历、感受与人际语境 | `unclassified` |
+| `learning_memory` | 知识、方法与当前理解 | `fact` |
+| `planning_memory` | 计划、安排与承诺 | `task` |
 
-## 主动查询已有内容
+`title`、`summary`、`keywords`、`importance` 等可按内容填写。普通记忆的 `source_basis` 省略为 `unmarked`，`confidence` 省略为 null，表示未标注；明确填写的 0–100 为作者判断。情感类型由作者选择。规划的 `parent_ref` 可选。
 
-按需要调用 `recall_emotional_memory`、`recall_learning_memory`、`recall_planning_memory`
-或 `recall_tool_guidance`，无需先打开写入上下文。普通查询不等于扩大敏感内容的披露权限。
+模块一首次激活后，简化配置的直连与网关调用均可直接保存。内部上下文和模块行版本由服务取得，普通保存直接返回存储结果。正文保留本次实际提交内容，存入后的提示附在回执里。
 
-精确回读使用真实工具返回的引用：情感用 `memory_id`，学习用 `target_ref`，规划用 `plan_ref`。
-学习全量目录用 `recall_learning_memory(view="inventory")`；`view="search"` 不是全量清单。
-`preview_learning_recall(situation=...)` 可预览某场景的学习概要浮现。零命中不证明整个库为空，
-自动浮现也不保证每次命中全部相关内容。
+这些普通调用不需要先 `stbrain_open`，也无需填写内部模块行版本或另轮审核表。
 
-## 普通小改与计划进度
+工具卡使用 `remember_tool_guidance(tool_name, purpose)`。`tool_name` 可写 MCP 服务大名；`operation_key` 可省略。`reminder`、中文 `scenario_tags`、0–100 的可信度和有效期均按工具 Schema 填写。省略到期日期表示长期保留。来源字段与实际执行确认分别管理。
 
-`revise_memory(target_ref, changes)` 使用已经读到的精确版本引用；`reason` 可选。
-只修改以下字段，其他改动走对应模块的原有高级流程：
+存储是否成功以真实工具结果为准；未知结果可先查询，避免重复写入。
 
-| 模块 | 普通小改字段 |
-|---|---|
-| 情感 | `summary`、`keywords`、`entities`、`importance` |
-| 学习 | `title`、`summary`、`domain`、`keywords`、`entities`、`importance` |
-| 规划 | `title`、`summary`、`keywords`、`importance` |
+## 2. 一次查询四个普通模块
 
-这不是正文更新接口：不改原始事件、学习 `current_understanding`、来源、可信状态、计划层级或权限。
-不可变原文即使走高级接口也不能覆盖；更正通过补充或版本化解释保留历史。
-模块行版本由宿主取得，目标版本仍以已读 `target_ref` 为准；冲突后先读回，不自动用最新版本覆盖。
+```text
+stbrain_open(view="recall", query="查询内容")
+```
 
-计划进度用 `advance_plan(target_ref, expected_event_seq, event_type, note)`：将查询返回的
-`event_seq` 原样放入 `expected_event_seq`，仍需满足原状态条件和完成等事件的真实证据要求。
-不猜事件序号、不捏造证据；正常网关路径无需先 open 或手填模块行版本。
-成功以相应工具的真实回执为准，不把修改计划或记录完成事件当成已执行外部任务。
+| 参数 | 用法 |
+| --- | --- |
+| `query` | 搜索词句；空字符串浏览目录 |
+| `module` | 可选，只查其中一个普通模块 |
+| `limit` | 默认 20，范围 1–50 |
+| `cursor` | 继续查询时传上次返回的 `next_cursor` |
 
-## 高级操作：按需打开对应模块
+结果提供安全摘要、真实版本引用和 `detail_lookup`。保留 query、module 等查询条件继续翻页；发生数据变化或游标失效后重新开始查询。部分模块暂时不可用时，结果用 `partial/errors` 说明。
 
-专用高级新建、修改、整合、置顶及核心自我修改仍使用各自已有工具和校验。
-需要说明时，调用 `stbrain_open(view="manual", module=对应模块)`；
-不要为了普通新增、小改或进度快捷操作走这条路径。原 `record_planning_event` 等高级接口仍保留，
-不是所有规划操作都要候选复核。
+这个目录覆盖四个普通模块的可读记忆卡。核心自我、隔离匣、独立修改候选和短期缓存使用各自入口。历史版本通过对应详情工具读取。
 
-`stbrain_open()` 默认 `view="summary"`，只返回当前状态、真实根 `write_context_ref` 和模块版本，
-不返回全局手册或完整候选。manual 复用同一真实唤醒的引用，仅呈现所选模块。
-可选模块为 `self_revision`、`emotional_memory`、`learning_memory`、`tool_guidance`、
-`planning_memory`、`self_governance_profile`、`injection_control`、`hallucination_vault`、
-`shared_person_authoring`。
+`recall` 是独立的只读视图，无需写上下文或部署密码。它与用于核心复核的 `page`、`expected_material_hash` 分页机制分开。
 
-模块一候选全文另用 `stbrain_open(view="review", module="self_revision", page=0)` 分段读取。
-`page` 默认 0；续页必须带返回材料所对应的 `expected_material_hash`，不猜哈希、不拼接不同版本的页。
-review 仅支持 self_revision；其他模块不借此扩大可见范围。
-只有完整材料的全部页齐备才形成完整展示 proof；summary、单页或重复同一页都不等于完整复核。
-分段材料不依赖 shell 或工作区文件提取，也不意味着减少候选正文与必要复核信息。
+精确详情按返回的 `detail_lookup` 调用。专用 `recall_emotional_memory`、`recall_learning_memory`、`recall_planning_memory`、`recall_tool_guidance` 均保留。学习的 `inventory` 适合浏览目录，`search` 适合相关检索；相关搜索中的零命中只说明本次条件下的结果。
 
-编辑之前可直接 `query_self_model(view="edit_basis")` 读取 `result.active.content` 的完整活动五键正文，
-包含原有 facets 和来源引用；不需要从注入层手工拼出一个新正文。`view="active"` 仍是所选活动层，
-编辑期也可读取，但不能把它当作完整编辑基线。两种读取都不创建写资格或“已经注入”的记录。
-内容由 AI 自己决定和编写，不要求每一字段以“我”、I 或 My 开头；结构错误会给具体字段说明，
-同一真实唤醒内修正字段可复用现有上下文，不能用修错为理由复用上一轮引用。
+精确读取的参数名称按对应工具填写：情感使用 `memory_id`，学习使用 `target_ref`，规划使用 `plan_ref`。直接采用真实回执中的详情参数即可。
 
-以下版本映射仅用于专用高级工具；`remember_memory`、`revise_memory`、`advance_plan` 不手填模块版本：
+## 3. 统一修改作者内容
 
-| 模块 | 摘要中的版本值 | 高级写工具版本参数 |
-|---|---|---|
-| 模块一 | 根 `row_version` | `expected_row_version` |
+```text
+revise_memory(target_ref, changes, reason=可选理由)
+```
+
+只需真实 `target_ref` 与本次要改的字段。引用直接复制查询结果，版本定位已经包含其中；内部模块行版本由服务处理。真实并发冲突时重新读取，再决定本次修改。
+
+模块一首次完成并激活后，普通作者修改使用已读引用提交原文、摘要、情绪、来源或其他公开作者字段；版本历史保留，作者自行选择叙述人称。需要对应模块说明时，调用 `stbrain_help(module=对应模块)` 即可。
+
+| 目标 | 引用前缀 | 作者字段示例 |
+| --- | --- | --- |
+| 情感 | `emotion://` | `original_text`、`summary`、`memory_type`、`primary_emotion`、`origin`、`confidence`、`keywords` |
+| 学习 | `learning://` | `current_understanding`、`title`、`summary`、`steps`、`source_basis`、`confidence`、`keywords` |
+| 规划 | `plan://` | `original_text`、`title`、`summary`、`reminder`、`kind`、`parent_ref`、`dependency_refs` |
+| 工具 | `tool-card://` | `tool_name`、`purpose`、`reminder`、`scenario_tags`、`confidence`、`expires_at` |
+
+完整可改字段和长度以 [ordinary_revision_schema.py](ordinary_revision_schema.py) 及当前公开 Schema 为准。省略的字段保留原值。工具卡的 `reminder`、`source_ref`、`expires_at` 可直接填 null 清除；旧 `clear_fields` 表达继续兼容。
+
+工具卡退役使用 `changes.intent="retire"`，从历史恢复使用 `changes.intent="restore"` 与已查询的 `target_version`。其他作者字段的 null 含义按对应 Schema 与服务规则处理。
+
+普通作者修改直接追加新版本，通常只交改动内容。技术 ID、所有者、哈希和派生字段由 ST 维护。原文可修订，先前版本仍可追溯。显式旧候选、隔离、恢复及核心自我修改保留各自流程。
+
+## 4. 记录计划进度
+
+```text
+advance_plan(target_ref, expected_event_seq, event_type, note)
+```
+
+`expected_event_seq` 原样取自查询得到的 `event_seq`。`progress`、`complete`、`reopen` 使用对应真实证据；`pause`、`resume` 表达安排变化。计划状态记录与外部工具的实际执行结果分别保存。
+
+普通计划任意层级均可独立创建，父项可选。专用 `record_planning_event` 与已有候选复核工具继续按自身参数和状态规则工作。
+
+## 5. 提醒：内容、开关与目录快照
+
+| 能力 | 入口与范围 |
+| --- | --- |
+| AI 自写轻提醒和安全阀 | `manage_self_governance_profile`：`set`、`clear`、`rollback` |
+| 查看提醒 | `query_self_governance_profile` |
+| 一条计划或工具卡的提醒 | 该记录的 `reminder`，日常通过 `revise_memory` 修改 |
+| 人称弱提醒 | `manage_person_reference_advisory`：`set`、`disable`、`reset` |
+| 模块自动注入模式 | `manage_injection_control` / `query_injection_control` |
+
+自我治理支持 `global`、`self_revision`、`emotional_memory`、`learning_memory`、`tool_use`。`manual_only` 主动查阅；`scene_relevant` 使用作者提供的 `scene_tags`。当前治理标签按本轮人类自然话语做大小写归一后的子串匹配，适合写人类会说的表达。命中提供候选，实际呈现仍受当前模式和预算影响。
+
+注入模式为 `enabled`、`paused`、`hard_off`、`status_only`。按工具返回的当前版本条件操作，设置参与后续新快照；已交付的聊天内容保留当时状态。
+
+五个存入工具——`remember_memory`、`remember_emotional_memory`、`remember_learning_memory`、`remember_tool_guidance`、`remember_planning_memory`——在 `tools/list` 描述中附带当前人称提示和固定标签选词帮助。实现复制当前描述，不改变参数 Schema 和注册原描述；成功存入回执也附带提示。
+
+目录描述是一份读取时快照。本轮修改或关闭提醒后，最新管理结果优先；客户端刷新 MCP 目录可取得新描述。读取偏好失败时显示不可用状态，关闭时省去提示正文。标签选词短帮助当前固定，协议、权限和来源文字由程序提供。
+
+### 可选字面称呼校对
+
+每条草稿默认关闭，由 AI 显式 `preview_person_reference_rewrite → confirm_person_reference_rewrite → remember`，确认相同最终稿后使用一次性 `rewrite_receipt`。支持情感、学习与工具专用存入；统一 `remember_memory` 支持情感和学习，规划暂不支持。
+
+统一入口的字段映射：
+
+| 模块 | 预览 final_fields | 统一 remember_memory |
+| --- | --- | --- |
+| 情感 | `original_text`、`summary` | `content`、`summary` |
+| 学习 | `title`、`summary`、`current_understanding` | `title`、`summary`、`content` |
+
+统一学习入口的 `preceding_context_summary` 固定为空，需要该字段时使用专用学习工具。字段内容须与已确认预览完全相同，回执只供同一作者、本次写入使用。
+
+人物与别名绑定由调用方明确提供，属于最小字面替换的输入条件；它不是已实现的宿主人物认证，也不是一键全文第一人称改写。省略 receipt 时保持普通保存路径。
+
+## 6. 模块一与按需材料
+
+`stbrain_help(module=...)` 返回静态说明。`stbrain_open` 其余视图用于当前上下文与材料：
+
+| view | 返回内容 |
+| --- | --- |
+| `summary`（默认） | 当前阶段、实际引用、版本和合法动作摘要 |
+| `manual` | 指定模块的说明与当前可呈现材料 |
+| `review` | 模块一候选的分页全文 |
+
+manual 支持 `self_revision`、`emotional_memory`、`learning_memory`、`tool_guidance`、`planning_memory`、`self_governance_profile`、`injection_control`、`hallucination_vault`、`shared_person_authoring`。
+
+模块一 review 从 `page=0` 开始，续页使用返回的 `next_arguments` 和实际 `expected_material_hash`。全部页面齐备后才形成完整呈现证明；审核接受与下一真实轮次激活另有明确动作。summary 和静态帮助分别承担导航、说明用途。
+
+编辑前可用 `query_self_model(view="edit_basis")` 取得完整活动五键正文，包括 facets 与来源引用。`view="active"` 用于读取所选活动层。作者自行决定叙述人称，按当前结构填写内容。
+
+`submit_self_model_candidate` 的 submit/revise 载荷为 AI 自写的 `content` 与 `reason`。服务端派生差异、来源绑定与基线；当前步骤和参数来源由 `current_action_contract` 给出。
+
+### 兼容的显式版本参数
+
+下列映射仅用于专用高级工具中确实要求显式版本的兼容调用；普通 `remember_memory`、`revise_memory`、`advance_plan` 不手填模块行版本。简化配置已自动处理的参数保持省略，是否需要参数以当前工具 Schema 和动作回执为准。
+
+| 模块 | 当前材料中的值 | 对应高级参数 |
+| --- | --- | --- |
+| 自我定义 | 根 `row_version` | `expected_row_version` |
 | 情感 | `emotional_memory.row_version` | `expected_emotion_version` |
 | 学习 | `learning_memory.learning_row_version` | `expected_learning_version` |
-| 工具认知 | `tool_guidance.tool_row_version` | `expected_tool_row_version` |
+| 工具 | `tool_guidance.tool_row_version` | `expected_tool_row_version` |
 | 规划 | `planning_memory.planning_row_version` | `expected_planning_version` |
-| 自我治理 | `self_governance_profile.scope_versions` 的所选 scope | `expected_profile_version` |
-| 注入控制 | `injection_control.scope_versions` 的所选 scope | `expected_control_version` |
-| 隔离复核匣 | `hallucination_vault.vault_row_version` | `expected_vault_version` |
-| 可选人称辅助 | `shared_person_authoring.row_version` | `expected_authoring_version` |
+| 自我治理 | 所选范围的 `scope_versions` | `expected_profile_version` |
+| 注入控制 | 所选范围的 `scope_versions` | `expected_control_version` |
+| 幻觉黑匣子 | `hallucination_vault.vault_row_version` | `expected_vault_version` |
+| 人称校对 | `shared_person_authoring.row_version` | `expected_authoring_version` |
 
-使用本轮实际引用与对应目标版本；同轮连续高级写入使用上一成功结果的新模块版本。
-`argument_sources` 中的 JSONPath 只是取值说明，不是引用本身。新回合或引用失效后不复用旧值；
-遇版本冲突保留草稿，读取当前版本后再决定，不能用新授权掩盖旧引用错误。
+版本与上下文引用取自本次实际返回值；目标引用的版本仍保留并发检查。新一轮使用新的有效上下文，发生冲突时先回读目标。
 
-## 非网关 direct 写入
+### 授权配置
 
-区别在连接与授权路径，不是官 DS 模型本身不能使用 ST。
-已接通 MCP 的非网关客户端可以查询；写入须有独立人类签发、短期且一次性的真实 grant，
-经 `stbrain_open_direct(grant_ref=...)` 打开有效 direct 上下文。
-其授权 scope 内可调用 `remember_memory(module, content, write_context_ref=实际返回值)`；
-不能用普通旧引用、MCP token 或口头声明代替授权。direct 不制造自动注入证据，
-本次说明调整不改变其签发、消费、过期、重放与 scope 规则。
+在 `simple-memory-v1` 中：
 
-## 保留的呈现与审核边界
+- 模块一首次激活前，四个普通模块只读；激活后，官端直连 MCP 和网关注入模型均可写入、修改普通记忆。
+- 读取自我定义免部署密码。已验证的网关执行绑定承担其核心写入身份校验。
+- 直连写入、修改模块一时，使用 `authorize_self_model(password)` 取得短期授权，再把返回的真实 `grant_ref` 交给 `stbrain_open_direct` 打开 Direct 上下文。授权期 15 分钟，grant 单次消费。
 
-- summary 不推进模块一 `candidate_wait`，不构造完整 continuation，也不登记
-  `candidate_full_review` 或 `human_objection_presented`。`review_material_presented=false`
-  只表示这次摘要没有呈现，不撤销同轮此前合法完整读取产生的证明。
-- self_revision 的候选全文可走 review 分段路径；其他模块只调用所选模块的展示方法。
-  候选正文、哈希、版本和必要证明不能为了体积达标而裁掉，也不能把静态帮助当成已审核。
-- review 全页齐备才能形成完整展示证明；证明不自动等于接受审核。核心自改仍需三个真实唤醒：
-  提交候选、后来独立审核、再后来激活，不能因为读过一页就在同轮绕过。
-- 服务端完整返回不等于客户端已显示或模型已读完。超大材料仍受客户端限制；必要材料
-  无法完整交付时，不登记虚假的阅读完成。黑匣子手册不等于已读取敏感正文。
-- 原文历史、来源与权限边界保持；核心自我修改不由普通快捷入口代写、代审或同轮激活。
+兼容配置保留已有授权上下文路径。需要 Direct 上下文的操作使用独立签发的 grant 和实际 `write_context_ref`；具体高级参数参考当前回执。`execution_ref` 由宿主签发，直连调用方省略。
 
-## 诊断与验证范围
+## 7. 回执和诊断
 
-规划专用高级工具的固定 `binding_reason_code` 可区分引用缺失／占位、无当前唤醒、过期、
-注入未就绪及本轮引用不匹配。它不泄露其他主体的记录，不能据合并原因猜测某个旧引用。
-`planning_row_version_conflict` 是版本冲突，不是“没有 open”。普通入口和执行绑定拒绝
-应按各自实际回执处理，不套用所有高级诊断字段。
+按调用的真实 `decision`、状态和版本确认结果。版本冲突、权限拒绝、普通参数校验和网关执行绑定错误是不同阶段，使用各自的错误码处理。
 
-原 public-tools/16（39 工具）的 compact-open 测试只证明当时的摘要／完整手册和合成高级候选路径，
-不代表当前普通新增仍须 open 或候选。`test_daily_native_transport.py` 等隔离测试用于普通新增与
-实际 FastMCP 调用／结果转换；本版本 43 工具目录及新增小改、进度入口还需对应的隔离验证。
-`test_usage_consistency_r4h34.py` 保留 public-tools/18 历史 AST 锚，同时为本候选重立当前 service 锚。
-已独立核对只有五个预期函数与 QueryView 声明改变；还原六处后整文件 AST 与 r4h37 一致。
-新锚未扩大擦除字段或跳过任何安全检查；当前版本文档断言同步至 public-tools/20。
-这只是候选源码验证，不能代替新发布包的封存、维护窗口授权和部署后验收。测试代码的存在不代表测试已通过。
-这些不是手机成功回执或真实上游端到端验收。
-目录升级仍应等旧工具链结束后进行，不能热换正在执行的 schema。
+当前网关工具参数诊断提供经筛选的工具名、公开字段和校验类型，便于修正参数；失败批次保持未释放。详情见 [网关说明](../rikkahub_gateway/README.md)。
+
+升级在当前工具链结束后进行，刷新客户端 Schema，再以合成内容验证普通查改和完整工具续轮。测试源码、回归结果、部署回执和手机体验分别记录，参见 [UPDATE-VALIDATION](../docs/UPDATE-VALIDATION.md)。
+
+### 历史证据怎样使用
+
+原 public-tools/16（39 工具）的 compact-open 记录对应当时的摘要、按需手册和高级候选流程。它作为历史依据保留；当前普通写入使用本文的简化入口，不能从旧用例推导为所有保存都要先打开上下文或提交候选。
+
+本版新增工具、普通作者修改、统一查询、人称提示和网关反馈分别有对应的合成验证。合成测试记录不是手机成功回执，也不代替真实上游、部署后连接和实际工具续轮验收。最终发布验证数量与范围由本版验收文档记录。

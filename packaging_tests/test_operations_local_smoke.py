@@ -23,6 +23,8 @@ class LocalServicesSmokeTests(unittest.TestCase):
         self.fixture.setUp()
         self.addCleanup(self.fixture.doCleanups)
         self.config = self.fixture.config
+        self.config["STBRAIN_ACCESS_PROFILE"] = "simple-memory-v1"
+        self.config["STBRAIN_GATEWAY_CONTEXT_LAYOUT"] = "tail-context-v2"
         self.children = []
         self.opener = build_opener(ProxyHandler({}))
         self.upstream = socket.socket()
@@ -73,9 +75,17 @@ class LocalServicesSmokeTests(unittest.TestCase):
         self.request("MCP", "/mcp", {"jsonrpc": "2.0", "method": "notifications/initialized"}, "STBRAIN_MCP_TOKEN")
         tools = self.request("MCP", "/mcp", {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}, "STBRAIN_MCP_TOKEN")
         names = {tool["name"] for tool in tools["result"]["tools"]}
-        self.assertEqual(43, len(names))
+        self.assertEqual(44, len(names))
         self.assertIn("stbrain_health", names)
         self.assertIn("remember_memory", names)
+        self.assertIn("authorize_self_model", names)
+        self.assertIn("manage_person_reference_advisory", names)
+        self.assertIn("revise_memory", names)
+        self.assertNotIn("revise_tool_guidance", names)
+        by_name = {tool["name"]: tool for tool in tools["result"]["tools"]}
+        for name in ("remember_memory", "remember_emotional_memory", "remember_learning_memory",
+                     "remember_tool_guidance", "remember_planning_memory"):
+            self.assertIn("存入前·可选提醒", by_name[name]["description"])
         health = self.request("MCP", "/mcp", {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
                                                        "params": {"name": "stbrain_health", "arguments": {}}}, "STBRAIN_MCP_TOKEN")
         self.assertFalse(health["result"].get("isError", False))

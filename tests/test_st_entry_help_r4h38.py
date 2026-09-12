@@ -39,25 +39,22 @@ class StEntryHelpTests(unittest.TestCase):
         self.assertIs(help_["state_changed"], False)
         self.assertEqual("daily-memory/1", help_["contract_version"])
         serialized = json.dumps(help_, ensure_ascii=False, separators=(",", ":"))
-        self.assertLessEqual(len(serialized), 1900)
+        self.assertLessEqual(len(serialized), 3500)
         mentioned = set(re.findall(
             r"\b(?:remember|recall|stbrain|query|preview|revise|advance)_[a-z_]+", serialized))
+        mentioned -= {field for fields in help_['ordinary_revision']['allowed_fields'].values() for field in fields}
         self.assertTrue(mentioned <= public_names(), mentioned - public_names())
-        self.assertEqual(43, len(public_names()))
+        self.assertEqual(44, len(public_names()))
         self.assertFalse({"breath", "stbrain_breath"} & public_names())
         self.assertNotIn("stbrain_breath", serialized)
 
     def test_exact_read_routes_and_module_distinctions(self):
         read = literal_help()["read"]
         for text in (
-            "StillerBrain（ST）", "不代表其他 MCP", "压缩、重启或新窗口后",
-            "情感与人际经历用 recall_emotional_memory",
-            "知识与方法用 recall_learning_memory",
-            "计划与承诺用 recall_planning_memory",
-            "工具使用经验用 recall_tool_guidance",
-            "活动自我与归档用 query_self_model",
-            "当前工具列表中 ST 对应的完整名称", "无需每轮必读",
-            "recall_learning_memory(view='inventory')", "零命中不等于库为空",
+            "StillerBrain（ST）", "stbrain_open(view='recall', query=查询词)",
+            "空query", "四普通脑", "module", "next_cursor", "detail_lookup",
+            "各recall_*", "学习inventory", "query_self_model",
+            "身份和披露边界", "零命中不等于库为空", "partial/errors",
         ):
             self.assertIn(text, read)
 
@@ -72,10 +69,11 @@ class StEntryHelpTests(unittest.TestCase):
         self.assertEqual(["module", "content"], help_["daily_memory"]["required"])
         self.assertIn("不用先 open", help_["daily_memory"]["instruction"])
 
-    def test_open_is_not_full_recall_and_core_three_wakes_remain(self):
+    def test_recall_view_and_core_three_wakes_remain_separate(self):
         advanced = literal_help()["advanced"]
-        for text in ("不是读全库", "view='manual'", "三个真实唤醒",
-                     "提交候选、后来独立审核、再后来激活", "普通新增不套此流程"):
+        for text in ("summary/manual/review", "view='recall'", "只读查询入口",
+                     "view='manual'", "提交、后来复核、再后来激活", "真实唤醒流程",
+                     "普通记忆专用修订和整合直接保存", "全部页齐才形成展示证明"):
             self.assertIn(text, advanced)
 
     def test_documented_query_parameters_exist_without_server_import(self):
@@ -88,7 +86,7 @@ class StEntryHelpTests(unittest.TestCase):
             "recall_planning_memory": {"query", "plan_ref"},
             "recall_tool_guidance": {"query", "tool_name", "card_id"},
             "query_self_model": {"view"},
-            "stbrain_open": {"view", "module"},
+            "stbrain_open": {"view", "module", "query", "limit", "cursor"},
         }
         for name, required in expected.items():
             with self.subTest(tool=name):

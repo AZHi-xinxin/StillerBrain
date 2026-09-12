@@ -178,7 +178,14 @@ class GatewayFailureObservabilityTests(unittest.TestCase):
     def assert_safe_log(self, records, code: str, prefix: bool) -> None:
         self.assertEqual(1, len(records))
         record = json.loads(records[0].getMessage())
-        self.assertEqual({"event", "at", "code", "streamed_prefix"}, set(record))
+        expected_keys = {"event", "at", "code", "streamed_prefix"}
+        if code == "tool_arguments_schema_invalid":
+            expected_keys.add("validation")
+            self.assertEqual({
+                "tool_name": TOOL_NAME, "validator": "const",
+                "field_path": ["<field>", "<field>"],
+            }, record["validation"])
+        self.assertEqual(expected_keys, set(record))
         self.assertEqual("gateway_request_failed", record["event"])
         self.assertEqual(code, record["code"])
         self.assertEqual(prefix, record["streamed_prefix"])

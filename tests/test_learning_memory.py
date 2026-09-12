@@ -9,6 +9,7 @@ from contextlib import closing
 
 from runtime.learning_idea_box import IDEA_BOX_LABEL
 from runtime.learning_memory import LearningMemoryError, LearningMemoryStore
+from tests.learning_legacy_fixtures import legacy_integration_candidate
 
 
 _DEFAULT_EVIDENCE = object()
@@ -138,7 +139,7 @@ class LearningMemoryRuntimeTests(unittest.TestCase):
         suffix: str,
         merge_suggestion_id: str | None = None,
     ) -> dict[str, object]:
-        return self.store.integrate(
+        return legacy_integration_candidate(self.store,
             owner_id=self.owner,
             model_id=self.model,
             wake_id=f"wake-integrate-{wake_seq}-{suffix}",
@@ -213,14 +214,14 @@ class LearningMemoryRuntimeTests(unittest.TestCase):
     def test_named_work_recall_survives_missing_optional_scene_tags(self) -> None:
         stored = self.remember(
             title="《侍魔》共读进度与深度理解（1-20章）",
-            summary="我与小乙正在共读《侍魔》，已读到第20章；这里保存当前概要。",
+            summary="我与昕昕正在共读《侍魔》，已读到第20章；这里保存当前概要。",
             current_understanding="完整理解只允许精准查询，不进入自动投影。",
             application_contexts=[],
             scene_tags=[],
             preceding_context_summary="",
             domain="文学共读",
             keywords=["侍魔", "共读", "救赎即牢笼"],
-            entities=["小乙"],
+            entities=["昕昕"],
         )
         self.assertEqual(stored["recall_advisories"], ["automatic_recall_cues_missing"])
         question = "同样不查询工具，只回想，你还记得我们上次一起读的《侍魔》的内容嘛？"
@@ -281,7 +282,7 @@ class LearningMemoryRuntimeTests(unittest.TestCase):
             keywords=["背景物", "排除法"],
             entities=[],
         )
-        question = "小甲，你还记得我们之前玩的那几局海龟汤吗？现在回头想想，你会想到些什么？"
+        question = "阿止，你还记得我们之前玩的那几局海龟汤吗？现在回头想想，你会想到些什么？"
 
         recalled = self.store.recall(
             owner_id=self.owner,
@@ -367,7 +368,7 @@ class LearningMemoryRuntimeTests(unittest.TestCase):
     def test_multi_term_search_matches_authored_fields_without_tags(self) -> None:
         stored = self.remember(
             title="《侍魔》共读进度与深度理解（1-20章）",
-            summary="与小乙共读《侍魔》（拉格朗曰），停在第20章。",
+            summary="与昕昕共读《侍魔》（拉格朗曰），停在第20章。",
             current_understanding="章节里的完整细节不应自动投影。" * 70,
             application_contexts=[], scene_tags=[], keywords=["侍魔", "共读"],
             entities=[], preceding_context_summary="", domain="文学共读",
@@ -846,7 +847,7 @@ class LearningMemoryRuntimeTests(unittest.TestCase):
             )
             for index in range(2)
         ]
-        candidate = self.store.integrate(
+        candidate = legacy_integration_candidate(self.store,
             owner_id=self.owner,
             model_id=self.model,
             wake_id="wake-archive-integrate",
@@ -1308,7 +1309,7 @@ class LearningMemoryRuntimeTests(unittest.TestCase):
         first = self.remember(
             kind="concept",
             title="猫咪蒜瓣毛原因（说法A：太胖）",
-            summary="小乙报告一种说法：猫咪蒜瓣毛是太胖导致毛发分层。",
+            summary="昕昕报告一种说法：猫咪蒜瓣毛是太胖导致毛发分层。",
             current_understanding="这是人类报告、尚未核验的一种成因解释。",
             application_contexts=["回想猫咪蒜瓣毛的成因"],
             scene_tags=["猫咪蒜瓣毛", "养猫", "猫毛"],
@@ -1327,7 +1328,7 @@ class LearningMemoryRuntimeTests(unittest.TestCase):
             1,
             kind="concept",
             title="猫咪蒜瓣毛原因（说法B：脏了）",
-            summary="小乙报告另一种说法：猫咪蒜瓣毛不是太胖，而是脏了需要清洁。",
+            summary="昕昕报告另一种说法：猫咪蒜瓣毛不是太胖，而是脏了需要清洁。",
             current_understanding="这是人类报告、尚未核验的相反成因解释。",
             application_contexts=["回想猫咪蒜瓣毛的成因"],
             scene_tags=["猫咪蒜瓣毛", "养猫", "猫毛"],
@@ -1359,7 +1360,7 @@ class LearningMemoryRuntimeTests(unittest.TestCase):
         self.assertEqual("active", first["effective_lifecycle"])
         self.assertEqual("active", second["effective_lifecycle"])
         before = self.store.status(owner_id=self.owner, model_id=self.model)
-        question = "小甲，不调用工具，你还记得之前我们说猫咪身上具有蒜瓣毛的原因吗？"
+        question = "阿止，不调用工具，你还记得之前我们说猫咪身上具有蒜瓣毛的原因吗？"
         envelopes = self.store.build_envelopes(
             owner_id=self.owner,
             model_id=self.model,
@@ -1375,8 +1376,8 @@ class LearningMemoryRuntimeTests(unittest.TestCase):
         self.assertIn(
             envelope["content"]["summary"],
             {
-                "小乙报告一种说法：猫咪蒜瓣毛是太胖导致毛发分层。",
-                "小乙报告另一种说法：猫咪蒜瓣毛不是太胖，而是脏了需要清洁。",
+                "昕昕报告一种说法：猫咪蒜瓣毛是太胖导致毛发分层。",
+                "昕昕报告另一种说法：猫咪蒜瓣毛不是太胖，而是脏了需要清洁。",
             },
         )
         self.assertNotIn("current_understanding", envelope["content"])
@@ -1669,7 +1670,7 @@ class LearningMemoryRuntimeTests(unittest.TestCase):
             wake_id="wake-integrate",
             wake_seq=3,
             expected_row_version=2,
-            source_learning_ids=[one["learning_id"], two["learning_id"]],
+            source_learning_ids=[one["item_ref"], two["item_ref"]],
             synthesis_kind="summary",
             classification_actor="ai_self",
             classification_basis=["两张卡描述同一阅读进度"],
@@ -1697,169 +1698,28 @@ class LearningMemoryRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(ideas["results"][0]["forced_label"], IDEA_BOX_LABEL)
 
-    def test_calm_check_runtime_gate_rejects_bad_shapes_without_side_effects(self) -> None:
-        one = self.remember(0, "甲")
-        two = self.remember(1, "乙")
-        calm = {
-            "evidence_sufficient": True,
-            "counterevidence_checked": True,
-            "scope_changed": False,
-            "affected_links_checked": True,
-            "single_turn_pressure_absent": True,
-            "rollback_understood": True,
-            "notes": "已逐项检查两张来源卡、反证、关系和回滚边界。",
-            "evidence_refs": [one["item_ref"], two["item_ref"]],
-        }
-        invalid_checks = [
-            {key: value for key, value in calm.items() if key != "counterevidence_checked"},
-            {**calm, "unexpected": True},
-            {**calm, "rollback_understood": False},
-            {**calm, "scope_changed": "false"},
-            {**calm, "evidence_refs": []},
-        ]
-        for invalid in invalid_checks:
-            with self.subTest(calm_check=invalid):
-                with self.assertRaisesRegex(LearningMemoryError, "calm_check_incomplete"):
-                    self.store.integrate(
-                        owner_id=self.owner,
-                        model_id=self.model,
-                        wake_id="wake-invalid-calm",
-                        wake_seq=3,
-                        expected_row_version=2,
-                        source_learning_ids=[one["learning_id"], two["learning_id"]],
-                        synthesis_kind="summary",
-                        classification_actor="ai_self",
-                        classification_basis=["两张卡描述同一阅读进度"],
-                        correctness_assessment="综合内容仍是概要。",
-                        diff="建立一个待复核的综合卡。",
-                        calm_check=invalid,
-                        reason="验证固定复核结构。",
-                        **self.card("综合", referent_bindings=[]),
-                    )
-
-        with self.assertRaisesRegex(LearningMemoryError, "calm_check_scope_missing"):
-            self.store.integrate(
-                owner_id=self.owner,
-                model_id=self.model,
-                wake_id="wake-invalid-calm-scope",
-                wake_seq=3,
-                expected_row_version=2,
-                source_learning_ids=[one["learning_id"], two["learning_id"]],
-                synthesis_kind="summary",
-                classification_actor="ai_self",
-                classification_basis=["两张卡描述同一阅读进度"],
-                correctness_assessment="综合内容仍是概要。",
-                diff="建立一个待复核的综合卡。",
-                calm_check={
-                    **calm,
-                    "scope_changed": True,
-                    "notes": "已检查证据、反证、关系与回滚边界。",
-                },
-                reason="验证变化适用范围时必须明确说明。",
-                **self.card("综合", referent_bindings=[]),
-            )
-
-        self.assertEqual(
-            2,
-            self.store.status(owner_id=self.owner, model_id=self.model)["row_version"],
-        )
-        with closing(sqlite3.connect(self.main_db)) as connection:
-            self.assertEqual(
-                0,
-                connection.execute(
-                    "SELECT COUNT(*) FROM learning_change_candidates"
-                ).fetchone()[0],
-            )
-
-        candidate = self.store.integrate(
-            owner_id=self.owner,
-            model_id=self.model,
-            wake_id="wake-valid-calm",
-            wake_seq=3,
-            expected_row_version=2,
-            source_learning_ids=[one["learning_id"], two["learning_id"]],
-            synthesis_kind="summary",
-            classification_actor="ai_self",
-            classification_basis=["两张卡描述同一阅读进度"],
-            correctness_assessment="综合内容仍是概要。",
-            diff="建立一个待复核的综合卡。",
-            calm_check=calm,
-            reason="验证复核入口继续保留运行时门禁。",
-            **self.card("综合", referent_bindings=[]),
-        )
-        hidden_candidate = self.store.recall(
-            owner_id=self.owner,
-            model_id=self.model,
-            target_ref=candidate["target_ref"],
-            include_pending=True,
-        )
-        self.assertEqual(0, hidden_candidate["result_count"])
-        automatic_projection = json.dumps(
-            self.store.build_envelopes(
-                owner_id=self.owner,
-                model_id=self.model,
-                query="综合",
-            ),
-            ensure_ascii=False,
-        )
-        self.assertNotIn(candidate["candidate_id"], automatic_projection)
-        self.assertNotIn(candidate["candidate_hash"], automatic_projection)
-        same_wake_snapshot = self.store.review_snapshot(
-            owner_id=self.owner,
-            model_id=self.model,
-            wake_id="wake-valid-calm",
-            wake_seq=3,
-        )
-        self.assertEqual(3, same_wake_snapshot["learning_row_version"])
-        self.assertEqual(1, same_wake_snapshot["pending_count"])
-        shown = same_wake_snapshot["candidates"][0]
-        self.assertEqual(candidate["candidate_hash"], shown["candidate_hash"])
+    def test_legacy_candidate_can_be_reviewed_same_wake_without_calm_questionnaire(self) -> None:
+        one, two = self.remember(0, "甲"), self.remember(1, "乙")
+        candidate = self.integration_candidate(row_version=2, wake_seq=3,
+                                               sources=[one, two], suffix="历史候选")
+        snapshot = self.store.review_snapshot(owner_id=self.owner, model_id=self.model,
+                                             wake_id="review", wake_seq=3)
+        shown = snapshot["candidates"][0]
         self.assertTrue(shown["fully_presented"])
-        self.assertTrue(shown["review_requires_later_wake"])
+        self.assertFalse(shown["review_requires_later_wake"])
         self.assertEqual(2, len(shown["source_review_material"]))
-        self.assertIn("content", shown["source_review_material"][0])
-        serialized = json.dumps(same_wake_snapshot, ensure_ascii=False)
-        for forbidden in (
-            '"owner_id"', '"model_id"', '"created_wake_id"',
-            '"created_wake_seq"', '"calm_check":',
-        ):
-            self.assertNotIn(forbidden, serialized)
-        foreign_snapshot = self.store.review_snapshot(
-            owner_id="owner:foreign",
-            model_id=self.model,
-            wake_id="wake:foreign",
-            wake_seq=4,
-        )
-        self.assertEqual(0, foreign_snapshot["pending_count"])
-        invalid_review_calm = dict(calm)
-        del invalid_review_calm["rollback_understood"]
-        with self.assertRaisesRegex(LearningMemoryError, "calm_check_incomplete"):
-            self.store.review_change(
-                owner_id=self.owner,
-                model_id=self.model,
-                wake_id="wake-review-invalid-calm",
-                wake_seq=4,
-                expected_row_version=3,
-                candidate_id=candidate["candidate_id"],
-                expected_candidate_version=1,
-                expected_candidate_hash=candidate["candidate_hash"],
-                expected_base_version=0,
-                action="accept",
-                correctness_assessment="再次检查候选。",
-                calm_check=invalid_review_calm,
-                reason="验证复核入口拒绝缺键对象。",
-                ai_confirmation=True,
-            )
-        self.assertEqual(
-            3,
-            self.store.status(owner_id=self.owner, model_id=self.model)["row_version"],
-        )
-        with closing(sqlite3.connect(self.main_db)) as connection:
-            status = connection.execute(
-                "SELECT status FROM learning_change_candidates WHERE candidate_id=?",
-                (candidate["candidate_id"],),
-            ).fetchone()[0]
-        self.assertEqual("pending", status)
+        fields = dict(owner_id=self.owner, model_id=self.model, wake_id="review",
+                      wake_seq=3, expected_row_version=3,
+                      candidate_id=candidate["candidate_id"], expected_candidate_version=1,
+                      expected_candidate_hash=candidate["candidate_hash"], expected_base_version=0,
+                      action="accept")
+        with self.assertRaisesRegex(LearningMemoryError, "ai_confirmation_required"):
+            self.store.review_change(**fields)
+        with self.assertRaisesRegex(LearningMemoryError, "stale_candidate"):
+            self.store.review_change(**{**fields, "expected_candidate_hash": "wrong"}, ai_confirmation=True)
+        result = self.store.review_change(**fields, ai_confirmation=True)
+        self.assertEqual("accepted", result["decision"])
+        self.assertEqual(0, self.store.status(owner_id=self.owner, model_id=self.model)["counts"]["pending_changes"])
 
     def test_incomplete_candidate_is_reject_only_and_reveals_next_candidate(self) -> None:
         one = self.remember(0, "不完整来源甲")
@@ -2053,7 +1913,7 @@ class LearningMemoryRuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(
             LearningMemoryError, "candidate_review_material_too_large"
         ):
-            self.store.integrate(
+            legacy_integration_candidate(self.store,
                 owner_id=self.owner,
                 model_id=self.model,
                 wake_id="wake-oversized-twenty-source-integration",
@@ -2097,149 +1957,23 @@ class LearningMemoryRuntimeTests(unittest.TestCase):
                 ).fetchone()[0],
             )
 
-    def test_typo_small_change_and_semantic_change_requires_later_wake(self) -> None:
+    def test_typo_and_semantic_revision_append_versions_without_candidate(self) -> None:
         stored = self.remember()
-        small = self.store.revise(
-            owner_id=self.owner,
-            model_id=self.model,
-            wake_id="wake-small",
-            wake_seq=2,
-            expected_row_version=1,
-            target_ref=stored["item_ref"],
-            expected_target_version=1,
-            action="change",
-            change_class="typo",
-            classification_actor="ai_self",
-            classification_basis=["仅修正一个错别字"],
-            correctness_assessment="含义未变化。",
-            diff="旧成改为旧城。",
-            reason="错别字修正。",
-            changes={"summary": "她记得主角刚抵达旧城，并发现门上的符号。"},
-        )
-        self.assertEqual(small["decision"], "applied")
-        calm = {
-            "evidence_sufficient": True,
-            "counterevidence_checked": True,
-            "scope_changed": True,
-            "affected_links_checked": True,
-            "single_turn_pressure_absent": True,
-            "rollback_understood": True,
-            "notes": "范围 scope 已改变，需跨唤醒复核。",
-            "evidence_refs": [small["rollback_ref"]],
-        }
-        invalid_major_calm = dict(calm)
-        del invalid_major_calm["counterevidence_checked"]
-        with self.assertRaisesRegex(LearningMemoryError, "calm_check_incomplete"):
-            self.store.revise(
-                owner_id=self.owner,
-                model_id=self.model,
-                wake_id="wake-major-invalid-calm",
-                wake_seq=3,
-                expected_row_version=2,
-                target_ref=f"learning://{stored['learning_id']}@2",
-                expected_target_version=2,
-                action="change",
-                change_class="semantic_change",
-                classification_actor="ai_self",
-                classification_basis=["新证据改变了理解范围"],
-                correctness_assessment="这是语义变化。",
-                diff="扩大适用范围。",
-                reason="验证大修缺键冷静检查零副作用。",
-                changes={"current_understanding": "这条线索也适用于后续章节的时间结构。"},
-                calm_check=invalid_major_calm,
-                ai_confirmation=True,
-            )
-        self.assertEqual(
-            2,
-            self.store.status(owner_id=self.owner, model_id=self.model)["row_version"],
-        )
+        fields = dict(owner_id=self.owner, model_id=self.model, wake_id="same-wake", wake_seq=2)
+        small = self.store.revise(**fields, expected_row_version=1,
+                                 target_ref=stored["item_ref"], expected_target_version=1,
+                                 changes={"summary": "她记得主角刚抵达旧城，并发现门上的符号。"})
+        self.assertEqual("applied", small["decision"])
+        major = self.store.revise(**fields, expected_row_version=2,
+                                 target_ref=small["item_ref"], expected_target_version=2,
+                                 changes={"current_understanding": "新证据改变了我对这条线索的理解。"})
+        self.assertEqual("applied", major["decision"])
+        self.assertEqual(3, major["item_version"])
+        self.assertNotIn("candidate_id", major)
         with closing(sqlite3.connect(self.main_db)) as connection:
-            self.assertEqual(
-                0,
-                connection.execute(
-                    "SELECT COUNT(*) FROM learning_change_candidates"
-                ).fetchone()[0],
-            )
-        candidate = self.store.revise(
-            owner_id=self.owner,
-            model_id=self.model,
-            wake_id="wake-major",
-            wake_seq=3,
-            expected_row_version=2,
-            target_ref=f"learning://{stored['learning_id']}@2",
-            expected_target_version=2,
-            action="change",
-            change_class="semantic_change",
-            classification_actor="ai_self",
-            classification_basis=["新证据改变了理解范围"],
-            correctness_assessment="这是语义变化。",
-            diff="扩大适用范围。",
-            reason="新证据支持。",
-            changes={"current_understanding": "这条线索也适用于后续章节的时间结构。"},
-            calm_check=calm,
-            ai_confirmation=True,
-        )
-        with self.assertRaisesRegex(LearningMemoryError, "later_real_wake_required"):
-            self.store.review_change(
-                owner_id=self.owner,
-                model_id=self.model,
-                wake_id="wake-major",
-                wake_seq=3,
-                expected_row_version=3,
-                candidate_id=candidate["candidate_id"],
-                expected_candidate_version=1,
-                expected_candidate_hash=candidate["candidate_hash"],
-                expected_base_version=2,
-                action="accept",
-                correctness_assessment="仍确认正确。",
-                calm_check=calm,
-                reason="同轮不应通过。",
-                ai_confirmation=True,
-            )
-        review_snapshot = self.store.review_snapshot(
-            owner_id=self.owner,
-            model_id=self.model,
-            wake_id="wake-later",
-            wake_seq=4,
-        )
-        self.assertTrue(review_snapshot["candidates"][0]["fully_presented"])
-        with self.assertRaisesRegex(
-            LearningMemoryError, "candidate_not_fully_presented"
-        ):
-            self.store.review_change(
-                owner_id=self.owner,
-                model_id=self.model,
-                wake_id="wake-not-opened",
-                wake_seq=4,
-                expected_row_version=3,
-                candidate_id=candidate["candidate_id"],
-                expected_candidate_version=1,
-                expected_candidate_hash=candidate["candidate_hash"],
-                expected_base_version=2,
-                action="accept",
-                correctness_assessment="不能复用另一轮展示。",
-                calm_check=calm,
-                reason="验证展示绑定。",
-                ai_confirmation=True,
-            )
-        accepted = self.store.review_change(
-            owner_id=self.owner,
-            model_id=self.model,
-            wake_id="wake-later",
-            wake_seq=4,
-            expected_row_version=3,
-            candidate_id=candidate["candidate_id"],
-            expected_candidate_version=1,
-            expected_candidate_hash=candidate["candidate_hash"],
-            expected_base_version=2,
-            action="accept",
-            correctness_assessment="跨唤醒后仍确认。",
-            calm_check=calm,
-            reason="复核通过。",
-            ai_confirmation=True,
-        )
-        self.assertEqual(accepted["decision"], "accepted")
-        self.assertEqual(accepted["item_version"], 3)
+            self.assertEqual(3, connection.execute("SELECT COUNT(*) FROM learning_versions").fetchone()[0])
+            self.assertEqual(0, connection.execute("SELECT COUNT(*) FROM learning_change_candidates").fetchone()[0])
+            self.assertEqual(0, connection.execute("SELECT COUNT(*) FROM learning_verification_events").fetchone()[0])
 
     def test_schema_files_are_valid_json(self) -> None:
         schema_root = Path(__file__).parents[1] / "schemas"

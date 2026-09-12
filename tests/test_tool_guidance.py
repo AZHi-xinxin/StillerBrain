@@ -151,13 +151,13 @@ class ToolGuidanceStoreTests(unittest.TestCase):
         )
         self.assertEqual([], other["results"])
 
-    def test_new_tool_chain_requires_a_later_wake_major_revision(self) -> None:
+    def test_new_tool_chain_rejects_missing_link_without_writing(self) -> None:
         # Initialize the owner/model CAS row before taking the zero-side-effect
         # snapshot; the convenience helper reads the current version first.
         self.version()
         before = self.table_counts()
         with self.assertRaisesRegex(
-            ToolGuidanceError, "tool_chain_requires_major_revision"
+            ToolGuidanceError, "linked_tool_ref_not_found"
         ):
             self.remember(
                 linked_tool_refs=[
@@ -202,7 +202,7 @@ class ToolGuidanceStoreTests(unittest.TestCase):
             )
         self.assertEqual(before, self.table_counts())
 
-    def test_catalog_absence_keeps_precise_history_but_silences_auto_recall(self) -> None:
+    def test_catalog_absence_keeps_history_and_authored_reminder_available(self) -> None:
         fields = action_card()
         reason = str(fields.pop("reason"))
         stored = self.store.remember(
@@ -229,9 +229,9 @@ class ToolGuidanceStoreTests(unittest.TestCase):
             query="home.arrival",
             catalog=None,
         )
-        self.assertEqual("defer", auto["decision"])
-        self.assertEqual([], auto["envelopes"])
-        self.assertIn("live_catalog_unavailable", auto["reason_codes"])
+        self.assertEqual("surface_short_summary", auto["decision"])
+        self.assertTrue(auto["envelopes"])
+        self.assertFalse(auto["execution_performed"])
 
     def test_schema_drift_is_precisely_visible_but_never_replays_old_call_notes(self) -> None:
         stored = self.remember()
@@ -248,8 +248,9 @@ class ToolGuidanceStoreTests(unittest.TestCase):
         result = precise["results"][0]
         self.assertEqual("stale_schema", result["schema_status"])
         self.assertEqual("stale_schema", result["effective_status"])
-        self.assertEqual("", result["content"]["call_notes"])
-        self.assertFalse(result["call_notes_available"])
+        self.assertEqual(fields_notes := action_card()["call_notes"], result["content"]["call_notes"])
+        self.assertTrue(result["call_notes_available"])
+        self.assertFalse(result["call_notes_current"])
         self.assertIn("schema_hash_mismatch", result["reason_codes"])
         automatic = self.store.build_recall_envelopes(
             owner_id=self.owner,
@@ -257,7 +258,8 @@ class ToolGuidanceStoreTests(unittest.TestCase):
             query="home.arrival",
             catalog=changed_catalog,
         )
-        self.assertEqual([], automatic["envelopes"])
+        self.assertTrue(automatic["envelopes"])
+        self.assertNotIn(str(fields_notes), json.dumps(automatic["envelopes"]))
 
     def test_self_management_tools_are_excluded_and_no_candidate_is_audited(self) -> None:
         with self.assertRaisesRegex(ToolGuidanceError, "self_tool_excluded"):
@@ -288,13 +290,13 @@ class ToolGuidanceStoreTests(unittest.TestCase):
         )
         self.assertEqual("surface_short_summary", recalled["decision"])
         envelope = recalled["envelopes"][0]
-        self.assertEqual("background_reference", envelope["gate_decision"])
-        self.assertEqual("short_summary", envelope["presentation"])
+        self.assertEqual("tool_card_summary", envelope["kind"])
+        self.assertEqual("legacy_purpose_excerpt", envelope["summary_source"])
         self.assertLessEqual(len(envelope["content"]["scene_summary"]), 100)
         encoded = json.dumps(envelope, ensure_ascii=False)
         for forbidden in (
             "call_notes",
-            "purpose",
+            '"purpose":',
             "use_when",
             "avoid_when",
             "scenario_examples",
@@ -302,8 +304,9 @@ class ToolGuidanceStoreTests(unittest.TestCase):
             "raw_result",
         ):
             self.assertNotIn(forbidden, encoded)
-        self.assertTrue(envelope["detail_lookup"]["available"])
-        self.assertEqual("recall_tool_guidance", envelope["detail_lookup"]["tool"])
+        self.assertTrue(envelope["item_ref"].startswith("tool-card://"))
+        self.assertNotIn("tool_name", encoded)
+        self.assertNotIn("operation_key", encoded)
 
         mismatched = self.store.build_recall_envelopes(
             owner_id=self.owner,
@@ -311,8 +314,7 @@ class ToolGuidanceStoreTests(unittest.TestCase):
             query="home.arrival",
             catalog=catalog(recall_schema="d" * 64),
         )["envelopes"][0]
-        self.assertFalse(mismatched["detail_lookup"]["available"])
-        self.assertIsNone(mismatched["detail_lookup"]["tool"])
+        self.assertEqual(envelope, mismatched)
 
     def test_auto_recall_can_join_an_external_snapshot_transaction(self) -> None:
         self.remember()
@@ -338,7 +340,7 @@ class ToolGuidanceStoreTests(unittest.TestCase):
             connection.close()
         self.assertEqual(baseline, self.table_counts()["tool_audit_events"])
 
-    def test_small_revision_appends_version_and_misclassified_edit_is_not_applied(self) -> None:
+    def test_all_authored_revision_classes_append_and_execution_checks_remain(self) -> None:
         stored = self.remember()
         card_id = stored["card"]["card_id"]
         small = self.store.revise(
@@ -373,8 +375,8 @@ class ToolGuidanceStoreTests(unittest.TestCase):
             catalog=self.live_catalog,
             purpose="Send commands without checking confirmation.",
         )
-        self.assertEqual("reject", rejected["decision"])
-        self.assertIn("major_review_required", rejected["reason_codes"])
+        self.assertEqual("version_appended", rejected["decision"])
+        self.assertEqual("direct_revision", rejected["submission_mode"])
         current = self.store.recall(
             owner_id=self.owner,
             model_id=self.model,
@@ -382,13 +384,16 @@ class ToolGuidanceStoreTests(unittest.TestCase):
             view="card",
             catalog=self.live_catalog,
         )["results"][0]
-        self.assertEqual(2, current["version"])
-        self.assertEqual(2, self.version())
+        self.assertEqual(3, current["version"])
+        self.assertEqual(3, self.version())
+        gate = self.store.execution_gate(owner_id=self.owner, model_id=self.model, card_id=card_id,
+            catalog=self.live_catalog, current_user_intent=True, authorization_verified=True, current_confirmation=False)
+        self.assertEqual("confirmation_required", gate["decision"])
 
-    def test_major_candidate_requires_complete_later_wake_review(self) -> None:
+    def test_legacy_major_candidate_requires_complete_later_wake_review(self) -> None:
         stored = self.remember()
         card_id = stored["card"]["card_id"]
-        candidate = self.store.revise(
+        candidate = self.store.propose_revision(
             owner_id=self.owner,
             model_id=self.model,
             wake_id="wake:submit",
@@ -477,10 +482,10 @@ class ToolGuidanceStoreTests(unittest.TestCase):
         self.assertEqual("accepted", accepted["decision"])
         self.assertEqual(2, accepted["card"]["version"])
 
-    def test_major_review_revalidates_schema_and_correctness_mapping(self) -> None:
+    def test_legacy_major_review_revalidates_schema_and_correctness_mapping(self) -> None:
         stored = self.remember()
         card_id = stored["card"]["card_id"]
-        candidate = self.store.revise(
+        candidate = self.store.propose_revision(
             owner_id=self.owner,
             model_id=self.model,
             wake_id="wake:submit",
@@ -566,7 +571,8 @@ class ToolGuidanceStoreTests(unittest.TestCase):
             query="home.arrival",
             catalog=self.live_catalog,
         )
-        self.assertEqual([], during["envelopes"])
+        self.assertTrue(during["envelopes"])
+        self.assertFalse(during["execution_performed"])
 
         succeeded = self.store.record_experience(
             owner_id=self.owner,

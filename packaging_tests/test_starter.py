@@ -40,7 +40,7 @@ class StarterTests(unittest.TestCase):
 
     def test_context_layout_opt_in_is_explicit(self):
         with tempfile.TemporaryDirectory() as tmp:
-            for layout in ("legacy", "anchored-v1"):
+            for layout in ("legacy", "anchored-v1", "tail-context-v2"):
                 config = self.config(Path(tmp))
                 config["STBRAIN_GATEWAY_CONTEXT_LAYOUT"] = layout
                 starter.validate(config, "gateway")

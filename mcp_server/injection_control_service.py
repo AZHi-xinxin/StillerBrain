@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from typing import Any, Literal
+from runtime.execution_binding import ExecutionBindingError
+from runtime.ordinary_access import current_ordinary_access
 
 from runtime import ModuleOneOnboardingStore
 from runtime.injection_control import InjectionControlError, InjectionControlStore
 
 
 InjectionControlAction = Literal[
+    "set",
+    "clear",
+    "rollback",
     "emergency_off",
     "propose_mode",
     "propose_rollback",
@@ -19,7 +24,7 @@ InjectionControlView = Literal["status", "manual", "history"]
 
 
 class InjectionControlAccessService:
-    """Bind injection changes to the current AI-opened real wake."""
+    """Bind ordinary controls to the author; vault changes retain their old gate."""
 
     def __init__(
         self,
@@ -52,6 +57,8 @@ class InjectionControlAccessService:
         }
         if help is not None:
             result["validation_help"] = help
+        if reason == "legacy_candidate_requires_open_wake":
+            result["next_action"] = "普通更新使用 set/clear/rollback；显式旧候选使用真实已打开上下文及原候选坐标。"
         return result
 
     def _binding(self, write_context_ref: Any) -> dict[str, Any] | None:
@@ -88,29 +95,42 @@ class InjectionControlAccessService:
         target_revision_id: str | None = None,
         ai_confirmation: bool = False,
     ) -> dict[str, Any]:
-        if not self._ready():
-            return self._deny("module_one_required")
-        binding = self._binding(write_context_ref)
+        if scope == "hallucination_vault" and current_ordinary_access(
+            owner_id=self.owner_id, model_id=self.model_id,
+        ) is not None:
+            return self._deny("vault_control_requires_legacy_authorization")
+        try:
+            if not self._ready():
+                return self._deny("module_one_required")
+            binding = self._binding(write_context_ref)
+        except ExecutionBindingError as exc:
+            return self._deny(str(exc))
         if binding is None:
             return self._deny("brain_open_required")
-        if self.onboarding.contains_protected_persistence_value(
-            owner_id=self.owner_id,
-            model_id=self.model_id,
-            value={
-                "action": action,
-                "scope": scope,
-                "expected_control_version": expected_control_version,
-                "target_mode": target_mode,
-                "reason": reason,
-                "candidate_id": candidate_id,
-                "expected_candidate_hash": expected_candidate_hash,
-                "expected_active_revision": expected_active_revision,
-                "target_revision_id": target_revision_id,
-                "ai_confirmation": ai_confirmation,
-            },
-        ):
+        if action not in {"set", "clear", "rollback", "emergency_off"} and binding.get("context_mode") == "ordinary_authenticated":
+            return self._deny("legacy_candidate_requires_open_wake")
+        try:
+            protected = self.onboarding.contains_protected_persistence_value(
+                owner_id=self.owner_id,
+                model_id=self.model_id,
+                value={
+                    "action": action,
+                    "scope": scope,
+                    "expected_control_version": expected_control_version,
+                    "target_mode": target_mode,
+                    "reason": reason,
+                    "candidate_id": candidate_id,
+                    "expected_candidate_hash": expected_candidate_hash,
+                    "expected_active_revision": expected_active_revision,
+                    "target_revision_id": target_revision_id,
+                    "ai_confirmation": ai_confirmation,
+                },
+            )
+        except ExecutionBindingError as exc:
+            return self._deny(str(exc))
+        if protected:
             return self._deny("credential_or_secret_detected")
-        if ai_confirmation is not True:
+        if action not in {"set", "clear", "rollback"} and ai_confirmation is not True:
             return self._deny("ai_confirmation_required")
         if expected_active_revision is not None and (
             not isinstance(expected_active_revision, str)
@@ -125,6 +145,16 @@ class InjectionControlAccessService:
                 },
             )
         try:
+            if action in {"set", "clear", "rollback"}:
+                if candidate_id is not None or expected_candidate_hash is not None:
+                    return self._deny("invalid_injection_action_payload")
+                return self.store.commit_revision(
+                    owner_id=self.owner_id, model_id=self.model_id, scope=scope,
+                    operation=action, target_mode=target_mode, target_revision_id=target_revision_id,
+                    reason=reason, wake_id=binding["wake_id"], wake_seq=binding["wake_seq"],
+                    expected_row_version=expected_control_version,
+                    expected_active_revision=expected_active_revision, actor="ai",
+                )
             if action == "emergency_off":
                 if scope != "global" or any(
                     value is not None
@@ -211,7 +241,7 @@ class InjectionControlAccessService:
                     actor="ai",
                 )
             return self._deny("invalid_injection_control_action")
-        except InjectionControlError as exc:
+        except (InjectionControlError, ExecutionBindingError) as exc:
             return self._deny(str(exc))
 
     def status(self) -> dict[str, Any]:

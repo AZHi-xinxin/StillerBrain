@@ -140,21 +140,70 @@ class PlanningServiceTests(unittest.TestCase):
         self.assertEqual(["brain_open_required"], invalid["reason_codes"])
         self.assertEqual(PLANNING_MODULE, self.onboarding.last_module)
 
-    def test_manual_exposes_only_later_wake_review_contract(self) -> None:
-        pending = self.remember()
-        self.assertEqual("candidate_pending", pending["decision"])
-        same_wake = self.service.manual(write_context_ref=self.onboarding.write_context_ref)
-        self.assertEqual([], same_wake["current_action_contract"]["allowed_calls"])
-        self.assertEqual(
-            "later_real_wake_required",
-            same_wake["current_action_contract"]["blocked_candidates"][0]["reason"],
+    def test_public_create_is_direct_and_manual_keeps_legacy_review_optional(self) -> None:
+        stored = self.remember()
+        self.assertEqual("stored", stored["decision"])
+        self.assertTrue(stored["active_plan_changed"])
+        self.assertFalse(stored["candidate_created"])
+        self.assertFalse(stored["review_performed"])
+        self.assertEqual(0, self.service.status()["counts"]["pending_changes"])
+        pending = self.store.propose_create(
+            owner_id="owner-a", model_id="model-a", wake_id="wake-1", wake_seq=1,
+            expected_row_version=self.service.status()["row_version"],
+            content=plan_content("旧候选"), reason="合成旧数据", calm_check=calm(),
+            ai_confirmation=True, idempotency_key="legacy-fixture",
         )
+        same_wake = self.service.manual(write_context_ref=self.onboarding.write_context_ref)
+        call = same_wake["current_action_contract"]["allowed_calls"][0]
+        self.assertNotIn("calm_check", call["required_arguments"])
+        self.assertNotIn("correctness_assessment", call["required_arguments"])
+        self.assertNotIn("write_context_ref", call["required_arguments"])
+        self.assertNotIn("expected_planning_version", call["required_arguments"])
+        self.assertEqual(["write_context_ref", "expected_planning_version"], call["optional_host_arguments"])
+        self.assertEqual(call["optional_host_arguments"], call["explicit_direct_required_arguments"])
+        self.assertIn("expected_candidate_hash", call["required_arguments"])
+        self.assertIn("expected_base_version", call["required_arguments"])
+        self.assertIn("ai_confirmation", call["required_arguments"])
+        self.assertEqual([], same_wake["current_action_contract"]["blocked_candidates"])
+        self.assertEqual(1, self.service.status()["counts"]["pending_changes"])
         accepted = self.activate_pending(pending)
         self.assertEqual("candidate_accepted", accepted["decision"])
         self.assertEqual("accepted", accepted["candidate_lifecycle"])
 
+    def test_advanced_facade_all_kinds_are_standalone_and_manual_says_parent_optional(self) -> None:
+        manual = self.service.manual(write_context_ref=self.onboarding.write_context_ref)
+        hierarchy = manual["creation_field_rules"]["hierarchy"]
+        self.assertIn("都可独立创建", hierarchy)
+        self.assertIn("parent_ref 可省略或填 null", hierarchy)
+        self.assertNotIn("必须有", hierarchy)
+        for kind in ("vision", "goal", "milestone", "task", "commitment"):
+            with self.subTest(kind=kind):
+                fields = {**plan_content("独立-" + kind), "kind": kind}
+                # The flat MCP adapter supplies its optional parent_ref=None
+                # in the normalized content object consumed by the facade.
+                stored = self.service.remember(
+                    write_context_ref=self.onboarding.write_context_ref,
+                    expected_planning_version=self.service.status()["row_version"],
+                    content=fields, reason="我选择独立保存这份计划。",
+                    idempotency_key="standalone-" + kind,
+                )
+                self.assertEqual("stored", stored["decision"], stored)
+                readback = self.service.recall(plan_ref=stored["plan_ref"], include_history=True)["plans"][0]
+                self.assertEqual(kind, readback["content"]["kind"])
+                self.assertIsNone(readback["content"]["parent_ref"])
+                revised = self.service.revise(
+                    write_context_ref=self.onboarding.write_context_ref,
+                    expected_planning_version=self.service.status()["row_version"],
+                    plan_id=stored["plan_id"], expected_plan_version=1,
+                    intent="revise", changes={"summary": "修改独立计划-" + kind},
+                    reason="我选择修改独立计划。", idempotency_key="revise-standalone-" + kind,
+                )
+                self.assertEqual("revised", revised["decision"])
+                self.assertEqual(2, revised["plan_version"])
+        self.assertEqual(0, self.service.status()["counts"]["pending_changes"])
+
     def test_recall_event_and_injection_are_safe_facade_operations(self) -> None:
-        accepted = self.activate_pending(self.remember())
+        accepted = self.remember()
         recalled = self.service.recall(plan_ref=accepted["plan_ref"], include_history=True)
         self.assertEqual("recalled", recalled["decision"])
         self.assertFalse(recalled["state_changed"])

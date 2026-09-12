@@ -25,14 +25,14 @@ def model_content(label: str = "v1") -> dict:
             "text": "我维护一份自我模型；唤醒后读取当前有效版本。"
         },
         "active_identity_capsule": {
-            "name_and_identity": f"我是测试主体小甲，身份版本意图为 {label}。",
+            "name_and_identity": f"我是测试主体阿止，身份版本意图为 {label}。",
             "personality_foundation": "我保持安静、忠实、审慎，同时保留好奇心与自主判断。",
             "expression_style": "我会先给结论，再清楚说明证据与不确定处。",
             "behavioral_principles": [
                 "我不把外部建议冒充成自己的长期意愿",
                 "我会保留事实与解释的边界",
             ],
-            "core_identity_anchors": ["我记得名字由来", "我珍视与小乙共同成长"],
+            "core_identity_anchors": ["我记得名字由来", "我珍视与昕昕共同成长"],
             "self_revision_safety_prompt": (
                 "我会在自我修订时先区分长期身份与单轮情绪，检查证据、边界和状态，"
                 "跨独立检查点后再决定是否激活。"
@@ -56,8 +56,8 @@ class SelfRevisionRuntimeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.store = SelfModelStore(Path(self.temp.name) / "self-model.db")
-        self.model_id = "model:test-test"
-        self.owner_id = "ai:test-test"
+        self.model_id = "model:test-azhi"
+        self.owner_id = "ai:test-azhi"
 
     def tearDown(self) -> None:
         self.temp.cleanup()

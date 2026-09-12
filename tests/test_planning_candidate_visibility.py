@@ -190,13 +190,8 @@ class PlanningCandidateVisibilityTests(unittest.TestCase):
     def test_fifth_candidate_reachable_without_approving_or_rejecting_blockers(self) -> None:
         pending = [self.propose() for _ in range(5)]
         fifth = pending[4]
-        self.assertTrue(all(not item["fully_presented"] for item in self.present(1)))
-        with self.assertRaisesRegex(PlanningMemoryError, "later_real_wake_required"):
-            self.review(fifth, 1)
         first_batch = self.present(2)
         self.assertNotIn(fifth["candidate_id"], self.ids(first_batch))
-        with self.assertRaisesRegex(PlanningMemoryError, "candidate_not_fully_presented"):
-            self.review(fifth, 2)
         second_batch = self.present(3)
         visible_fifth = next(
             item for item in second_batch if item["candidate_id"] == fifth["candidate_id"]
@@ -218,10 +213,9 @@ class PlanningCandidateVisibilityTests(unittest.TestCase):
                     self.review(visible_fifth, 3, **fields)
                 self.assertEqual(before, self.semantic_snapshot())
 
-        # A body/hash from an earlier wake still cannot authorize a new wake.
-        with self.assertRaisesRegex(PlanningMemoryError, "candidate_not_fully_presented"):
-            self.review(visible_fifth, 4)
-        accepted = self.review(visible_fifth, 3)
+        # The exact pending hash can be explicitly accepted without obtaining
+        # another presentation stamp. Request authority is the facade's job.
+        accepted = self.review(visible_fifth, 4, calm_check=None)
         self.assertEqual("candidate_accepted", accepted["decision"])
         states = {row["candidate_id"]: row["status"] for row in self.candidate_rows()}
         self.assertEqual("accepted", states[fifth["candidate_id"]])
@@ -234,9 +228,7 @@ class PlanningCandidateVisibilityTests(unittest.TestCase):
         batch = self.present(3)
         self.assertEqual(self.ids(old), self.ids(batch))
         self.assertTrue(all(item["fully_presented"] for item in batch))
-        for item in new:
-            with self.assertRaisesRegex(PlanningMemoryError, "later_real_wake_required"):
-                self.review(item, 3)
+        self.assertTrue(all(row["status"] == "pending" for row in self.candidate_rows()))
         self.propose(wake_seq=3)
         for _ in range(8):
             self.assertEqual(batch, self.present(3))
@@ -245,6 +237,7 @@ class PlanningCandidateVisibilityTests(unittest.TestCase):
         self.assertTrue(all(item["fully_presented"] for item in next_batch))
 
     def test_owner_and_model_isolation_in_rotation_and_review(self) -> None:
+        # Visibility and exact candidate identity remain owner/model scoped.
         mine = [self.propose() for _ in range(5)]
         other = [self.propose(owner_id="other-owner") for _ in range(5)]
         other_model = [self.propose(model_id="other-model") for _ in range(5)]
@@ -276,6 +269,31 @@ class PlanningCandidateVisibilityTests(unittest.TestCase):
         # This batch mixes old and never-seen candidates; its paths must stay stable.
         self.assertEqual(third, self.present(4))
 
+    def test_same_wake_exact_candidate_can_be_accepted_without_reopening(self) -> None:
+        pending = [self.propose(wake_seq=1) for _ in range(5)]
+        before = self.semantic_snapshot()
+        batch = self.present(1)
+        self.assertEqual(3, len(batch))
+        self.assertTrue(all(item["fully_presented"] for item in batch))
+        self.assertEqual(before, self.semantic_snapshot())
+        fifth = pending[4]
+        self.assertNotIn(fifth["candidate_id"], self.ids(batch))
+        for fields, error in (
+            ({"expected_candidate_hash": "0" * 64}, "candidate_hash_mismatch"),
+            ({"expected_row_version": 0}, "planning_row_version_conflict"),
+            ({"ai_confirmation": False}, "ai_confirmation_required"),
+        ):
+            with self.subTest(error=error):
+                before = self.semantic_snapshot()
+                with self.assertRaisesRegex(PlanningMemoryError, error):
+                    self.review(fifth, 1, **fields)
+                self.assertEqual(before, self.semantic_snapshot())
+        accepted = self.review(fifth, 1, calm_check=None)
+        self.assertEqual("candidate_accepted", accepted["decision"])
+        states = {row["candidate_id"]: row["status"] for row in self.candidate_rows()}
+        self.assertEqual("accepted", states[fifth["candidate_id"]])
+        self.assertTrue(all(states[item["candidate_id"]] == "pending" for item in pending[:4]))
+
     def test_limit_remains_bounded(self) -> None:
         for _ in range(13):
             self.propose()
@@ -297,7 +315,8 @@ class PlanningCandidateVisibilityTests(unittest.TestCase):
                 "shown_count": 3,
                 "not_shown_count": 2,
                 "selection": "wake_stable_least_recently_presented",
-                "advance_requires_later_real_wake": True,
+                "advance_requires_later_real_wake": False,
+                "batch_rotation": "a_new_wake_rotates_only_the_list_not_review_authority",
             },
             first["pending_batch"],
         )

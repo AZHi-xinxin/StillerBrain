@@ -1,7 +1,18 @@
-* text=auto
+# Keep source-package bytes stable in ZIPs and Git checkouts on every OS.
+# Auto-detection and explicit binary rules preserve binary content unchanged.
+* text=auto eol=lf
 *.py text eol=lf
 *.md text eol=lf
 *.json text eol=lf
 *.yml text eol=lf
 *.txt text eol=lf
 *.example text eol=lf
+*.lock text eol=lf
+*.svg text eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary

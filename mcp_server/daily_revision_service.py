@@ -14,18 +14,48 @@ from runtime.onboarding import OnboardingError
 from runtime.emotional_memory import EmotionalMemoryError
 from runtime.learning_memory import LearningMemoryError
 from runtime.planning_memory import PlanningMemoryError
+from runtime.tool_guidance import ToolGuidanceError
+from runtime.ordinary_access import current_ordinary_access
 
 
 ORDINARY_REVISION_FIELDS = {
-    "emotional_memory": frozenset({"summary", "keywords", "entities", "importance"}),
-    "learning_memory": frozenset({"title", "summary", "domain", "keywords", "entities", "importance"}),
-    "planning_memory": frozenset({"title", "summary", "keywords", "importance"}),
+    "emotional_memory": frozenset({
+        "original_text", "memory_type", "source_timestamp", "summary", "primary_emotion",
+        "secondary_emotions", "importance", "sensitivity", "context_policy", "origin", "confidence",
+        "keywords", "entities", "referent_bindings", "recall_mode", "allow_contexts", "deny_contexts",
+        "default_decision", "explicit_request_override", "disclosure", "lifecycle",
+    }),
+    "learning_memory": frozenset({
+        "kind", "title", "summary", "current_understanding", "steps", "application_contexts",
+        "scene_tags", "preceding_context_summary", "uncertainties", "domain", "keywords", "entities",
+        "source_basis", "claim_review", "confidence", "time_sensitivity", "valid_as_of", "review_after",
+        "importance", "sensitivity", "context_policy", "recall_mode", "allow_contexts", "deny_contexts",
+        "default_decision", "explicit_request_override", "disclosure", "lifecycle", "referent_bindings",
+    }),
+    "planning_memory": frozenset({
+        "kind", "track", "title", "original_text", "summary", "reminder", "importance", "presence_mode",
+        "scene_tags", "keywords", "start_at", "due_at", "timezone", "review_after",
+        "allow_coordination_hint", "parent_ref", "dependency_refs", "ai_adoption_statement",
+    }),
+    "tool_guidance": frozenset({
+        "tool_name", "operation_key", "field_name", "before_text", "after_text", "display_label",
+        "documentation_note", "purpose", "reminder", "use_when", "avoid_when", "scenario_tags",
+        "scenario_examples", "call_notes", "keywords", "aliases", "capability_class", "risk_level",
+        "confirmation_policy", "completion_rule", "critical_preconditions", "linked_tool_refs",
+        "chain_role", "handoff_condition", "related_refs", "source_type", "source_ref",
+        "additional_source_refs", "confidence", "salience", "auto_recall_mode", "salience_reason",
+        "expires_at", "referent_bindings", "intent", "edit_class", "target_version",
+        "correctness_assessment", "calm_check_stability", "calm_check_necessity",
+        "calm_check_consequences", "calm_check_alternatives", "clear_fields",
+    }),
 }
 _TARGETS = {"emotion": ("emotional_memory", "emmem"),
-            "learning": ("learning_memory", "learn"), "plan": ("planning_memory", "plan")}
+            "learning": ("learning_memory", "learn"), "plan": ("planning_memory", "plan"),
+            "tool-card": ("tool_guidance", "toolcard")}
 _ADVANCED = {"emotional_memory": "revise_emotional_memory", "learning_memory": "revise_learning_memory",
-             "planning_memory": "revise_planning_memory"}
-_NEUTRAL_REASON = "普通摘要或检索元数据修订；保留目标历史，不代表独立核验或高级修订审核。"
+             "planning_memory": "revise_planning_memory", "tool_guidance": "revise_tool_guidance"}
+_TOOL_CLEAR_FIELDS = frozenset({"reminder", "source_ref", "expires_at"})
+_NEUTRAL_REASON = "AI 主动修订普通记忆；原版本与修订审计保留。"
 _SAFE_FAILURES = frozenset({
     "module_one_required", "credential_or_secret_detected", "credential_content_rejected",
     "brain_open_required", "current_injected_wake_required", "current_wake_required",
@@ -46,6 +76,17 @@ _SAFE_FAILURES = frozenset({
     "invalid_evidence_anchor", "invalid_evidence_source_kind", "invalid_evidence_provenance",
     "invalid_evidence_source_ref", "invalid_evidence_summary", "plan_content_too_long",
     "plan_change_candidate_pending", "plan_not_mutable", "plan_state_conflict",
+    "learning_target_version_conflict", "learning_target_integrity_mismatch", "empty_revision",
+    "quarantine_restore_required", "unknown_change_fields", "unknown_learning_change_fields",
+    "derived_field_use_source_basis", "original_snapshot_integrity_mismatch",
+    "tool_row_version_conflict", "tool_card_version_conflict", "tool_card_not_found",
+    "card_not_found", "tool_card_version_not_found", "tool_card_exists", "card_retired_use_restore",
+    "target_version_required", "target_version_requires_restore", "invalid_revision_fields",
+    "invalid_revision_intent", "invalid_edit_class", "invalid_tool_guidance_fields",
+    "invalid_confidence", "risk_below_runtime_floor", "invalid_scenario_tags_item",
+    "invalid_linked_tool_ref", "linked_tool_ref_not_found", "typo_source_mismatch", "not_a_downweight",
+    "duplicate_source_ref", "source_ref_required", "self_tool_excluded", "tool_card_content_hash_mismatch",
+    "invalid_tool_card_content", "invalid_expires_at", "raw_payload_forbidden", "invalid_related_ref",
 }) | frozenset(f"{field}_{suffix}" for field in ("title", "summary", "domain", "keywords", "entities", "importance", "reason")
               for suffix in ("required", "too_long", "invalid"))
 
@@ -54,7 +95,7 @@ def parse_revision_target(target_ref: Any) -> tuple[str, str, int]:
     """Pure strict parser, also used to select the existing direct-context scope."""
     if not isinstance(target_ref, str) or len(target_ref) > 100:
         raise ValueError("versioned_target_ref_required")
-    match = re.fullmatch(r"(emotion|learning|plan)://([a-z]+_[0-9a-f]{32})@([1-9][0-9]{0,14})", target_ref)
+    match = re.fullmatch(r"(emotion|learning|plan|tool-card)://([a-z]+_[0-9a-f]{32})@([1-9][0-9]{0,14})", target_ref)
     if match is None:
         raise ValueError("versioned_target_ref_required")
     scheme, item_id, version = match.groups()
@@ -66,12 +107,13 @@ def parse_revision_target(target_ref: Any) -> tuple[str, str, int]:
 
 class DailyRevisionAccessService:
     def __init__(self, onboarding: Any, emotional_service: Any, learning_service: Any,
-                 planning_service: Any, owner_id: str, model_id: str) -> None:
+                 planning_service: Any, owner_id: str, model_id: str,
+                 tool_guidance_service: Any = None) -> None:
         if not isinstance(owner_id, str) or not owner_id.strip() or not isinstance(model_id, str) or not model_id.strip():
             raise ValueError("owner_id and model_id are required")
         self.onboarding = onboarding
         self.services = {"emotional_memory": emotional_service, "learning_memory": learning_service,
-                         "planning_memory": planning_service}
+                         "planning_memory": planning_service, "tool_guidance": tool_guidance_service}
         self.owner_id, self.model_id = owner_id.strip(), model_id.strip()
         if any(component is not None and (component.owner_id, component.model_id) != (self.owner_id, self.model_id)
                for component in self.services.values()):
@@ -83,7 +125,7 @@ class DailyRevisionAccessService:
             if "version_conflict" in code or code == "stale_plan_ref":
                 guidance = "目标或模块版本已变化；先读回目标并决定是否仍需修改，再使用读到的精确版本；不会自动换成最新版本重试。"
             elif code == "ordinary_revision_requires_advanced":
-                guidance = "此改动超出普通小改；请使用该模块原有高级修订流程，不会自动提交候选。"
+                guidance = "请使用 allowed_fields 中的作者字段；系统编号、哈希和审计状态由系统维护。来源依据另可通过模块工具追加。"
             elif code == "no_effective_change":
                 guidance = "修改值与该版本相同，无需创建新版本。"
             else:
@@ -97,6 +139,12 @@ class DailyRevisionAccessService:
             reasons.extend(result["reason_codes"])
         code = next((value for value in reasons if isinstance(value, str) and value in _SAFE_FAILURES), "revision_rejected")
         details = {"advanced_tool": _ADVANCED[module]} if code == "ordinary_revision_requires_advanced" else {}
+        if module == "tool_guidance" and self.services[module] is not None:
+            # Rebuild static repair hints from the known error code, never echo
+            # arbitrary backend content, card bodies or private status fields.
+            safe = self.services[module]._reject(code, status={}, confidence_authoring=True)
+            details.update({key: safe[key] for key in ("repair_guidance", "lookup_guidance") if key in safe})
+            details["execution_performed"] = False
         return self._reject(module, code, **details)
 
     def revise(self, target_ref: str, changes: Mapping[str, Any], reason: str | None = None,
@@ -140,9 +188,28 @@ class DailyRevisionAccessService:
         if set(changes) - ORDINARY_REVISION_FIELDS[module]:
             return self._reject(module, "ordinary_revision_requires_advanced", advanced_tool=_ADVANCED[module],
                                 allowed_fields=sorted(ORDINARY_REVISION_FIELDS[module]))
+        tool_changes = None
+        if module == "tool_guidance":
+            clears = changes.get("clear_fields")
+            if clears is None:
+                clears = []
+            if (not isinstance(clears, list)
+                    or any(not isinstance(field, str) or field not in _TOOL_CLEAR_FIELDS for field in clears)):
+                return self._reject(module, "invalid_clear_fields", field="clear_fields",
+                                    allowed_values=sorted(_TOOL_CLEAR_FIELDS))
+            if any(field in changes and changes[field] is not None for field in clears):
+                return self._reject(module, "set_and_clear_conflict",
+                                    "同一字段选择赋值或清除其中一种即可；这三个可选字段也可直接填 null 清除。")
+            # Unified authored changes make the three optional scalar clears
+            # direct. Other None values keep the dedicated endpoint's omit
+            # semantics; the existing store validates all supplied real values.
+            tool_changes = {key: value for key, value in changes.items()
+                            if key != "clear_fields" and (value is not None or key in _TOOL_CLEAR_FIELDS)}
+            tool_changes.update({key: None for key in clears})
         if reason is not None and (not isinstance(reason, str) or not reason.strip() or len(reason) > 2000):
             return self._reject(module, "reason_invalid", field="reason")
         claim = current_execution_claim()
+        ordinary = current_ordinary_access(owner_id=self.owner_id, model_id=self.model_id, scope=module)
         if claim is not None:
             if (not isinstance(claim, ExecutionClaim) or claim.owner_id != self.owner_id
                     or claim.model_id != self.model_id
@@ -150,16 +217,22 @@ class DailyRevisionAccessService:
                 return self._reject(module, "execution_owner_mismatch")
             if write_context_ref is not None:
                 return self._reject(module, "explicit_context_conflicts_with_bound_execution")
-        elif not isinstance(write_context_ref, str) or not write_context_ref.strip():
+        elif ordinary is not None and write_context_ref is None:
+            write_context_ref = ordinary.get("write_context_ref")
+        if claim is None and (not isinstance(write_context_ref, str) or not write_context_ref.strip()):
             return self._reject(module, "execution_binding_required")
-        elif write_context_ref.strip().startswith("$"):
+        elif claim is None and write_context_ref.strip().startswith("$"):
             return self._reject(module, "invalid_direct_context")
 
         request = {"target_ref": target_ref, "changes": dict(changes), "reason": reason}
         if event is not None:
             request["event"] = dict(event)
         try:
-            if claim is not None:
+            if ordinary is not None:
+                ref = ordinary.get("write_context_ref")
+                if write_context_ref is not None and write_context_ref != ref:
+                    return self._reject(module, "write_context_binding_mismatch")
+            elif claim is not None:
                 opened = self.onboarding.open_brain_context(
                     owner_id=self.owner_id, model_id=self.model_id, present_details=False,
                     expected_wake_id=claim.wake_id,
@@ -178,10 +251,10 @@ class DailyRevisionAccessService:
             if not isinstance(binding, Mapping) or binding.get("write_context_available") is not True:
                 return self._runtime_reject(module, binding if isinstance(binding, Mapping) else {})
             if claim is not None:
-                if binding.get("context_mode") != "gateway_injected" or binding.get("wake_id") != claim.wake_id:
+                if binding.get("context_mode") not in {"gateway_injected", "ordinary_authenticated"} or binding.get("wake_id") != claim.wake_id:
                     return self._reject(module, "execution_wake_mismatch")
             else:
-                if binding.get("context_mode") != "human_attested_direct":
+                if binding.get("context_mode") not in {"human_attested_direct", "ordinary_authenticated"}:
                     return self._reject(module, "invalid_direct_context")
                 scopes = binding.get("authorized_scopes")
                 if not isinstance(scopes, list) or module not in scopes:
@@ -193,11 +266,20 @@ class DailyRevisionAccessService:
             if type(row_version) is not int or row_version < 0:
                 return self._reject(module, "module_version_unavailable")
 
-            def apply(verified: Mapping[str, Any]) -> dict[str, Any]:
+            def apply(verified: Mapping[str, Any], catalog: Mapping[str, Any] | None = None) -> dict[str, Any]:
                 # Re-check the callback's exact binding, not just the earlier observation.
                 if (verified.get("wake_id"), verified.get("wake_seq"), verified.get("context_mode")) != (
                         binding["wake_id"], binding["wake_seq"], binding["context_mode"]):
                     raise ExecutionBindingError("execution_wake_mismatch")
+                if module == "tool_guidance":
+                    return component.store.revise(
+                        owner_id=self.owner_id, model_id=self.model_id,
+                        wake_id=verified["wake_id"], wake_seq=verified["wake_seq"],
+                        expected_row_version=row_version, card_id=item_id,
+                        expected_card_version=expected_version,
+                        reason=_NEUTRAL_REASON if reason is None else reason,
+                        catalog=catalog, **tool_changes,
+                    )
                 fields = dict(owner_id=self.owner_id, model_id=self.model_id,
                               wake_id=verified["wake_id"], expected_row_version=row_version,
                               changes=dict(changes), reason=_NEUTRAL_REASON if reason is None else reason)
@@ -214,8 +296,11 @@ class DailyRevisionAccessService:
                     fields.update(plan_id=item_id, expected_plan_version=expected_version, wake_seq=verified["wake_seq"])
                 return component.store.revise_ordinary(**fields)
 
-            result = component._write(ref, request, apply)
-        except (ExecutionBindingError, OnboardingError, EmotionalMemoryError, LearningMemoryError, PlanningMemoryError) as exc:
+            if module == "tool_guidance":
+                result = component._write(ref, request, apply, confidence_authoring=True)
+            else:
+                result = component._write(ref, request, apply)
+        except (ExecutionBindingError, OnboardingError, EmotionalMemoryError, LearningMemoryError, PlanningMemoryError, ToolGuidanceError) as exc:
             return self._runtime_reject(module, {"reason_code": str(exc)})
         if isinstance(result, Mapping) and result.get("decision") == "reject":
             return self._runtime_reject(module, result)
@@ -240,6 +325,24 @@ class DailyRevisionAccessService:
                     "previous_event_seq": event["expected_event_seq"], "state": result["state"],
                     "state_changed": True, "message": "已追加 1 条计划事件；依据来自本次提供的说明，未执行独立核验。"}
         expected_ref = target_ref.rsplit("@", 1)[0] + "@" + str(expected_version + 1)
+        if module == "tool_guidance":
+            card = result.get("card") if isinstance(result, Mapping) else None
+            if (not isinstance(result, Mapping) or result.get("decision") != "version_appended"
+                    or not isinstance(card, Mapping) or card.get("card_id") != item_id
+                    or type(card.get("version")) is not int or card["version"] != expected_version + 1
+                    or result.get("rollback_ref") != target_ref
+                    or type(result.get("tool_row_version")) is not int or result["tool_row_version"] != row_version + 1
+                    or result.get("state_changed") is not True
+                    or result.get("active_version_changed") is not True
+                    or result.get("execution_performed") is not False):
+                return {"module": module, "decision": "not_confirmed_revised", "revised": False, "count": 0,
+                        "execution_performed": False,
+                        "message": "工具卡修订回执不完整，可能已经写入；请先读回卡片核对，勿自动重试。"}
+            return {"module": module, "decision": "revised", "revised": True, "count": 1,
+                    "id": item_id, "ref": expected_ref, "version": expected_version + 1,
+                    "previous_ref": target_ref, "rollback_ref": result["rollback_ref"],
+                    "state_changed": True, "execution_performed": False,
+                    "message": "已更新工具卡并保留历史；修改的是使用记忆，实际工具执行仍按当前授权处理。"}
         if (not isinstance(result, Mapping) or result.get("decision") != "revised"
                 or result.get("id") != item_id or result.get("ref") != expected_ref
                 or type(result.get("version")) is not int or result["version"] != expected_version + 1
@@ -250,4 +353,4 @@ class DailyRevisionAccessService:
         return {"module": module, "decision": "revised", "revised": True, "count": 1,
                 "id": item_id, "ref": expected_ref, "version": expected_version + 1,
                 "previous_ref": target_ref, "state_changed": True,
-                "message": "已新增 1 个普通修订版本；保留历史，未执行高级修订或独立核验。"}
+                "message": "已新增 1 个普通记忆版本；旧版本与修改审计均已保留。"}

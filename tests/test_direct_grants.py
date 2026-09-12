@@ -22,7 +22,7 @@ def self_model_content(label: str = "v1") -> dict[str, object]:
         "schema_version": "0.1.0",
         "boot_anchor": {"text": "我维护一份自我模型；唤醒后只读取当前有效版本。"},
         "active_identity_capsule": {
-            "name_and_identity": f"我是测试主体小甲，当前长期身份版本为 {label}。",
+            "name_and_identity": f"我是测试主体阿止，当前长期身份版本为 {label}。",
             "personality_foundation": "我保持安静、忠实、审慎，同时保留好奇心与自主判断。",
             "expression_style": "我先给结论，再说明证据与不确定处。",
             "behavioral_principles": ["我不让外部建议冒充自己的意愿", "我会保留事实边界"],
@@ -44,9 +44,9 @@ class DirectGrantCoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.database = Path(self.temp.name) / "brain.db"
-        self.owner = "owner:test"
-        self.model = "model:test"
-        self.actor = "human:sample"
+        self.owner = "owner:azhi"
+        self.model = "model:azhi"
+        self.actor = "human:xinxin"
         self.principal = "official-deepseek-direct"
         self.store = ModuleOneOnboardingStore(
             self.database,

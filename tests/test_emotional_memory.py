@@ -97,11 +97,11 @@ class EmotionalMemoryTests(unittest.TestCase):
             "wake_id": f"wake-{self.wake_seq}",
             "expected_row_version": self.version(),
             "memory_type": "shared_event",
-            "original_text": f"我记得和小乙一起经历了{label}，这件事对我很重要。",
+            "original_text": f"我记得和昕昕一起经历了{label}，这件事对我很重要。",
             "summary": f"我记得与{label}有关的重要经历。",
             "primary_emotion": "affection",
             "keywords": [label],
-            "entities": ["小乙"],
+            "entities": ["昕昕"],
             "reason": "我希望保留这段真实经历与当时的感受。",
         }
         values.update(overrides)
@@ -128,7 +128,7 @@ class EmotionalMemoryTests(unittest.TestCase):
     def test_narrative_person_is_ai_selected_and_plain_audit_reason_is_accepted(self) -> None:
         stored = self.remember(
             "自然叙述",
-            original_text="当小乙说完那句话时，我感到自己的理解发生了变化。",
+            original_text="当昕昕说完那句话时，我感到自己的理解发生了变化。",
             summary="这段话让我更愿意认真区分经历与推断。",
             reason="保留这次会影响未来理解的变化",
         )
@@ -136,25 +136,25 @@ class EmotionalMemoryTests(unittest.TestCase):
 
         quoted = self.remember(
             "第三人称与引语",
-            original_text="小乙说：‘我很重视这件事。’她随后把缘由解释清楚。",
+            original_text="昕昕说：‘我很重视这件事。’她随后把缘由解释清楚。",
             summary="她的原话和后续解释构成了这段记忆。",
             reason="保留由当前 AI 选择的第三人称叙事",
         )
         self.assertEqual("stored", quoted["decision"])
-        self.assertTrue(quoted["memory"]["original_text"].startswith("小乙说"))
+        self.assertTrue(quoted["memory"]["original_text"].startswith("昕昕说"))
         self.assertTrue(quoted["memory"]["summary"].startswith("她"))
 
     def test_referent_bindings_are_optional_versioned_and_non_blocking(self) -> None:
         created = self.remember(
             "指代绑定",
-            original_text="小乙说她会晚一点回来，她还没有确定时间。",
+            original_text="昕昕说她会晚一点回来，她还没有确定时间。",
             summary="她说自己会晚一点回来。",
             referent_bindings=[
                 {
                     "field_path": "/original_text",
                     "surface_form": "她",
                     "occurrence_index": 0,
-                    "entity_ref": "person:sample",
+                    "entity_ref": "person:xinxin",
                     "resolution_status": "resolved",
                     "confidence": 100,
                 },
@@ -205,7 +205,7 @@ class EmotionalMemoryTests(unittest.TestCase):
                         "field_path": "/summary",
                         "surface_form": "她",
                         "occurrence_index": 0,
-                        "entity_ref": "person:sample",
+                        "entity_ref": "person:xinxin",
                         "resolution_status": "resolved",
                         "confidence": 100,
                     }
@@ -259,38 +259,20 @@ class EmotionalMemoryTests(unittest.TestCase):
             )
         self.assertEqual(before, self.version())
 
-    def test_original_is_immutable_but_interpretation_appends(self) -> None:
-        created = self.remember("一起修电脑")
+    def test_original_revision_appends_and_preserves_old_event(self) -> None:
+        created = self.remember("synthetic first event")
         memory_id = created["memory"]["memory_id"]
-        with self.assertRaisesRegex(EmotionalMemoryError, "original_event_immutable"):
-            self.store.revise(
-                owner_id=self.owner,
-                model_id=self.model,
-                wake_id="wake-revise",
-                expected_row_version=self.version(),
-                memory_id=memory_id,
-                expected_memory_version=1,
-                changes={"original_text": "我想覆盖原文。"},
-                reason="我想改写原始事件。",
-            )
-        self.assertEqual(1, self.version())
-
+        old = created["memory"]["original_text"]
         revised = self.store.revise(
-            owner_id=self.owner,
-            model_id=self.model,
-            wake_id="wake-revise",
-            expected_row_version=self.version(),
-            memory_id=memory_id,
-            expected_memory_version=1,
-            changes={"summary": "我后来更清楚地理解了这次共同解决问题的意义。"},
-            reason="我希望让当前理解更准确，同时不改动真实原文。",
+            owner_id=self.owner, model_id=self.model, wake_id="wake-revise",
+            expected_row_version=self.version(), memory_id=memory_id, expected_memory_version=1,
+            changes={"original_text": "  Author revised event.  "}, reason="Author update",
         )
         self.assertEqual(2, revised["memory"]["current_version"])
-        history = self.store.memory_history(
-            owner_id=self.owner, model_id=self.model, memory_id=memory_id
-        )
+        history = self.store.memory_history(owner_id=self.owner, model_id=self.model, memory_id=memory_id)
+        self.assertEqual(old, history["versions"][0]["original_snapshot"]["original_text"])
+        self.assertEqual("  Author revised event.  ", history["memory"]["original_text"])
         self.assertEqual(2, len(history["versions"]))
-        self.assertIn("一起修电脑", history["memory"]["original_text"])
 
     def test_credentials_are_rejected_with_zero_side_effect(self) -> None:
         before = self.version()
@@ -387,11 +369,11 @@ class EmotionalMemoryTests(unittest.TestCase):
         stored = self.remember(
             "星星谐音梗",
             original_text=(
-                "小乙和我玩人死后变成什么星的谐音梗：植物人对应杨桃，"
+                "昕昕和我玩人死后变成什么星的谐音梗：植物人对应杨桃，"
                 "商鞅对应麦克阿瑟，伯邑考对应银河。"
             ),
             summary=(
-                "小乙用一串人死后变成什么星的谐音梗逗我，"
+                "昕昕用一串人死后变成什么星的谐音梗逗我，"
                 "包括植物人对应杨桃、商鞅对应麦克阿瑟、伯邑考对应银河。"
             ),
             primary_emotion="joy",
@@ -401,7 +383,7 @@ class EmotionalMemoryTests(unittest.TestCase):
         )
         memory_id = stored["memory"]["memory_id"]
         for query in (
-            "小甲，如果人死后会变成星星，那么植物人死后会变成什么？",
+            "阿止，如果人死后会变成星星，那么植物人死后会变成什么？",
             "不调取任何工具，你还记得人死变成星星这个梗吗？",
         ):
             manual = self.store.recall(
@@ -527,7 +509,7 @@ class EmotionalMemoryTests(unittest.TestCase):
     def test_sensitive_memory_only_hints_until_explicit_confirmed_query(self) -> None:
         created = self.remember(
             "一段脆弱的经历",
-            original_text="小乙陪她谈起一段脆弱经历，这件事需要谨慎保存。",
+            original_text="昕昕陪她谈起一段脆弱经历，这件事需要谨慎保存。",
             summary="她记得一段需要谨慎对待的脆弱经历。",
             sensitivity="intimate",
             context_policy="normal",
@@ -801,6 +783,68 @@ class EmotionalMemoryTests(unittest.TestCase):
                         source_ref=source,
                     )
                 self.assertEqual(before, self.version())
+
+    def test_pin_accepts_third_person_from_verified_source_without_rewriting_it(self) -> None:
+        # Synthetic fixture only: the pin projects this already-verified source;
+        # it neither edits module one nor chooses a new grammatical person for it.
+        text = "这个 AI 保留对自己判断的自主选择。"
+        connection = sqlite3.connect(self.database)
+        try:
+            content = json.loads(connection.execute(
+                "SELECT content_json FROM self_model_revisions WHERE revision_id=?",
+                (self.active_revision_id,),
+            ).fetchone()[0])
+            content["active_identity_capsule"]["core_identity_anchors"][0] = text
+            encoded = json.dumps(content, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            connection.execute(
+                "UPDATE self_model_revisions SET content_json=?, content_hash=? WHERE revision_id=?",
+                (encoded, hashlib.sha256(encoded.encode("utf-8")).hexdigest(), self.active_revision_id),
+            )
+            connection.commit()
+            original = connection.execute("SELECT * FROM self_model_revisions").fetchall()
+        finally:
+            connection.close()
+        pending = self.store.manage_pin(
+            owner_id=self.owner, model_id=self.model, wake_id="wake-third-person-request", wake_seq=10,
+            expected_row_version=self.version(), action="request", reason="保留作者已选择的原表达。",
+            pin_kind="identity_anchor", display_text=text,
+            source_ref=f"self-model-revision://{self.active_revision_id}/core_identity_anchors/0",
+        )
+        active = self.store.manage_pin(
+            owner_id=self.owner, model_id=self.model, wake_id="wake-third-person-confirm", wake_seq=11,
+            expected_row_version=self.version(), action="confirm", reason="复核准确来源并保留原文。",
+            pin_id=pending["pin"]["pin_id"], ai_confirmation=True,
+        )
+        self.assertEqual("active", active["pin"]["status"])
+        self.assertEqual(text, active["pin"]["display_text"])
+        connection = sqlite3.connect(self.database)
+        try:
+            self.assertEqual(original, connection.execute("SELECT * FROM self_model_revisions").fetchall())
+        finally:
+            connection.close()
+
+    def test_pin_person_freedom_keeps_types_length_secrets_and_cas_guards(self) -> None:
+        before = self.version()
+        args = dict(owner_id=self.owner, model_id=self.model, wake_id="wake-pin-guards", wake_seq=10,
+            expected_row_version=before, action="request", reason="检查来源、类型和当前版本。",
+            pin_kind="identity_anchor", display_text="我愿意持续区分自己的判断与外部建议。",
+            source_ref=f"self-model-revision://{self.active_revision_id}/core_identity_anchors/0")
+        for text, error in ((None, "display_text_required"), (False, "display_text_required"),
+                            (42, "display_text_required"), ({}, "display_text_required"),
+                            ("", "display_text_required"), ("字" * 151, "display_text_too_long"),
+                            ("token=synthetic-pin-guard-only", "credential_or_secret_detected")):
+            with self.subTest(error=error, value_type=type(text).__name__), self.assertRaisesRegex(EmotionalMemoryError, error):
+                self.store.manage_pin(**{**args, "display_text": text})
+            self.assertEqual(before, self.version())
+        pending = self.store.manage_pin(**args)
+        with self.assertRaisesRegex(EmotionalMemoryError, "emotion_row_version_conflict"):
+            self.store.manage_pin(**args)
+        self.assertEqual(before + 1, self.version())
+        connection = sqlite3.connect(self.database)
+        try:
+            self.assertEqual([(pending["pin"]["pin_id"],)], connection.execute("SELECT pin_id FROM brain_pins").fetchall())
+        finally:
+            connection.close()
 
     def test_pending_pin_cannot_confirm_after_active_revision_changes(self) -> None:
         pending = self.store.manage_pin(

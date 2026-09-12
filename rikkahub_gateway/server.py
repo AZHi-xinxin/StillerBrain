@@ -42,6 +42,7 @@ from .tool_execution import (
     ToolExecutionPolicyAdapter,
     advertised_schemas,
     canonical_hash,
+    normalize_validation_diagnostic,
     parse_arguments,
 )
 from runtime.execution_binding import EXECUTION_CONTRACT, EXECUTION_TOOLS
@@ -49,6 +50,7 @@ from runtime.execution_binding import EXECUTION_CONTRACT, EXECUTION_TOOLS
 
 CONTEXT_MARKER = "STILLER_BRAIN_PRE_GENERATION_CONTEXT_V1\n"
 CONTEXT_LAYOUT_CONTRACT = "stbrain-context-layout/1"
+TAIL_CONTEXT_LAYOUT_CONTRACT = "stbrain-context-layout/2"
 # DeepSeek Vision accepts request bodies up to 48 MiB.  Keep requests bounded
 # at that same limit so long, image-bearing RikkaHub histories are not rejected
 # locally before the provider can apply its own 1M-token context rules.  Keep
@@ -57,6 +59,10 @@ CONTEXT_LAYOUT_CONTRACT = "stbrain-context-layout/1"
 MAX_REQUEST_BODY_BYTES = 48 * 1024 * 1024
 DEFAULT_MAX_REQUEST_BODY_BYTES = MAX_REQUEST_BODY_BYTES
 DEFAULT_MAX_BODY_BYTES = 2 * 1024 * 1024
+# SSE wire framing repeats JSON metadata for every token.  Its cumulative
+# transfer limit is distinct from the bounded event/quarantine/tool-tail memory
+# buffers below; a long, progressively delivered answer is not a 2 MiB object.
+DEFAULT_MAX_STREAM_BYTES = 64 * 1024 * 1024
 DIRECT_GRANT_ROUTE = "/v1/human/direct-grants"
 MAX_DIRECT_GRANT_BODY_BYTES = 64 * 1024
 PROTECTED_TOOL_RESULT_KEYS = frozenset({"wake_capability", "challenge_response"})
@@ -66,6 +72,13 @@ MAX_RETIRED_TOOL_CALL_IDS = 4096
 _TOOL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _FAILURE_LOGGER = logging.getLogger("stiller.rikkahub.gateway")
 _PERFORMANCE_LOGGER = logging.getLogger("stiller.rikkahub.performance")
+_STREAM_FAILURE_MESSAGES = {
+    "upstream_incomplete_stream": "上游连接在回复完成前结束，本轮未完成。请重试。",
+    "upstream_empty_completion": "模型只返回了思考过程，尚未生成正文或工具调用，本轮未完成。请重试。",
+    "upstream_output_limit_reached": "模型用完了本轮输出额度，尚未生成正文。请调高模型输出上限后重试。",
+    "upstream_stream_limit_reached": "本轮流式传输已达到 64 MiB 上限或配置的更低上限。请缩小本轮任务后重试。",
+    "upstream_buffer_limit_reached": "本轮某个待检查片段超过了缓冲上限。请缩小本轮内容后重试。",
+}
 # Only internal, value-free codes may enter the small diagnostic log or a late
 # SSE error.  Exception details, arbitrary adapter text and source schemas are
 # never logged.  Unknown future codes remain a generic, safe failure.
@@ -110,6 +123,11 @@ _OBSERVABLE_FAILURE_CODES = frozenset(
         "upstream_invalid_stream",
         "upstream_protected_value",
         "upstream_response_too_large",
+        "upstream_stream_limit_reached",
+        "upstream_buffer_limit_reached",
+        "upstream_incomplete_stream",
+        "upstream_empty_completion",
+        "upstream_output_limit_reached",
         "upstream_tool_calls_invalid",
         "upstream_tool_calls_missing",
         "upstream_unavailable",
@@ -131,7 +149,8 @@ def _observable_failure_code(code: str) -> str:
 
 
 def _log_gateway_failure(
-    code: str, *, streamed_prefix: bool, protected_values: Sequence[str] = ()
+    code: str, *, streamed_prefix: bool, protected_values: Sequence[str] = (),
+    validation_diagnostic: Mapping[str, Any] | None = None,
 ) -> None:
     """Emit no prompt, schema, argument, tool result, URL or credential data."""
 
@@ -141,6 +160,10 @@ def _log_gateway_failure(
         "code": _observable_failure_code(code),
         "streamed_prefix": streamed_prefix,
     }
+    if code == "tool_arguments_schema_invalid" and validation_diagnostic is not None:
+        diagnostic = _safe_validation_diagnostic(validation_diagnostic, protected_values=protected_values)
+        if diagnostic is not None:
+            record["validation"] = diagnostic
     encoded = json.dumps(record, sort_keys=True, separators=(",", ":"))
     if any(value and value in encoded for value in protected_values):
         # Even a contrived legacy capability equal to a fixed diagnostic code
@@ -148,6 +171,31 @@ def _log_gateway_failure(
         # collide with these constants.
         return
     _FAILURE_LOGGER.warning("%s", encoded)
+
+
+def _safe_validation_diagnostic(
+    value: Any, *, protected_values: Sequence[str] = (),
+    allowed_tool_names: Sequence[str] | None = None,
+) -> dict[str, Any] | None:
+    """Re-project value-free metadata; catalog membership is checked at binding."""
+    diagnostic = normalize_validation_diagnostic(value, allowed_tool_names=allowed_tool_names)
+    if diagnostic is None:
+        return None
+    encoded = json.dumps(diagnostic, ensure_ascii=False, sort_keys=True)
+    if any(value and value in encoded for value in protected_values):
+        return None
+    return diagnostic
+
+
+def _tool_validation_message(diagnostic: Mapping[str, Any] | None) -> str:
+    message = "[ST 网关 · tool_arguments_schema_invalid] 本批工具参数与当前工具说明不匹配。"
+    if diagnostic is not None:
+        message += "工具：" + diagnostic["tool_name"] + "；"
+        path = ".".join(diagnostic["field_path"]) or "参数对象"
+        message += "字段：" + path + "；检查：" + diagnostic["validator"] + "。"
+        if diagnostic.get("required_fields"):
+            message += "缺少字段：" + "、".join(diagnostic["required_fields"]) + "。"
+    return message + "本批调用尚未交给客户端执行。请按工具说明修正参数后再试。"
 
 
 _LINEAGE_DIAGNOSTIC_REASONS = frozenset(
@@ -227,13 +275,16 @@ class _RequestPerformance:
     usage_observed: bool = False
     usage_snapshot: dict[str, int] = field(default_factory=dict, repr=False)
     usage_snapshot_invalid_fields: list[str] = field(default_factory=list, repr=False)
-    context_layout: str = "legacy"
+    finish_reasons: list[str] = field(default_factory=list)
+    # Not known until authenticated prepare/confirm completes. Configured mode
+    # is an offer, not evidence of what an older Control actually accepted.
+    context_layout: str = "unknown"
     stable_context_bytes: int = 0
     dynamic_context_bytes: int = 0
     stable_context_changed: bool | None = None
     dynamic_context_changed: bool | None = None
     wire_tools_changed: bool | None = None
-    prior_input_prefix_preserved: bool | None = None
+    client_input_prefix_preserved: bool | None = None
     stage: str = "body_validation"
     failed: bool = False
     emitted: bool = False
@@ -299,10 +350,21 @@ class _RequestPerformance:
         self.observed_model = value if type(value) is str and value in allowed else None
 
     def note_usage(self, payload: Any) -> None:
-        """Copy only bounded integer token counters from provider metadata."""
+        """Copy bounded counters and fixed completion labels, never provider prose."""
 
         if not isinstance(payload, Mapping):
             return
+        choices = payload.get("choices")
+        if isinstance(choices, list):
+            for choice in choices[:16]:
+                reason = choice.get("finish_reason") if isinstance(choice, Mapping) else None
+                if reason is None:
+                    continue
+                label = reason if type(reason) is str and reason in {
+                    "stop", "length", "tool_calls", "function_call", "content_filter",
+                } else "other"
+                if label not in self.finish_reasons and len(self.finish_reasons) < 6:
+                    self.finish_reasons.append(label)
         usage = payload.get("usage")
         if not isinstance(usage, Mapping):
             return
@@ -362,8 +424,11 @@ class _RequestPerformance:
             "stable_context_changed": self.stable_context_changed,
             "dynamic_context_changed": self.dynamic_context_changed,
             "wire_tools_changed": self.wire_tools_changed,
-            "prior_input_prefix_preserved": self.prior_input_prefix_preserved,
+            # Client input only, before ST injection and execution projection;
+            # this is not a full upstream prefix or provider cache-hit metric.
+            "client_input_prefix_preserved": self.client_input_prefix_preserved,
             "usage_observed": self.usage_observed,
+            "finish_reasons": list(self.finish_reasons),
             "usage_snapshot": dict(self.usage_snapshot),
             "usage_snapshot_complete": len(self.usage_snapshot) == 4,
             "usage_snapshot_consistent": (
@@ -604,20 +669,29 @@ def _bearer(headers: Mapping[str, str]) -> str | None:
 class GatewayError(RuntimeError):
     """A client-safe gateway error with an HTTP status and stable code."""
 
-    def __init__(self, status: int, code: str, detail: str = "") -> None:
+    def __init__(self, status: int, code: str, detail: str = "", *,
+                 validation_diagnostic: Mapping[str, Any] | None = None) -> None:
         super().__init__(detail or code)
         self.status = status
         self.code = code
         self.detail = detail or code
+        self.validation_diagnostic = (
+            normalize_validation_diagnostic(validation_diagnostic)
+            if code == "tool_arguments_schema_invalid" else None
+        )
 
     def payload(self) -> dict[str, Any]:
-        return {
+        result = {
             "error": {
                 "message": self.detail,
                 "type": "stiller_gateway_error",
                 "code": self.code,
             }
         }
+        diagnostic = normalize_validation_diagnostic(self.validation_diagnostic)
+        if diagnostic is not None:
+            result["error"]["validation"] = diagnostic
+        return result
 
 
 @dataclass(frozen=True)
@@ -635,6 +709,7 @@ class GatewayConfig:
     bind_port: int = 8796
     timeout_seconds: float = 120.0
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES
+    max_stream_bytes: int = DEFAULT_MAX_STREAM_BYTES
     max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES
     human_token: str = ""
     max_direct_grant_body_bytes: int = MAX_DIRECT_GRANT_BODY_BYTES
@@ -644,8 +719,8 @@ class GatewayConfig:
     context_layout: str = "legacy"
 
     def __post_init__(self) -> None:
-        if self.context_layout not in {"legacy", "anchored-v1"}:
-            raise ValueError("context layout must be legacy or anchored-v1")
+        if self.context_layout not in {"legacy", "anchored-v1", "tail-context-v2"}:
+            raise ValueError("context layout must be legacy, anchored-v1 or tail-context-v2")
         if self.require_execution_binding and not self.execution_epoch.strip():
             raise ValueError("execution epoch is required for strict execution binding")
         if not 0 < self.abnormal_wait_seconds <= 180:
@@ -671,6 +746,8 @@ class GatewayConfig:
             raise ValueError("bind_port must be a valid TCP port")
         if self.max_body_bytes < 1024:
             raise ValueError("max_body_bytes is too small")
+        if not 1024 <= self.max_stream_bytes <= DEFAULT_MAX_STREAM_BYTES:
+            raise ValueError("max_stream_bytes must be between 1 KiB and 64 MiB")
         if self.max_request_body_bytes < 1024:
             raise ValueError("max_request_body_bytes is too small")
         if self.max_request_body_bytes > MAX_REQUEST_BODY_BYTES:
@@ -718,6 +795,9 @@ class GatewayConfig:
                     str(DEFAULT_MAX_BODY_BYTES),
                 )
             ),
+            max_stream_bytes=int(os.environ.get(
+                "STBRAIN_GATEWAY_MAX_STREAM_BYTES", str(DEFAULT_MAX_STREAM_BYTES)
+            )),
             max_request_body_bytes=int(
                 os.environ.get(
                     "STBRAIN_GATEWAY_MAX_REQUEST_BODY_BYTES",
@@ -1873,6 +1953,11 @@ class GatewayApplication:
     ) -> dict[str, Any] | None:
         bundle = prepared.get("context_bundle")
         if bundle is None:
+            # Old Control omits this field entirely. An explicitly present but
+            # null v2 bundle is malformed, not a reason to downgrade this wake.
+            if (layout is not None and layout.get("contract") == TAIL_CONTEXT_LAYOUT_CONTRACT
+                    and "context_bundle" in prepared):
+                raise GatewayError(502, "st_context_bundle_invalid")
             # Old Control may ignore the optional version negotiation. Its
             # legacy hash is still checked; a bundle hash cannot enter here.
             if _digest(message) != context_hash:
@@ -1881,7 +1966,8 @@ class GatewayApplication:
         if (layout is None or not isinstance(bundle, dict)
                 or set(bundle) != {"contract", "layout", "binding", "stable_message",
                                    "dynamic_message", "legacy_message_hash"}
-                or bundle.get("contract") != CONTEXT_LAYOUT_CONTRACT
+                or layout.get("contract") not in {CONTEXT_LAYOUT_CONTRACT, TAIL_CONTEXT_LAYOUT_CONTRACT}
+                or bundle.get("contract") != layout["contract"]
                 or _canonical(bundle.get("layout")) != _canonical(layout)
                 or bundle.get("legacy_message_hash") != _digest(message)):
             raise GatewayError(502, "st_context_bundle_invalid")
@@ -1915,6 +2001,17 @@ class GatewayApplication:
         if _digest(session.context_bundle) != session.context_hash:
             raise GatewayError(502, "st_context_hash_mismatch")
         layout = session.context_bundle["layout"]
+        if session.context_bundle["contract"] == TAIL_CONTEXT_LAYOUT_CONTRACT:
+            if layout != {"contract": TAIL_CONTEXT_LAYOUT_CONTRACT,
+                          "insertion_rule": "after-client-messages"}:
+                raise GatewayError(502, "st_context_bundle_invalid")
+            # V2 authenticates/fixes ST frames, not the entire client history.
+            # Existing lineage, catalog, issued-call and settled-receipt checks
+            # still run before a continuation is accepted. Never normalize
+            # changed client text back to an older value for cache purposes.
+            return
+        if session.context_bundle["contract"] != CONTEXT_LAYOUT_CONTRACT:
+            raise GatewayError(502, "st_context_bundle_invalid")
         count = layout["initial_message_count"]
         boundary = layout["human_message_index"]
         if (len(messages) < count or not 0 <= boundary < count
@@ -1930,7 +2027,8 @@ class GatewayApplication:
             return [copy.deepcopy(session.message), *copy.deepcopy(messages)]
         cls._validate_context_history(session, messages)
         bundle = session.context_bundle
-        boundary = bundle["layout"]["human_message_index"]
+        boundary = (len(messages) if bundle["contract"] == TAIL_CONTEXT_LAYOUT_CONTRACT
+                    else bundle["layout"]["human_message_index"])
         result = []
         if bundle["stable_message"] is not None:
             result.append(copy.deepcopy(bundle["stable_message"]))
@@ -1959,6 +2057,8 @@ class GatewayApplication:
             "stable_context_changed": current["stable"] != previous["stable"] if segmented else None,
             "dynamic_context_changed": current["dynamic"] != previous["dynamic"] if segmented else None,
             "wire_tools_changed": current["tools"] != previous["tools"] if comparable else None,
+            # Deprecated internal name retained for existing adapter callers.
+            # Only client_input_prefix_preserved is exported in telemetry.
             "prior_input_prefix_preserved": (
                 len(messages) >= previous["count"] and _digest(messages[:previous["count"]]) == previous["history"]
             ) if comparable else None,
@@ -2325,6 +2425,12 @@ class GatewayApplication:
                     raise
                 context_layout = (self._context_layout(messages)
                                   if self.config.context_layout == "anchored-v1" else None)
+                if self.config.context_layout == "tail-context-v2":
+                    context_layout = {"contract": TAIL_CONTEXT_LAYOUT_CONTRACT,
+                                      "insertion_rule": "after-client-messages"}
+                layout_request_key = ("context_layout_offer"
+                                      if self.config.context_layout == "tail-context-v2"
+                                      else "context_layout")
                 with self._fresh_context_wake(wake):
                     prepared = self.control.post(
                         "/v1/host/context/prepare",
@@ -2334,7 +2440,7 @@ class GatewayApplication:
                             "source_digest": source_digest,
                             "host_contract_digest": self.config.host_contract_digest,
                             "advertised_tools": advertised_tools,
-                            **({"context_layout": context_layout} if context_layout is not None else {}),
+                            **({layout_request_key: context_layout} if context_layout is not None else {}),
                             "source_frame": self._source_frame(
                                 messages,
                                 thread_id=thread_id,
@@ -2496,6 +2602,7 @@ class GatewayApplication:
                 self._retired_tool_call_ids | prepared.session.seen_tool_call_ids
             ):
                 raise GatewayError(502, "tool_call_id_reused")
+        schemas: dict[str, Mapping[str, Any]] = {}
         try:
             schemas = advertised_schemas(prepared.payload)
             bindings: dict[str, ToolExecutionBinding] = {}
@@ -2511,10 +2618,22 @@ class GatewayApplication:
         except ToolExecutionBoundaryError as exc:
             code = str(exc)
             status = 409 if code.startswith("tool_execution_") else 502
+            allowed_names = [
+                entry["canonical_name"]
+                for entry in prepared.session.advertised_tools.get("entries", [])
+                if isinstance(entry, Mapping) and entry.get("canonical_name") in schemas
+            ]
+            diagnostic = _safe_validation_diagnostic(
+                exc.validation_diagnostic,
+                allowed_tool_names=allowed_names,
+                protected_values=tuple(prepared.session.protected_values),
+            ) if code == "tool_arguments_schema_invalid" else None
             raise GatewayError(
                 status,
                 code,
-                "原生工具调用未通过本轮目录、参数或宿主执行边界校验。",
+                _tool_validation_message(diagnostic) if code == "tool_arguments_schema_invalid"
+                else "原生工具调用未通过本轮目录、参数或宿主执行边界校验。",
+                validation_diagnostic=diagnostic,
             ) from exc
         with self._lock:
             if not self._request_is_current(prepared):
@@ -3110,16 +3229,24 @@ class _ParsedSSEEvent:
 class _SSEEventBuffer:
     """Split arbitrary network chunks into complete SSE events."""
 
-    def __init__(self) -> None:
+    def __init__(self, max_event_bytes: int | None = None) -> None:
         self._buffer = bytearray()
+        self._max_event_bytes = max_event_bytes
 
     def feed(self, chunk: bytes, *, final: bool = False) -> list[bytes]:
         self._buffer.extend(chunk)
         events: list[bytes] = []
-        while match := _SSE_EVENT_BOUNDARY.search(self._buffer):
+        start = 0
+        while match := _SSE_EVENT_BOUNDARY.search(self._buffer, start):
             end = match.end()
-            events.append(bytes(self._buffer[:end]))
-            del self._buffer[:end]
+            if self._max_event_bytes is not None and end - start > self._max_event_bytes:
+                raise GatewayError(502, "upstream_buffer_limit_reached")
+            events.append(bytes(self._buffer[start:end]))
+            start = end
+        if start:
+            del self._buffer[:start]
+        if self._max_event_bytes is not None and len(self._buffer) > self._max_event_bytes:
+            raise GatewayError(502, "upstream_buffer_limit_reached")
         if final and self._buffer:
             events.append(bytes(self._buffer))
             self._buffer.clear()
@@ -3215,12 +3342,14 @@ class _ProtectedSSEQuarantine:
     (eight characters for real 43-character capabilities) delays delivery.
     """
 
-    def __init__(self, protected_values: Sequence[str]) -> None:
+    def __init__(self, protected_values: Sequence[str], max_pending_bytes: int = DEFAULT_MAX_BODY_BYTES) -> None:
         self._protected = tuple(value for value in protected_values if value)
         self._suffixes: dict[tuple[str | int, ...], str] = {}
         self._cross_path_suffix = ""
         self._visible_suffix = ""
         self._pending: list[_ParsedSSEEvent] = []
+        self._pending_bytes = 0
+        self._max_pending_bytes = max_pending_bytes
 
     def _prefix_suffix(self, value: str) -> str:
         return _protected_prefix_suffix(value, self._protected)
@@ -3249,6 +3378,8 @@ class _ProtectedSSEQuarantine:
                         self._suffixes[path] = suffix
                     else:
                         self._suffixes.pop(path, None)
+                    if len(self._suffixes) > 4096:
+                        raise GatewayError(502, "upstream_buffer_limit_reached")
                 for _, fragment in fragmentable:
                     combined = self._cross_path_suffix + fragment
                     if any(secret in combined for secret in self._protected):
@@ -3259,6 +3390,9 @@ class _ProtectedSSEQuarantine:
                     if any(secret in combined for secret in self._protected):
                         raise GatewayError(502, "upstream_protected_value")
                     self._visible_suffix = self._prefix_suffix(combined)
+        self._pending_bytes += len(event.raw)
+        if self._pending_bytes > self._max_pending_bytes:
+            raise GatewayError(502, "upstream_buffer_limit_reached")
         self._pending.append(event)
         if any(
             _has_material_protected_prefix(suffix, self._protected)
@@ -3270,6 +3404,7 @@ class _ProtectedSSEQuarantine:
         ):
             return []
         ready, self._pending = self._pending, []
+        self._pending_bytes = 0
         return ready
 
     def finish(self) -> list[_ParsedSSEEvent]:
@@ -3290,10 +3425,122 @@ class _ProtectedSSEQuarantine:
             self._visible_suffix = ""
             raise GatewayError(502, "upstream_protected_value")
         ready, self._pending = self._pending, []
+        self._pending_bytes = 0
         self._suffixes.clear()
         self._cross_path_suffix = ""
         self._visible_suffix = ""
         return ready
+
+
+class _StreamCompletionState:
+    """Retain only terminal/output facts, never generated thinking or text."""
+
+    def __init__(self) -> None:
+        self.done = False
+        self.finished = False
+        self.reasoning = False
+        self.visible = False
+        self.tools = False
+        self.error = False
+        self.length_limited = False
+        self._ended_choices: set[int] = set()
+
+    def feed(self, event: _ParsedSSEEvent) -> None:
+        self.done = self.done or event.done
+        payload = event.payload
+        if payload is None:
+            return
+        self.error = self.error or "error" in payload
+        choices = payload.get("choices")
+        if not isinstance(choices, list):
+            return
+        for fallback_index, choice in enumerate(choices):
+            if not isinstance(choice, Mapping):
+                continue
+            choice_index = choice.get("index", fallback_index)
+            if type(choice_index) is not int:
+                raise GatewayError(502, "upstream_invalid_stream")
+            finish = choice.get("finish_reason")
+            generated = any(
+                isinstance(choice.get(key), Mapping)
+                and any(value not in (None, "", [], {}) for value in choice[key].values())
+                for key in ("delta", "message")
+            )
+            if (self.done or choice_index in self._ended_choices) and (generated or finish is not None):
+                raise GatewayError(502, "upstream_invalid_stream", "上游在结束标记后又返回了新的生成内容，本轮未完成。")
+            self.finished = self.finished or finish is not None
+            self.length_limited = self.length_limited or finish == "length"
+            if finish is not None:
+                self._ended_choices.add(choice_index)
+                if len(self._ended_choices) > 4096:
+                    raise GatewayError(502, "upstream_buffer_limit_reached")
+            for key in ("delta", "message"):
+                value = choice.get(key)
+                if not isinstance(value, Mapping):
+                    continue
+                self.reasoning = self.reasoning or bool(value.get("reasoning_content"))
+                self.visible = self.visible or any(bool(value.get(field)) for field in ("content", "refusal", "audio"))
+                self.tools = self.tools or bool(value.get("tool_calls")) or bool(value.get("function_call"))
+
+    def validate(self) -> None:
+        if self.error:
+            return  # Preserve a provider's explicit error event.
+        if not (self.done or self.finished):
+            raise GatewayError(502, "upstream_incomplete_stream", "上游连接在回复完成前结束，本轮未完成。")
+        if self.reasoning and not (self.visible or self.tools):
+            if self.length_limited:
+                raise GatewayError(502, "upstream_output_limit_reached", "模型用完了本轮输出额度，尚未生成正文。请调高模型输出上限后重试。")
+            raise GatewayError(502, "upstream_empty_completion", "模型只返回了思考过程，尚未生成正文或工具调用，本轮未完成。")
+
+
+class _IncrementalSSEInspector:
+    """Bounded independent equivalent of the whole-response protection scan.
+
+    Parsed event fields and fixed-size suffixes provide the second check without
+    retaining already delivered reasoning.  Only possible credential prefixes
+    need survive event boundaries, including changes of JSON path/channel.
+    """
+
+    def __init__(self, protected: Sequence[str]) -> None:
+        self.protected = tuple(value for value in protected if value)
+        self.paths: dict[tuple[str | int, ...], str] = {}
+        self.cross = ""
+        self.visible = ""
+        self.raw_suffix = b""
+        self.longest = max((len(value.encode("utf-8")) for value in self.protected), default=1)
+
+    def feed_raw(self, chunk: bytes) -> None:
+        text = self.raw_suffix + chunk
+        if any(value.encode("utf-8") in text for value in self.protected):
+            raise GatewayError(502, "upstream_protected_value")
+        self.raw_suffix = text[-(self.longest - 1):] if self.longest > 1 else b""
+
+    def _append(self, suffix: str, text: str) -> str:
+        combined = suffix + text
+        if any(value in combined for value in self.protected):
+            raise GatewayError(502, "upstream_protected_value")
+        return _protected_prefix_suffix(combined, self.protected)
+
+    def feed(self, event: _ParsedSSEEvent) -> None:
+        if event.payload is None:
+            return
+        if _contains_protected_value(event.payload, self.protected):
+            raise GatewayError(502, "upstream_protected_value")
+        for path, fragment in _fragmentable_string_leaves(event.payload):
+            suffix = self._append(self.paths.get(path, ""), fragment)
+            if suffix:
+                self.paths[path] = suffix
+            else:
+                self.paths.pop(path, None)
+            if len(self.paths) > 4096:
+                raise GatewayError(502, "upstream_buffer_limit_reached")
+            self.cross = self._append(self.cross, fragment)
+        for fragment in _model_visible_output_fragments(event.payload):
+            self.visible = self._append(self.visible, fragment)
+
+    def finish(self) -> None:
+        if any(_has_material_protected_prefix(value, self.protected) for value in (*self.paths.values(), self.cross, self.visible)):
+            raise GatewayError(502, "upstream_protected_value")
 
 
 def _model_visible_protected_values(
@@ -3466,8 +3713,9 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             try:
                 prepared = self.app.prepare_turn(payload, headers)
                 performance.continuation = prepared.continuation
-                for key in ("stable_context_changed", "dynamic_context_changed", "wire_tools_changed", "prior_input_prefix_preserved"):
+                for key in ("stable_context_changed", "dynamic_context_changed", "wire_tools_changed"):
                     setattr(performance, key, prepared.cache_comparison[key])
+                performance.client_input_prefix_preserved = prepared.cache_comparison["prior_input_prefix_preserved"]
             finally:
                 performance.prepare_turn_ms = performance._milliseconds(
                     prepare_started_at
@@ -3476,8 +3724,8 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 _canonical(prepared.session.message).encode("utf-8")
             )
             bundle = prepared.session.context_bundle
+            performance.context_layout = bundle["contract"] if bundle is not None else "legacy"
             if bundle is not None:
-                performance.context_layout = CONTEXT_LAYOUT_CONTRACT
                 performance.stable_context_bytes = (
                     len(_canonical(bundle["stable_message"]).encode("utf-8"))
                     if bundle["stable_message"] is not None else 0
@@ -3501,6 +3749,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             _log_gateway_failure(
                 exc.code,
                 streamed_prefix=False,
+                validation_diagnostic=exc.validation_diagnostic,
                 protected_values=(
                     tuple(prepared.session.protected_values) if prepared is not None else ()
                 ),
@@ -3572,6 +3821,8 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 message = choice.get("message", {})
                 for call in message.get("tool_calls", []):
                     call["function"]["arguments"] = replacements[call["id"]]
+            if performance is not None:
+                performance.stage = "tool_validation"
             bindings = self.app.bind_response_tool_calls(prepared, decorated)
         if isinstance(body, dict) and response_status < 400:
             body["model"] = self.app.config.public_model
@@ -3632,6 +3883,21 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             if performance is not None:
                 performance.note_client_bytes(len(raw))
 
+        def write_completion_event(event: _ParsedSSEEvent) -> None:
+            # Reconcile only the public model identifier after the original
+            # event passed protected-value checks and any tool commit barrier.
+            # Nested data/arguments, usage and provider error events are kept.
+            if event.payload is not None and "error" not in event.payload:
+                payload = dict(event.payload)
+                payload["model"] = self.app.config.public_model
+                canonical = _canonical_client_sse_event(
+                    _ParsedSSEEvent(raw=b"", payload=payload)
+                )
+                assert canonical is not None
+                write_sse(canonical.raw)
+            else:
+                write_sse(event.raw)
+
         def fail_stream(error: GatewayError) -> None:
             # HTTP status is already committed, but a native OpenAI error event
             # remains machine-readable.  Do not fabricate a successful choice,
@@ -3642,12 +3908,19 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             self.app.finish_turn(prepared, keep_for_tools=False)
             protected = tuple(prepared.session.protected_values)
             _log_gateway_failure(
-                error.code, streamed_prefix=True, protected_values=protected
+                error.code, streamed_prefix=True, protected_values=protected,
+                validation_diagnostic=error.validation_diagnostic,
             )
+            diagnostic = _safe_validation_diagnostic(
+                error.validation_diagnostic, protected_values=protected
+            )
+            code = _observable_failure_code(error.code)
             payload = GatewayError(
                 error.status,
-                _observable_failure_code(error.code),
-                "本轮响应未完成，请根据错误码检查后重试。",
+                code,
+                _tool_validation_message(diagnostic) if code == "tool_arguments_schema_invalid"
+                else "[ST 网关 · " + code + "] " + _STREAM_FAILURE_MESSAGES.get(code, "本轮响应未完成，请根据错误码检查后重试。"),
+                validation_diagnostic=diagnostic,
             ).payload()
             raw_error = (
                 b"data: "
@@ -3683,10 +3956,18 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                     performance.note_upstream_headers(response.status_code)
 
                 def upstream_chunks():
+                    transferred = 0
                     for chunk in response.iter_bytes():
                         if performance is not None:
                             performance.note_upstream_chunk(len(chunk))
-                        yield chunk
+                        transferred += len(chunk)
+                        if transferred > self.app.config.max_stream_bytes:
+                            raise GatewayError(502, "upstream_stream_limit_reached")
+                        # Split an already arrived network chunk locally. Do
+                        # not use iter_bytes(chunk_size=...), which can wait
+                        # for more tokens before yielding the first SSE event.
+                        for offset in range(0, len(chunk), 16 * 1024):
+                            yield chunk[offset:offset + 16 * 1024]
 
                 raw_buffer = bytearray()
                 if response.status_code >= 400:
@@ -3724,7 +4005,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                     # all-or-nothing response boundary for those rare turns.
                     for chunk in upstream_chunks():
                         if len(raw_buffer) + len(chunk) > self.app.config.max_body_bytes:
-                            raise GatewayError(502, "upstream_response_too_large")
+                            raise GatewayError(502, "upstream_buffer_limit_reached")
                         raw_buffer.extend(chunk)
                     if performance is not None:
                         performance.finish_upstream()
@@ -3737,6 +4018,10 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                             performance.note_usage(event.payload)
                     if not any(event.payload is not None for event in client_events):
                         raise GatewayError(502, "upstream_invalid_stream")
+                    completion = _StreamCompletionState()
+                    for event in client_events:
+                        completion.feed(event)
+                    completion.validate()
                     scanner = _StreamToolCallScanner()
                     if scanner.feed(raw, final=True):
                         keep = True
@@ -3753,6 +4038,8 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                         decorated = self.app.decorate_execution_calls(prepared, calls)
                         client_events = [_parse_sse_event(item) for item in _execution_sse_events(
                             [event.raw for event in client_events], calls, decorated)]
+                        if performance is not None:
+                            performance.stage = "tool_validation"
                         bindings = self.app.bind_response_tool_calls(prepared, decorated)
                     self.app.finish_turn(
                         prepared,
@@ -3761,7 +4048,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                         tool_call_bindings=bindings,
                     )
                     for event in client_events:
-                        write_sse(event.raw)
+                        write_completion_event(event)
                     delivered = True
                     self.app.mark_response_delivered(prepared)
                     if performance is not None:
@@ -3773,15 +4060,18 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 # native tool-call event starts a tail buffer.  That tail is not
                 # released until the complete call batch passes Schema, policy,
                 # argument-hash and replay binding.
-                parser = _SSEEventBuffer()
-                quarantine = _ProtectedSSEQuarantine(protected)
+                parser = _SSEEventBuffer(self.app.config.max_body_bytes)
+                quarantine = _ProtectedSSEQuarantine(protected, self.app.config.max_body_bytes)
+                inspector = _IncrementalSSEInspector(protected)
+                completion = _StreamCompletionState()
                 deferred_tail: list[bytes] = []
+                deferred_bytes = 0
                 tool_tail_started = False
                 defer_started = False
                 saw_data = False
 
                 def release_events(events: Sequence[_ParsedSSEEvent]) -> None:
-                    nonlocal defer_started, tool_tail_started, saw_data
+                    nonlocal defer_started, tool_tail_started, saw_data, deferred_bytes
                     for event in events:
                         if event.payload is not None:
                             saw_data = True
@@ -3802,37 +4092,44 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                             # From the first tool/terminal event onward preserve
                             # exact upstream ordering behind one commit barrier.
                             defer_started = True
+                            deferred_bytes += len(event.raw)
+                            if deferred_bytes > self.app.config.max_body_bytes:
+                                raise GatewayError(502, "upstream_buffer_limit_reached")
                             deferred_tail.append(event.raw)
                         else:
-                            write_sse(event.raw)
+                            write_completion_event(event)
 
                 for chunk in upstream_chunks():
-                    if len(raw_buffer) + len(chunk) > self.app.config.max_body_bytes:
-                        raise GatewayError(502, "upstream_response_too_large")
-                    raw_buffer.extend(chunk)
                     for raw_event in parser.feed(chunk):
+                        inspector.feed_raw(raw_event)
                         event = _canonical_client_sse_event(
                             _parse_sse_event(raw_event)
                         )
                         if event is not None:
+                            inspector.feed(event)
+                            completion.feed(event)
                             release_events(quarantine.feed(event))
                 if performance is not None:
                     performance.finish_upstream()
                 for raw_event in parser.feed(b"", final=True):
+                    inspector.feed_raw(raw_event)
                     event = _canonical_client_sse_event(
                         _parse_sse_event(raw_event)
                     )
                     if event is not None:
+                        inspector.feed(event)
+                        completion.feed(event)
                         release_events(quarantine.feed(event))
                 release_events(quarantine.finish())
 
-                raw = bytes(raw_buffer)
                 if not saw_data:
                     raise GatewayError(502, "upstream_invalid_stream")
-                # Defense in depth: the online guard and complete scanner must
-                # agree before the terminal/tool tail is released.
-                if _buffered_sse_contains_protected_value(raw, protected):
-                    raise GatewayError(502, "upstream_protected_value")
+                # The independent rolling inspector and quarantine must both
+                # finish cleanly before committing the bounded terminal/tool
+                # tail. Already delivered thinking is never retained here.
+                inspector.finish()
+                completion.validate()
+                raw = b"".join(deferred_tail)
                 scanner = _StreamToolCallScanner()
                 keep = scanner.feed(raw, final=True)
                 if keep:
@@ -3848,6 +4145,8 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                         raise GatewayError(502, "upstream_tool_calls_invalid")
                     decorated = self.app.decorate_execution_calls(prepared, calls)
                     deferred_tail = _execution_sse_events(deferred_tail, calls, decorated)
+                    if performance is not None:
+                        performance.stage = "tool_validation"
                     bindings = self.app.bind_response_tool_calls(prepared, decorated)
                 self.app.finish_turn(
                     prepared,
@@ -3856,7 +4155,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                     tool_call_bindings=bindings,
                 )
                 for raw_event in deferred_tail:
-                    write_sse(raw_event)
+                    write_completion_event(_parse_sse_event(raw_event))
                 if not headers_sent:
                     send_sse_headers()
                 delivered = True

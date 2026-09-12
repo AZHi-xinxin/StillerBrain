@@ -1,8 +1,8 @@
 """Deterministic, owner-scoped runtime for module-two emotional memory.
 
-The original event is immutable.  Everything that may grow is stored as an
-append-only interpretation version, and every automatic recall passes through
-the deterministic disclosure gate in this module before it can enter a prompt.
+Author revisions append current content while preserving original versions
+and history. Every automatic recall passes through the deterministic disclosure
+gate in this module before it can enter a prompt.
 """
 
 from __future__ import annotations
@@ -20,6 +20,10 @@ from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping, Sequence
+from .credential_guard import contains_credential_or_secret
+from .execution_binding import assert_bound_execution, expected_execution_wake
+from .lexical_retrieval import LexicalQuery, alias_candidate_score, alias_query_families
+from .lexical_retrieval import explicit_alias_match, prepare_explicit_alias_query
 
 from .authoring import (
     AuthoringError,
@@ -28,7 +32,6 @@ from .authoring import (
     referent_warnings,
     validate_referent_bindings,
 )
-from .lexical_retrieval import LexicalQuery, alias_candidate_score, alias_query_families
 
 
 class EmotionalMemoryError(RuntimeError):
@@ -82,6 +85,7 @@ EMOTION_LABELS = frozenset(
 )
 MEMORY_TYPES = frozenset(
     {
+        "unclassified",
         "shared_event",
         "feeling",
         "relationship",
@@ -96,7 +100,7 @@ SENSITIVITY_LEVELS = frozenset(
 CONTEXT_POLICIES = frozenset(
     {"normal", "neutral_hint", "ask_first", "never_auto"}
 )
-ORIGINS = frozenset({"firsthand", "reported", "inferred"})
+ORIGINS = frozenset({"firsthand", "reported", "inferred", "unmarked"})
 RECALL_MODES = frozenset({"normal", "summary_only", "never"})
 DEFAULT_DECISIONS = frozenset({"background_reference", "defer", "ask_first"})
 EXPLICIT_OVERRIDES = frozenset({"never", "ask_first", "allow_after_confirmation"})
@@ -137,25 +141,6 @@ _CONTROLLED_RULE_PIN_REF = re.compile(
     r"^controlled-rule://([A-Za-z0-9][A-Za-z0-9._-]{0,79})$"
 )
 
-# Pins are verbatim projections from module-one self-model fields.  Module-one
-# direct self-description keeps its first-person contract even though module
-# two memory narration no longer has a grammatical-person restriction.
-_PIN_FIRST_PERSON = re.compile(
-    r"^\s*(?:"
-    r"我|I(?:\s|['’])|My(?:\s|$)|"
-    r"[^。！？\r\n]{0,80}(?:(?:对|跟|告诉|让|给|问|向|与|和)我|[，,;；]\s*我)|"
-    r"[^.!?\r\n]{0,120}[,;:]\s*I(?:\s|['’])"
-    r")",
-    re.IGNORECASE,
-)
-
-_SECRET_PATTERNS = (
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----", re.I),
-    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{12,}", re.I),
-    re.compile(r"\b(?:sk|api)[-_][A-Za-z0-9_-]{16,}\b", re.I),
-    re.compile(r"\b(?:password|passwd|api[_ -]?key|secret|token|cookie)\s*[:=]", re.I),
-    re.compile(r"(?:密码|口令|私钥|令牌|密钥)\s*[:：=]", re.I),
-)
 _EMOTION_WORDS: dict[str, tuple[str, ...]] = {
     "joy": ("开心", "高兴", "快乐", "欣喜", "joy", "happy"),
     "affection": ("喜欢", "爱", "亲爱", "affection", "love"),
@@ -245,13 +230,6 @@ def _referent_bindings(value: Any) -> list[dict[str, Any]]:
         raise EmotionalMemoryError(str(exc)) from exc
 
 
-def _pin_first_person_text(name: str, value: Any, maximum: int) -> str:
-    result = _text(name, value, maximum)
-    if _PIN_FIRST_PERSON.match(result) is None:
-        raise EmotionalMemoryError(f"{name}_must_be_first_person")
-    return result
-
-
 def _validate_referent_occurrences(
     bindings: Sequence[Mapping[str, Any]], field_values: Mapping[str, str]
 ) -> None:
@@ -281,18 +259,7 @@ def _percent(name: str, value: Any) -> int:
 
 
 def _contains_secret(*values: Any) -> bool:
-    def walk(value: Any) -> Iterable[str]:
-        if isinstance(value, str):
-            yield value
-        elif isinstance(value, Mapping):
-            for item in value.values():
-                yield from walk(item)
-        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-            for item in value:
-                yield from walk(item)
-
-    joined = "\n".join(text for value in values for text in walk(value))
-    return any(pattern.search(joined) for pattern in _SECRET_PATTERNS)
+    return contains_credential_or_secret(values)
 
 
 def estimate_tokens(value: Any) -> int:
@@ -327,13 +294,6 @@ def _ngrams(value: str) -> set[str]:
     return {normalized[index : index + 2] for index in range(len(normalized) - 1)}
 
 
-def _prepare_lexical_query(query: str) -> LexicalQuery:
-    normalized = _normalized(query)
-    # Preserve the legacy second normalization inside _ngrams. Case folding can
-    # introduce combining marks, so constructing grams directly is not equivalent.
-    return LexicalQuery.prepare(query, normalized, _ngrams(normalized))
-
-
 def _semantic_similarity(left: str, right: str) -> float:
     a, b = _normalized(left), _normalized(right)
     if not a or not b:
@@ -349,11 +309,16 @@ def _semantic_similarity(left: str, right: str) -> float:
     return min(1.0, max(containment, (jaccard + sequence) / 2))
 
 
+def _prepare_lexical_query(query: str) -> LexicalQuery:
+    normalized = _normalized(query)
+    # Preserve the legacy second normalization inside _ngrams. Case folding can
+    # introduce combining marks, so constructing grams directly is not equivalent.
+    return LexicalQuery.prepare(query, normalized, _ngrams(normalized))
+
 def _hint_occurs(query: str, hint: str) -> bool:
     """Return a conservative lexical hit without matching Latin substrings."""
 
     return _hint_occurs_folded(query.casefold(), hint)
-
 
 def _hint_occurs_folded(folded: str, hint: str) -> bool:
     needle = hint.strip().casefold()
@@ -403,7 +368,6 @@ def _fuzzy_cue_similarity(query: str, cue: str) -> float:
     """
 
     return _fuzzy_cue_prepared(_prepare_lexical_query(query), cue)
-
 
 def _fuzzy_cue_prepared(prepared: LexicalQuery, cue: str) -> float:
     normalized_query = prepared.normalized
@@ -458,12 +422,15 @@ def _query_emotions(query: str) -> set[str]:
     }
 
 
-def _origin_label(origin: str, confidence: int) -> str:
-    if origin == "reported":
-        return f"据转述（置信度 {confidence}%）"
-    if origin == "inferred":
-        return f"这是我的推断（置信度 {confidence}%）"
-    return f"我的亲历记录（置信度 {confidence}%）"
+def _optional_confidence(value: Any) -> int | None:
+    return None if value is None else _percent("confidence", value)
+
+
+def _origin_label(origin: str, confidence: int | None) -> str:
+    source = {"reported": "据转述", "inferred": "这是我的推断",
+              "firsthand": "我的亲历记录"}.get(origin, "来源未标注")
+    score = "未标注" if confidence is None else f"{confidence}%"
+    return f"{source}（置信度 {score}）"
 
 
 def _emotional_recall_frame() -> dict[str, Any]:
@@ -489,7 +456,9 @@ class EmotionalMemoryStore:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 30000")
         try:
+            assert_bound_execution(connection)
             yield connection
+            assert_bound_execution(connection)
             connection.commit()
         except Exception:
             connection.rollback()
@@ -500,10 +469,80 @@ class EmotionalMemoryStore:
     @staticmethod
     def _begin(connection: sqlite3.Connection) -> None:
         connection.execute("BEGIN IMMEDIATE")
+        assert_bound_execution(connection)
+
+    @staticmethod
+    def _migrate_nullable_confidence(connection: sqlite3.Connection) -> None:
+        """Allow an unmarked score, preserving all existing rows and schema objects.
+
+        Old defaults cannot be distinguished from explicitly authored scores.
+        This migration changes only the one column's NOT NULL constraint; it
+        never rewrites a value, version, history, rowid or source classification.
+        """
+        legacy = re.compile(r"\bconfidence\s+INTEGER\s+NOT\s+NULL\b", re.I)
+        prefix = re.compile(
+            r'\ACREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?'
+            r'(?:"emotion_memories"|`emotion_memories`|\[emotion_memories\]|emotion_memories)'
+            r'(?=\s*\()', re.I,
+        )
+        query = "SELECT sql FROM sqlite_master WHERE type='table' AND name='emotion_memories'"
+        row = connection.execute(query).fetchone()
+        if row is None or not legacy.search(row[0] or ""):
+            return
+        if connection.in_transaction:
+            raise EmotionalMemoryError("confidence_migration_requires_idle_connection")
+        foreign_keys = connection.execute("PRAGMA foreign_keys").fetchone()[0]
+        legacy_alter = connection.execute("PRAGMA legacy_alter_table").fetchone()[0]
+        connection.execute("PRAGMA foreign_keys = OFF")
+        connection.execute("PRAGMA legacy_alter_table = ON")
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(query).fetchone()
+            if row is None or not legacy.search(row[0] or ""):
+                connection.commit()
+                return
+            ddl, replacements = legacy.subn("confidence INTEGER", row[0])
+            ddl, names = prefix.subn('CREATE TABLE "emotion_memories_nullable_confidence_migration"', ddl)
+            if replacements != 1 or names != 1:
+                raise EmotionalMemoryError("unsupported_emotion_confidence_schema")
+            objects = connection.execute(
+                "SELECT sql FROM sqlite_master WHERE tbl_name='emotion_memories' "
+                "AND type IN ('index','trigger') AND sql IS NOT NULL ORDER BY type,name"
+            ).fetchall()
+            columns = [item[1] for item in connection.execute("PRAGMA table_xinfo(emotion_memories)")
+                       if item[6] == 0]
+            selected = "rowid," + ",".join('"' + name.replace('"', '""') + '"' for name in columns)
+            connection.execute(ddl)
+            connection.execute(
+                f"INSERT INTO emotion_memories_nullable_confidence_migration ({selected}) "
+                f"SELECT {selected} FROM emotion_memories"
+            )
+            for old, new in (("emotion_memories", "emotion_memories_nullable_confidence_migration"),
+                             ("emotion_memories_nullable_confidence_migration", "emotion_memories")):
+                if connection.execute(
+                    f"SELECT {selected} FROM {old} EXCEPT SELECT {selected} FROM {new} LIMIT 1"
+                ).fetchone() is not None:
+                    raise EmotionalMemoryError("emotion_confidence_migration_row_mismatch")
+            connection.execute("DROP TABLE emotion_memories")
+            connection.execute(
+                "ALTER TABLE emotion_memories_nullable_confidence_migration RENAME TO emotion_memories"
+            )
+            for item in objects:
+                connection.execute(item[0])
+            if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                raise EmotionalMemoryError("emotion_confidence_migration_foreign_key_failure")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.execute(f"PRAGMA legacy_alter_table = {int(legacy_alter)}")
+            connection.execute(f"PRAGMA foreign_keys = {int(foreign_keys)}")
 
     def _initialize(self) -> None:
         with self._connect() as connection:
             connection.execute("PRAGMA journal_mode = WAL")
+            self._migrate_nullable_confidence(connection)
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS emotion_module_state (
@@ -532,7 +571,7 @@ class EmotionalMemoryStore:
                     sensitivity TEXT NOT NULL,
                     context_policy TEXT NOT NULL,
                     origin TEXT NOT NULL,
-                    confidence INTEGER NOT NULL,
+                    confidence INTEGER,
                     keywords_json TEXT NOT NULL,
                     entities_json TEXT NOT NULL,
                     referent_bindings_json TEXT NOT NULL DEFAULT '[]',
@@ -667,6 +706,37 @@ class EmotionalMemoryStore:
                     ON emotion_audit_events(owner_id, model_id, event_seq);
                 """
             )
+            pin_columns = {row["name"] for row in connection.execute("PRAGMA table_info(brain_pins)")}
+            if "requested_context_mode" not in pin_columns:
+                # Existing requests retain their original real-wake contract.
+                connection.execute(
+                    "ALTER TABLE brain_pins ADD COLUMN requested_context_mode "
+                    "TEXT NOT NULL DEFAULT 'legacy_open_wake'"
+                )
+            integration_columns = {
+                # Existing versions all shared this original event. Migrate it
+                # once before the current view can be edited; never rewrite a
+                # nonempty historical snapshot on a later initialization.
+                row["name"] for row in connection.execute(
+                    "PRAGMA table_info(emotion_memory_versions)"
+                ).fetchall()
+            }
+            if "original_snapshot_json" not in integration_columns:
+                connection.execute("ALTER TABLE emotion_memory_versions ADD COLUMN original_snapshot_json TEXT")
+            if "original_snapshot_hash" not in integration_columns:
+                connection.execute("ALTER TABLE emotion_memory_versions ADD COLUMN original_snapshot_hash TEXT")
+            for historical in connection.execute(
+                "SELECT v.version_id,m.original_text,m.original_hash,m.memory_type,m.source_timestamp "
+                "FROM emotion_memory_versions v JOIN emotion_memories m ON m.memory_id=v.memory_id "
+                "WHERE v.original_snapshot_json IS NULL"
+            ).fetchall():
+                snapshot = {key: historical[key] for key in
+                            ("original_text", "original_hash", "memory_type", "source_timestamp")}
+                connection.execute(
+                    "UPDATE emotion_memory_versions SET original_snapshot_json=?,original_snapshot_hash=? "
+                    "WHERE version_id=? AND original_snapshot_json IS NULL",
+                    (_canonical(snapshot), _sha256(snapshot), historical["version_id"]),
+                )
             integration_columns = {
                 row["name"]
                 for row in connection.execute(
@@ -700,6 +770,7 @@ class EmotionalMemoryStore:
             )
 
     def ensure_state(self, *, owner_id: str, model_id: str) -> None:
+        expected_execution_wake(owner_id=owner_id, model_id=model_id)
         owner_id = _text("owner_id", owner_id, 200)
         model_id = _text("model_id", model_id, 200)
         with self._connect() as connection:
@@ -913,7 +984,7 @@ class EmotionalMemoryStore:
         sensitivity: str,
         context_policy: str,
         origin: str,
-        confidence: int,
+        confidence: int | None,
         keywords: list[str] | None,
         entities: list[str] | None,
         referent_bindings: list[dict[str, Any]] | None,
@@ -943,7 +1014,7 @@ class EmotionalMemoryStore:
             "sensitivity": _enum("sensitivity", sensitivity, SENSITIVITY_LEVELS),
             "context_policy": _enum("context_policy", context_policy, CONTEXT_POLICIES),
             "origin": _enum("origin", origin, ORIGINS),
-            "confidence": _percent("confidence", confidence),
+            "confidence": _optional_confidence(confidence),
             "keywords": _strings("keywords", keywords, self.limits.max_keywords),
             "entities": _strings("entities", entities, self.limits.max_entities),
             "referent_bindings": _referent_bindings(referent_bindings),
@@ -1031,10 +1102,18 @@ class EmotionalMemoryStore:
         wake_id: str,
     ) -> str:
         version_id = _new_id("emver")
+        original_row = connection.execute(
+            "SELECT original_text,original_hash,memory_type,source_timestamp FROM emotion_memories WHERE memory_id=?",
+            (memory_id,),
+        ).fetchone()
+        if original_row is None:
+            raise EmotionalMemoryError("memory_not_found")
+        original_snapshot = dict(original_row)
         connection.execute(
             "INSERT INTO emotion_memory_versions "
             "(version_id, memory_id, version, previous_version, mutable_json, mutable_hash, "
-            " diff_json, reason, wake_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " diff_json, reason, wake_id, created_at, original_snapshot_json, original_snapshot_hash) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 version_id,
                 memory_id,
@@ -1046,6 +1125,8 @@ class EmotionalMemoryStore:
                 reason,
                 wake_id,
                 _iso(),
+                _canonical(original_snapshot),
+                _sha256(original_snapshot),
             ),
         )
         return version_id
@@ -1098,8 +1179,8 @@ class EmotionalMemoryStore:
         importance: int = 50,
         sensitivity: str = "private",
         context_policy: str = "normal",
-        origin: str = "firsthand",
-        confidence: int = 100,
+        origin: str = "unmarked",
+        confidence: int | None = None,
         keywords: list[str] | None = None,
         entities: list[str] | None = None,
         referent_bindings: list[dict[str, Any]] | None = None,
@@ -1115,6 +1196,7 @@ class EmotionalMemoryStore:
         rewrite_receipt: str | None = None,
         preserve_original_text: bool = False,
     ) -> dict[str, Any]:
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
         if type(preserve_original_text) is not bool:
             raise EmotionalMemoryError("preserve_original_text_invalid")
         self.ensure_state(owner_id=owner_id, model_id=model_id)
@@ -1261,7 +1343,7 @@ class EmotionalMemoryStore:
                 wake_id=wake_id,
                 memory_id=memory_id,
                 decision="stored",
-                reason_codes=["original_event_immutable", "interpretation_version_created"],
+                reason_codes=["original_versions_preserved", "interpretation_version_created"],
                 details={
                     "original_hash": row["original_hash"],
                     "version": 1,
@@ -1296,80 +1378,18 @@ class EmotionalMemoryStore:
         expected_row_version: int, memory_id: str, expected_memory_version: int,
         changes: Mapping[str, Any], reason: str,
     ) -> dict[str, Any]:
-        """Version only explicitly supplied, reversible display/retrieval fields.
-
-        Unlike the advanced editor this does not re-normalize untouched fields,
-        change disclosure/lifecycle, add evidence, or rewrite the original event.
-        The caller's exact target version is checked in the write transaction.
-        """
-        from .execution_binding import assert_bound_execution, expected_execution_wake
-
-        allowed = {"summary", "keywords", "entities", "importance"}
-        if not isinstance(changes, Mapping) or not changes:
-            raise EmotionalMemoryError("changes_required")
-        if set(changes) - allowed:
-            raise EmotionalMemoryError("ordinary_revision_requires_advanced")
-        if type(expected_memory_version) is not int or expected_memory_version < 1:
-            raise EmotionalMemoryError("memory_version_conflict")
-        memory_id = _text("memory_id", memory_id, 200)
-        reason = _text("reason", reason, 2000)
-        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
-        cleaned: dict[str, Any] = {}
-        for key, value in changes.items():
-            if key == "summary":
-                cleaned[key] = _text(key, value, self.limits.summary_chars)
-            elif key == "importance":
-                cleaned[key] = _percent(key, value)
-            else:
-                if not isinstance(value, list):
-                    raise EmotionalMemoryError(f"{key}_invalid")
-                cleaned[key] = _strings(key, value, getattr(self.limits, "max_" + key))
-        if _contains_secret(cleaned, reason):
-            raise EmotionalMemoryError("credential_or_secret_detected")
-        with self._connect() as connection:
-            self._begin(connection)
-            assert_bound_execution(connection)
-            row = self._memory_row(connection, owner_id, model_id, memory_id)
-            if row["current_version"] != expected_memory_version:
-                raise EmotionalMemoryError("memory_version_conflict")
-            if row["lifecycle"] != "active":
-                raise EmotionalMemoryError("ordinary_revision_requires_advanced")
-            before = self._mutable(row)
-            after = {**before, **cleaned}
-            _validate_referent_occurrences(
-                after["referent_bindings"],
-                {"/original_text": row["original_text"], "/summary": after["summary"]},
-            )
-            diff = [{"op": "replace", "path": "/" + key}
-                    for key in sorted(cleaned) if before[key] != after[key]]
-            if not diff:
-                raise EmotionalMemoryError("no_effective_change")
-            next_version = expected_memory_version + 1
-            connection.execute(
-                "UPDATE emotion_memories SET summary=?,keywords_json=?,entities_json=?,importance=?,"
-                "current_version=?,updated_at=? WHERE memory_id=? AND current_version=?",
-                (after["summary"], _canonical(after["keywords"]), _canonical(after["entities"]),
-                 after["importance"], next_version, _iso(), memory_id, expected_memory_version),
-            )
-            self._insert_version(
-                connection, memory_id=memory_id, version=next_version,
-                previous_version=expected_memory_version, mutable=after, diff=diff,
-                reason=reason, wake_id=wake_id,
-            )
-            row_version = self._advance_state(
-                connection, owner_id=owner_id, model_id=model_id,
-                expected_row_version=expected_row_version,
-            )
-            event_id = self._insert_audit(
-                connection, owner_id=owner_id, model_id=model_id, wake_id=wake_id,
-                memory_id=memory_id, action="revise_ordinary", actor="ai",
-                decision="version_appended", reason_codes=["original_event_preserved"],
-                details={"version": next_version, "diff": diff, "diff_origin": "server_computed"},
-            )
+        """Append an author revision, preserving the exact observed version."""
+        result = self.revise(
+            owner_id=owner_id, model_id=model_id, wake_id=wake_id,
+            expected_row_version=expected_row_version, memory_id=memory_id,
+            expected_memory_version=expected_memory_version, changes=changes, reason=reason,
+        )
+        memory = result["memory"]
         return {"decision": "revised", "id": memory_id,
-                "ref": f"emotion://{memory_id}@{next_version}", "version": next_version,
-                "previous_version": expected_memory_version, "emotion_row_version": row_version,
-                "event_id": event_id, "state_changed": True}
+                "ref": f"emotion://{memory_id}@{memory['current_version']}",
+                "version": memory["current_version"], "previous_version": expected_memory_version,
+                "emotion_row_version": result["emotion_row_version"],
+                "event_id": result["event_id"], "state_changed": True}
 
     def revise(
         self,
@@ -1384,14 +1404,13 @@ class EmotionalMemoryStore:
         reason: str,
         associations: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        self.ensure_state(owner_id=owner_id, model_id=model_id)
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
         memory_id = _text("memory_id", memory_id, 200)
         reason = _text("reason", reason, 2000)
         if not isinstance(changes, Mapping) or (not changes and not associations):
             raise EmotionalMemoryError("changes_required")
-        if "original_text" in changes or "original_hash" in changes:
-            raise EmotionalMemoryError("original_event_immutable")
         allowed = {
+            "original_text", "memory_type", "source_timestamp",
             "summary",
             "primary_emotion",
             "secondary_emotions",
@@ -1422,9 +1441,31 @@ class EmotionalMemoryStore:
             row = self._memory_row(connection, owner_id, model_id, memory_id)
             if isinstance(expected_memory_version, bool) or row["current_version"] != expected_memory_version:
                 raise EmotionalMemoryError("memory_version_conflict")
+            previous = connection.execute(
+                "SELECT original_snapshot_json,original_snapshot_hash FROM emotion_memory_versions "
+                "WHERE memory_id=? AND version=?", (memory_id, expected_memory_version),
+            ).fetchone()
+            snapshot = _json(previous["original_snapshot_json"], {}) if previous is not None else {}
+            current_original = {key: row[key] for key in
+                                ("original_text", "original_hash", "memory_type", "source_timestamp")}
+            if (not isinstance(snapshot, dict) or not snapshot or snapshot != current_original
+                    or _sha256(snapshot) != previous["original_snapshot_hash"]
+                    or _sha256(row["original_text"]) != row["original_hash"]):
+                raise EmotionalMemoryError("original_snapshot_integrity_mismatch")
             before = self._mutable(row)
+            before.update({key: row[key] for key in ("original_text", "memory_type", "source_timestamp")})
             after = dict(before)
             after.update(dict(changes))
+            after["original_text"] = _text(
+                "original_text", after["original_text"], self.limits.original_chars,
+                preserve_original_text=True,
+            )
+            after["memory_type"] = _enum("memory_type", after["memory_type"], MEMORY_TYPES)
+            after["source_timestamp"] = _text("source_timestamp", after["source_timestamp"], 80)
+            try:
+                _parse_iso(after["source_timestamp"])
+            except (TypeError, ValueError) as exc:
+                raise EmotionalMemoryError("invalid_source_timestamp") from exc
             after["summary"] = _text("summary", after["summary"], self.limits.summary_chars)
             after["primary_emotion"] = _enum(
                 "primary_emotion", after["primary_emotion"], EMOTION_LABELS
@@ -1451,7 +1492,7 @@ class EmotionalMemoryStore:
             ] == "normal":
                 after["context_policy"] = "neutral_hint"
             after["origin"] = _enum("origin", after["origin"], ORIGINS)
-            after["confidence"] = _percent("confidence", after["confidence"])
+            after["confidence"] = _optional_confidence(after["confidence"])
             after["keywords"] = _strings(
                 "keywords", after["keywords"], self.limits.max_keywords
             )
@@ -1463,7 +1504,7 @@ class EmotionalMemoryStore:
             )
             _validate_referent_occurrences(
                 after["referent_bindings"],
-                {"/original_text": row["original_text"], "/summary": after["summary"]},
+                {"/original_text": after["original_text"], "/summary": after["summary"]},
             )
             after["recall_mode"] = _enum("recall_mode", after["recall_mode"], RECALL_MODES)
             after["allow_contexts"] = _strings(
@@ -1482,6 +1523,8 @@ class EmotionalMemoryStore:
             )
             after["disclosure"] = _enum("disclosure", after["disclosure"], DISCLOSURES)
             after["lifecycle"] = _enum("lifecycle", after["lifecycle"], LIFECYCLES)
+            if before["lifecycle"] == "quarantined" and after["lifecycle"] != "quarantined":
+                raise EmotionalMemoryError("quarantine_restore_required")
             if before == after and not associations:
                 raise EmotionalMemoryError("no_effective_change")
             links = self._validate_associations(
@@ -1499,7 +1542,8 @@ class EmotionalMemoryStore:
             now = _iso()
             new_version = int(row["current_version"]) + 1
             connection.execute(
-                "UPDATE emotion_memories SET summary = ?, primary_emotion = ?, "
+                "UPDATE emotion_memories SET original_text=?,original_hash=?,memory_type=?,source_timestamp=?, "
+                "summary = ?, primary_emotion = ?, "
                 "secondary_emotions_json = ?, importance = ?, sensitivity = ?, "
                 "context_policy = ?, origin = ?, confidence = ?, keywords_json = ?, "
                 "entities_json = ?, referent_bindings_json = ?, recall_mode = ?, allow_contexts_json = ?, "
@@ -1507,6 +1551,7 @@ class EmotionalMemoryStore:
                 "disclosure = ?, lifecycle = ?, current_version = ?, updated_at = ? "
                 "WHERE memory_id = ? AND current_version = ?",
                 (
+                    after["original_text"], _sha256(after["original_text"]), after["memory_type"], after["source_timestamp"],
                     after["summary"],
                     after["primary_emotion"],
                     _canonical(after["secondary_emotions"]),
@@ -1536,7 +1581,8 @@ class EmotionalMemoryStore:
                 memory_id=memory_id,
                 version=new_version,
                 previous_version=expected_memory_version,
-                mutable=after,
+                mutable={key: value for key, value in after.items()
+                         if key not in {"original_text", "memory_type", "source_timestamp"}},
                 diff=diff or [{"op": "add", "path": "/associations"}],
                 reason=reason,
                 wake_id=wake_id,
@@ -1592,12 +1638,13 @@ class EmotionalMemoryStore:
         importance: int = 50,
         sensitivity: str = "private",
         context_policy: str = "normal",
-        origin: str = "firsthand",
-        confidence: int = 100,
+        origin: str = "unmarked",
+        confidence: int | None = None,
         keywords: list[str] | None = None,
         entities: list[str] | None = None,
         referent_bindings: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
         if not isinstance(source_memory_ids, list):
             raise EmotionalMemoryError("source_memory_ids_must_be_array")
         source_ids = list(dict.fromkeys(_text("source_memory_id", item, 200) for item in source_memory_ids))
@@ -1632,6 +1679,8 @@ class EmotionalMemoryStore:
         with self._connect() as connection:
             self._begin(connection)
             sources = [self._memory_row(connection, owner_id, model_id, item) for item in source_ids]
+            if any(source["lifecycle"] == "quarantined" for source in sources):
+                raise EmotionalMemoryError("quarantine_restore_required")
             ordered = sorted(sources, key=lambda row: (row["source_timestamp"], row["memory_id"]))
             now = _iso()
             connection.execute(
@@ -1875,6 +1924,13 @@ class EmotionalMemoryStore:
         replace_pin_id: str | None = None,
         ai_confirmation: bool = False,
     ) -> dict[str, Any]:
+        from .ordinary_access import current_ordinary_access
+
+        ordinary = current_ordinary_access(owner_id=owner_id, model_id=model_id, scope="emotional_memory")
+        if ordinary is not None and (wake_id != ordinary["wake_id"] or wake_seq != ordinary["wake_seq"]):
+            raise EmotionalMemoryError("ordinary_operation_binding_mismatch")
+        context_mode = "ordinary_authenticated" if ordinary is not None else "legacy_open_wake"
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
         if action not in {"request", "confirm", "lower", "remove"}:
             raise EmotionalMemoryError("invalid_pin_action")
         reason = _text("reason", reason, 2000)
@@ -1886,7 +1942,7 @@ class EmotionalMemoryStore:
                 if pin_id is not None or replace_pin_id is not None or ai_confirmation:
                     raise EmotionalMemoryError("invalid_pin_request_fields")
                 kind = _enum("pin_kind", pin_kind, PIN_KINDS)
-                text = _pin_first_person_text(
+                text = _text(
                     "display_text", display_text, self.limits.max_pin_chars
                 )
                 source = _text("source_ref", source_ref, 500)
@@ -1905,8 +1961,8 @@ class EmotionalMemoryStore:
                     "INSERT INTO brain_pins "
                     "(pin_id, owner_id, model_id, pin_kind, display_text, source_ref, reason, "
                     "status, requested_wake_id, requested_wake_seq, confirmed_wake_id, "
-                    "confirmed_wake_seq, replaces_pin_id, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL, NULL, NULL, ?, ?)",
+                    "confirmed_wake_seq, replaces_pin_id, created_at, updated_at, requested_context_mode) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL, NULL, NULL, ?, ?, ?)",
                     (
                         created_pin_id,
                         owner_id,
@@ -1919,10 +1975,12 @@ class EmotionalMemoryStore:
                         wake_seq,
                         now,
                         now,
+                        context_mode,
                     ),
                 )
                 decision = "pin_pending"
-                reason_codes = ["cross_wake_confirmation_required"]
+                reason_codes = (["author_confirmation_required"] if ordinary is not None
+                                else ["cross_wake_confirmation_required"])
                 target_pin_id = created_pin_id
             else:
                 target_pin_id = _text("pin_id", pin_id, 200)
@@ -1939,8 +1997,13 @@ class EmotionalMemoryStore:
                         raise EmotionalMemoryError("pin_candidate_fields_immutable_at_confirmation")
                     if pin["status"] != "pending":
                         raise EmotionalMemoryError("pin_not_pending")
-                    if wake_seq <= pin["requested_wake_seq"]:
-                        raise EmotionalMemoryError("pin_cross_wake_required")
+                    if pin["requested_context_mode"] == "legacy_open_wake":
+                        if ordinary is not None:
+                            raise EmotionalMemoryError("pin_legacy_confirmation_requires_real_wake")
+                        if wake_seq <= pin["requested_wake_seq"]:
+                            raise EmotionalMemoryError("pin_cross_wake_required")
+                    elif pin["requested_context_mode"] != "ordinary_authenticated":
+                        raise EmotionalMemoryError("pin_request_context_invalid")
                     self._validate_pin_source(
                         connection,
                         owner_id=owner_id,
@@ -1978,7 +2041,8 @@ class EmotionalMemoryStore:
                         (wake_id, wake_seq, replace_pin_id, now, target_pin_id),
                     )
                     decision = "pin_activated"
-                    reason_codes = ["cross_wake_confirmed"]
+                    reason_codes = (["author_confirmed"] if pin["requested_context_mode"] == "ordinary_authenticated"
+                                    else ["cross_wake_confirmed"])
                     if replacement is not None:
                         reason_codes.append("one_in_one_out")
                 else:
@@ -2019,6 +2083,9 @@ class EmotionalMemoryStore:
                     "pin_kind": updated["pin_kind"],
                     "source_ref": updated["source_ref"],
                     "replace_pin_id": replace_pin_id,
+                    "requested_context_mode": updated["requested_context_mode"],
+                    "operation_context_mode": context_mode,
+                    "source_self_model_changed": False,
                 },
             )
             return {
@@ -2031,6 +2098,8 @@ class EmotionalMemoryStore:
                     "status": updated["status"],
                     "requested_wake_seq": updated["requested_wake_seq"],
                     "confirmed_wake_seq": updated["confirmed_wake_seq"],
+                    "requested_context_mode": updated["requested_context_mode"],
+                    "confirmation_requires_later_real_wake": updated["requested_context_mode"] == "legacy_open_wake",
                 },
                 "emotion_row_version": row_version,
                 "event_id": event_id,
@@ -2061,10 +2130,12 @@ class EmotionalMemoryStore:
     ) -> dict[str, Any]:
         """Capture bounded recent messages after recall; never promotes them to long-term memory."""
 
+        expected_execution_wake(owner_id=owner_id, model_id=model_id)
         external_connection = connection
         if external_connection is None:
             self.ensure_state(owner_id=owner_id, model_id=model_id)
         else:
+            assert_bound_execution(external_connection)
             self._ensure_state_in_connection(
                 external_connection, owner_id=owner_id, model_id=model_id
             )
@@ -2170,6 +2241,7 @@ class EmotionalMemoryStore:
         ephemeral_id: str | None = None,
         thread_id: str | None = None,
     ) -> dict[str, Any]:
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
         reason = _text("reason", reason, 2000)
         if bool(ephemeral_id) == bool(thread_id):
             raise EmotionalMemoryError("provide_exactly_one_ephemeral_id_or_thread_id")
@@ -2308,7 +2380,7 @@ class EmotionalMemoryStore:
         ).fetchall()
         emotions = _query_emotions(query)
         prepared = _prepare_lexical_query(query)
-        alias_families = alias_query_families(query) if lexical_candidates is not None else ()
+        alias_query = prepare_explicit_alias_query(query) if lexical_candidates is not None else None
         scores: dict[str, float] = {}
         exacts: dict[str, bool] = {}
         by_id = {row["memory_id"]: row for row in rows}
@@ -2317,7 +2389,7 @@ class EmotionalMemoryStore:
             scores[row["memory_id"]] = score
             exacts[row["memory_id"]] = exact
             if (
-                lexical_candidates is not None and alias_families and score < 0.2
+                lexical_candidates is not None and alias_query is not None and score < 0.2
                 and row["sensitivity"] not in {"intimate", "restricted"}
                 and row["context_policy"] == "normal"
                 and row["recall_mode"] == "normal"
@@ -2325,9 +2397,11 @@ class EmotionalMemoryStore:
                 and not self._denied(row, query)
                 and self._allowed_context(row, query)
             ):
-                candidate_score = alias_candidate_score(alias_families, _json(row["keywords_json"], []))
-                if candidate_score and _normalized(row["original_text"]) not in _normalized(row["summary"]):
-                    lexical_candidates.append((row, round(score, 4), False, 0, candidate_score))
+                alias_match = explicit_alias_match(alias_query, [
+                    row["summary"], *_json(row["keywords_json"], []),
+                ])
+                if alias_match and _normalized(row["original_text"]) not in _normalized(row["summary"]):
+                    lexical_candidates.append((row, round(score, 4), False, 0, float(alias_match["score"])))
         edges = connection.execute(
             "SELECT * FROM emotion_edges WHERE owner_id = ? AND model_id = ? AND lifecycle = 'active'",
             (owner_id, model_id),
@@ -2452,6 +2526,7 @@ class EmotionalMemoryStore:
                         "candidate_score": lexical_scores[row["memory_id"]],
                         "retrieval_match": "lexical_alias_candidate",
                         "candidate_only": True,
+                        "match_interpretation": "按常见词句找到的相关候选，保留原记录的时间与语境。",
                     })
                 if sensitive and show_original:
                     sensitive_reads.append(row["memory_id"])
@@ -2659,7 +2734,7 @@ class EmotionalMemoryStore:
             # Surface a real pending-work fact, not a generic instruction about
             # how the AI should react to every recalled memory. This is only a
             # count notice; it is not candidate presentation/review evidence.
-            reminder = f"有 {pending_pins} 条常驻申请等待跨唤醒复核。" if pending_pins else ""
+            reminder = f"有 {pending_pins} 条常驻申请等待 AI 确认；具体确认方式见申请记录。" if pending_pins else ""
 
             payload: dict[str, Any] = {
                 "contract": "emotional-recall/1",
@@ -2738,42 +2813,48 @@ class EmotionalMemoryStore:
 
     @staticmethod
     def _history_result(
-        connection: sqlite3.Connection,
-        *,
-        row: sqlite3.Row,
-        include_original: bool,
+        connection: sqlite3.Connection, *, row: sqlite3.Row,
+        include_original: bool, allow_sensitive_originals: bool = False,
     ) -> dict[str, Any]:
         memory_id = row["memory_id"]
         versions = connection.execute(
-            "SELECT version_id, version, previous_version, mutable_json, mutable_hash, "
-            "diff_json, reason, wake_id, created_at FROM emotion_memory_versions "
-            "WHERE memory_id = ? ORDER BY version",
+            "SELECT * FROM emotion_memory_versions WHERE memory_id=? ORDER BY version",
             (memory_id,),
         ).fetchall()
         sources = connection.execute(
-            "SELECT source_memory_id, source_position, source_timestamp, source_version, "
-            "source_hash, archived_source "
-            "FROM emotion_integrations WHERE aggregate_memory_id = ? ORDER BY source_position",
-            (memory_id,),
+            "SELECT source_memory_id,source_position,source_timestamp,source_version,"
+            "source_hash,archived_source FROM emotion_integrations "
+            "WHERE aggregate_memory_id=? ORDER BY source_position", (memory_id,),
         ).fetchall()
-        return {
-            "memory": EmotionalMemoryStore._public_memory(
-                row, include_original=include_original
-            ),
-            "versions": [
-                {
-                    **{
-                        key: version[key]
-                        for key in version.keys()
-                        if key not in {"mutable_json", "diff_json"}
-                    },
-                    "mutable": _json(version["mutable_json"], {}),
-                    "diff": _json(version["diff_json"], []),
-                }
-                for version in versions
-            ],
-            "integration_sources": [dict(source) for source in sources],
-        }
+        history = []
+        for version in versions:
+            mutable = _json(version["mutable_json"], {})
+            snapshot = _json(version["original_snapshot_json"], {})
+            if (not isinstance(snapshot, dict) or not snapshot or _sha256(snapshot) != version["original_snapshot_hash"]
+                    or _sha256(snapshot.get("original_text")) != snapshot.get("original_hash")):
+                raise EmotionalMemoryError("original_snapshot_integrity_mismatch")
+            sensitive = mutable.get("sensitivity") in {"intimate", "restricted"}
+            show_original = include_original and (
+                not sensitive or (allow_sensitive_originals
+                                  and mutable.get("explicit_request_override") != "never")
+            )
+            visible_snapshot = {key: value for key, value in snapshot.items()
+                                if show_original or key not in {"original_text", "original_hash"}}
+            if not show_original:
+                mutable.pop("original_text", None)
+                mutable.pop("original_hash", None)
+                mutable["referent_bindings"] = [
+                    binding for binding in mutable.get("referent_bindings", [])
+                    if binding.get("field_path") != "/original_text" and not sensitive
+                ]
+            history.append({
+                **{key: version[key] for key in version.keys()
+                   if key not in {"mutable_json", "diff_json", "original_snapshot_json", "original_snapshot_hash"}},
+                "mutable": mutable, "diff": _json(version["diff_json"], []),
+                "original_snapshot": visible_snapshot, "original_withheld": not show_original,
+            })
+        return {"memory": EmotionalMemoryStore._public_memory(row, include_original=include_original),
+                "versions": history, "integration_sources": [dict(source) for source in sources]}
 
     def recall_history(
         self,
@@ -2806,7 +2887,9 @@ class EmotionalMemoryStore:
                 safety_emergency is not True and (not sensitive or sensitive_confirmed)
             )
             history = self._history_result(
-                connection, row=row, include_original=show_original
+                connection, row=row, include_original=show_original,
+                allow_sensitive_originals=(explicit_request is True and include_sensitive_originals is True
+                                          and ai_confirmation is True and safety_emergency is not True),
             )
             history["memory"]["original_withheld"] = (
                 include_originals and not show_original

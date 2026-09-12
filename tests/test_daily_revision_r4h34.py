@@ -98,8 +98,8 @@ class OrdinaryRevisionTests(unittest.TestCase):
         self.assertEqual(old_version, self.rows("learning_versions")[0])
         added = self.rows("learning_versions")[-1]
         self.assertEqual(1, added["previous_version"])
-        self.assertIn("未执行独立核验", added["correctness_assessment"])
-        self.assertTrue(added["ai_diff"].startswith("server_computed_fields:"))
+        self.assertEqual("", added["correctness_assessment"])
+        self.assertEqual("", added["ai_diff"])
         self.assertEqual([], self.rows("learning_verification_events"))
         self.assertEqual([], self.rows("learning_change_candidates"))
 
@@ -145,11 +145,11 @@ class OrdinaryRevisionTests(unittest.TestCase):
             self.assertEqual("versioned_target_ref_required", self.revisions.revise(target, {"summary": "x"})["reason_codes"][0])
         self.assertEqual([], self.host.open_calls)
 
-    def test_advanced_fields_never_create_candidate_or_fake_verification(self):
+    def test_system_and_noncontent_fields_never_create_candidate_or_fake_verification(self):
         blocked = {
-            "emotional_memory": {"original_text", "origin", "confidence", "sensitivity", "disclosure", "lifecycle", "referent_bindings"},
-            "learning_memory": {"current_understanding", "source_basis", "claim_review", "confidence", "evidence", "steps", "disclosure", "lifecycle", "referent_bindings"},
-            "planning_memory": {"goal", "original_text", "status", "completion_evidence", "parent_ref", "adoption_statement"},
+            "emotional_memory": {"owner_id", "original_hash", "created_wake_id"},
+            "learning_memory": {"evidence", "learning_id", "current_hash"},
+            "planning_memory": {"goal", "status", "completion_evidence", "adoption_statement"},
         }
         before = self.snapshot()
         for module, keys in blocked.items():
@@ -213,7 +213,7 @@ class OrdinaryRevisionTests(unittest.TestCase):
         self.assertTrue(self.revise("emotional_memory", reason="My actual correction reason")["revised"])
         self.assertEqual("My actual correction reason", self.rows("emotion_memory_versions")[-1]["reason"])
         self.assertTrue(self.revise()["revised"])
-        self.assertIn("不代表独立核验", self.rows("learning_versions")[-1]["reason"])
+        self.assertIn("AI 主动修订普通记忆", self.rows("learning_versions")[-1]["reason"])
 
     def test_callback_binding_race_is_not_attached_to_new_wake(self):
         before = self.snapshot()
@@ -237,19 +237,21 @@ class OrdinaryRevisionTests(unittest.TestCase):
                     expected_item_version=version, changes={"summary": "new"}, reason="correction")
         before = self.snapshot()
         for change in ({"owner_id": "foreign"}, {"model_id": "foreign"}, {"expected_item_version": True},
-                       {"expected_item_version": 2}, {"changes": {"current_understanding": "forbidden"}}):
+                       {"expected_item_version": 2}, {"changes": {"owner_id": "forbidden"}}):
             with self.assertRaises(LearningMemoryError):
                 self.learning.store.revise_ordinary(**{**args, **change})
         self.assertEqual(before, self.snapshot())
 
-    def test_runtime_emotion_original_cannot_be_rewritten_even_without_facade(self):
+    def test_runtime_emotion_original_change_preserves_history_without_facade(self):
         _, item_id, version = parse_revision_target(self.refs["emotional_memory"])
-        before = self.snapshot()
-        with self.assertRaisesRegex(EmotionalMemoryError, "ordinary_revision_requires_advanced"):
-            self.emotional.store.revise_ordinary(owner_id=OWNER, model_id=MODEL, wake_id=self.host.wake_id,
-                expected_row_version=1, memory_id=item_id, expected_memory_version=version,
-                changes={"original_text": "forbidden"}, reason="correction")
-        self.assertEqual(before, self.snapshot())
+        old_version = self.rows("emotion_memory_versions")[0]
+        result = self.emotional.store.revise_ordinary(
+            owner_id=OWNER, model_id=MODEL, wake_id=self.host.wake_id,
+            expected_row_version=1, memory_id=item_id, expected_memory_version=version,
+            changes={"original_text": "Updated author body"}, reason="correction")
+        self.assertEqual("revised", result["decision"])
+        self.assertEqual(old_version, self.rows("emotion_memory_versions")[0])
+        self.assertEqual("Updated author body", self.rows("emotion_memories")[0]["original_text"])
 
     def test_uncertain_success_receipt_never_claims_zero_state_change_or_retries(self):
         for fake in (None, {"decision": "revised", "state_changed": True},

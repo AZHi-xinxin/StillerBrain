@@ -49,7 +49,7 @@ from .planning_service import PlanningMemoryAccessService
 from .daily_memory_service import DailyMemoryAccessService
 from .daily_revision_service import DailyRevisionAccessService
 from .execution_guard import install_execution_guard
-from .usage_guide import usage_guide
+from .usage_guide import module_usage_guide, usage_guide
 from runtime.execution_binding import ExecutionStore
 from .public_contract import (
     BrainManualModule,
@@ -97,6 +97,7 @@ EDIT_CHALLENGE_TTL_SECONDS = int(
 DIRECT_CLIENT_PRINCIPAL = os.environ.get(
     "STBRAIN_DIRECT_CLIENT_PRINCIPAL", "official-deepseek-direct"
 ).strip()
+SIMPLE_MEMORY_ACCESS = os.environ.get('STBRAIN_ACCESS_PROFILE', '') == 'simple-memory-v1'
 
 if len(MCP_TOKEN) < 32:
     raise RuntimeError("STBRAIN_MCP_TOKEN must contain at least 32 characters")
@@ -192,6 +193,7 @@ InjectionScope = Literal[
 ]
 InjectionMode = Literal["enabled", "paused", "hard_off", "status_only"]
 InjectionControlAction = Literal[
+    "set", "rollback",
     "emergency_off",
     "propose_mode",
     "propose_rollback",
@@ -237,8 +239,8 @@ MemorySummary = Annotated[
 ]
 FirstPersonPinText = Annotated[
     StrictStr,
-    StringConstraints(min_length=1, max_length=1000, pattern=_FIRST_PERSON_MEMORY_PATTERN),
-    Field(description="可能进入活动注入的 AI 第一人称锚点显示文本。"),
+    StringConstraints(min_length=1, max_length=1000),
+    Field(description="可能进入活动注入的 AI 自选锚点显示文本；人称由作者选择。"),
 ]
 AuditReason = Annotated[
     StrictStr,
@@ -252,6 +254,7 @@ AuditReason = Annotated[
 ]
 
 MemoryType = Literal[
+    "unclassified",
     "shared_event",
     "feeling",
     "relationship",
@@ -286,12 +289,12 @@ SecondaryEmotionList = Annotated[list[EmotionLabel], Field(max_length=1)]
 Sensitivity = Literal["public", "internal", "private", "intimate", "restricted"]
 ContextPolicy = Literal["normal", "neutral_hint", "ask_first", "never_auto"]
 MemoryOrigin = Annotated[
-    Literal["firsthand", "reported", "inferred"],
+    Literal["firsthand", "reported", "inferred", "unmarked"],
     Field(
         description=(
             "来源：firsthand 仅用于当前 AI 实例直接经历的本轮事件；"
             "人类讲述、OB/旧档案或过去实例的材料用 reported；"
-            "对动机、含义或未观察事实的解释用 inferred。混合内容应拆开保存。"
+            "对动机、含义或未观察事实的解释用 inferred；unmarked=未标注。"
         )
     ),
 ]
@@ -304,12 +307,12 @@ PinAction = Literal["request", "confirm", "lower", "remove"]
 PinKind = Literal["identity_anchor", "safety_boundary", "human_standing_rule"]
 LearningKind = Literal["concept", "fact", "procedure", "skill", "lesson", "strategy"]
 LearningSourceBasis = Annotated[
-    Literal["observed", "reported", "inferred"],
+    Literal["observed", "reported", "inferred", "unmarked"],
     Field(
         description=(
             "这条知识从哪里来，只描述来源，不表示它是否与别的知识相反。"
             "observed=本 AI 直接观察；reported=人类或文档陈述；"
-            "inferred=AI 自己的推断。"
+            "inferred=AI 自己的推断；unmarked=未标注。"
         )
     ),
 ]
@@ -338,7 +341,7 @@ ToolChainRole = Literal["standalone", "entry", "middle", "terminal"]
 ToolSourceType = Literal["ai_firsthand", "external_document", "human_reported", "ai_inferred"]
 ToolLifecycle = Literal["active", "retired"]
 GovernanceAction = Literal[
-    "propose_set", "propose_clear", "propose_rollback", "withdraw", "activate"
+    "set", "clear", "rollback", "propose_set", "propose_clear", "propose_rollback", "withdraw", "activate"
 ]
 GovernanceScope = Literal[
     "global", "self_revision", "emotional_memory", "learning_memory", "tool_use"
@@ -349,15 +352,22 @@ GovernanceText = Annotated[
     StringConstraints(
         min_length=1,
         max_length=2000,
-        pattern=r"^\s*(?:我|I(?:\s|['’])|My(?:\s|$))",
     ),
-    Field(description="由当前 AI 自己撰写的第一人称自我治理正文。"),
+    Field(description="AI 自写轻提醒、安全阀或给自己的提示词；正文和人称由作者选择。"),
 ]
 GovernanceSceneTag = Annotated[
     StrictStr,
     StringConstraints(min_length=1, max_length=80),
 ]
-GovernanceSceneTags = Annotated[list[GovernanceSceneTag], Field(max_length=32)]
+GovernanceSceneTags = Annotated[list[GovernanceSceneTag], Field(
+    max_length=32,
+    description=(
+        "治理轻提醒的普通场景标签优先写本轮人类聊天自然会说的词句，如“设个闹钟”“提醒我”“回家了”“还记得”；"
+        "AI 可按实际表达自行增改。当前按标签完整短语在本轮场景 query 中 casefold 子串匹配；"
+        "只写 AI 内部动作描述而人类话语没有相同词句时不会命中。命中后仍受 scene_relevant 模式、注入开关和预算影响；"
+        "专用系统事件标记按真实运行时事件触发，人工打字不产生该事件。"
+    ),
+)]
 GovernanceExpectedActiveRevision = Annotated[
     NonEmptyJsonString | None,
     Field(
@@ -418,6 +428,7 @@ authoring_store = AuthoringRewriteStore(DATABASE, receipt_secret=WAKE_SECRET)
 
 onboarding = ModuleOneOnboardingStore(
     DATABASE,
+    ordinary_memory_independent=SIMPLE_MEMORY_ACCESS,
     capability_secret=WAKE_SECRET,
     wake_ttl_seconds=WAKE_TTL_SECONDS,
     edit_challenge_ttl_seconds=EDIT_CHALLENGE_TTL_SECONDS,
@@ -479,6 +490,7 @@ daily_service = DailyMemoryAccessService(
 )
 daily_revision_service = DailyRevisionAccessService(
     onboarding, emotional_service, learning_service, planning_service, OWNER_ID, MODEL_ID,
+    tool_guidance_service=tool_guidance_service,
 )
 hallucination_service = HallucinationVaultAccessService(
     hallucination_store,
@@ -500,26 +512,48 @@ service = SelfModelAccessService(
     planning=planning_service,
     hallucination_vault=hallucination_service,
     direct_client_principal=DIRECT_CLIENT_PRINCIPAL,
+    ordinary_memory_access=SIMPLE_MEMORY_ACCESS,
 )
 
 mcp = FastMCP(
     "StillerBrainSelfModel",
     instructions=(
+        "StillerBrain simple-memory-v1: 模块一首次完成设置并激活前，其他普通模块为只读，可查询已有内容。"
+        "模块一激活后，官端与网关均可直接写入和修改普通记忆。remember_memory 存入；"
+        "simple-memory-v1 的普通专用工具同样由服务补入内部上下文与模块行版本；"
+        "调用者保留已读目标版本、hash 与自主确认。高级治理旧候选和黑匣子按各自授权规则处理。"
+        "recall_* 按关键词、编号查询列表，再读详情；revise_memory 修改内容并保留版本历史。"
+        "工具脑按场景浮现作者的一句提醒，详细工具用法按需查询。"
+        "存入前可用 stbrain_help 查看当前人称弱提醒；AI 可用 manage_person_reference_advisory 自行修改、关闭或恢复，叙事人称由作者选择。"
+        "AI 可自行编写、修改和撤回轻提醒与自定义安全阀，详见 stbrain_help(module='self_governance_profile')，正文默认空白。"
+        "治理轻提醒的普通 scene_tags 匹配本轮人类话语，优先写“设个闹钟”“提醒我”“回家了”“还记得”等自然词句，按实际表达自行增改；浮现还受模式、开关与预算影响，系统事件标记另按真实事件触发。"
+        "普通记忆读取和模块一查询免密码。服务端验证通过的网关注入调用可免部署密码修改模块一；"
+        "官方 DS 或其他非网关注入的直连模型，写入或修改模块一时先 authorize_self_model 输入部署密码，"
+        "再用返回的 grant_ref 调用 stbrain_open_direct。网关身份由服务端执行绑定验证，模型名称和测试命名空间不决定权限。"
+        "模块一候选仍按真实唤醒完成提交、独立审核和激活。"
+        "普通记忆与模块一分别处理，幻觉黑匣子维持原有隔离规则。"
+        "网关的 execution_ref 由宿主填入。保存工具提醒与计划只是记录，实际外部操作使用当前工具权限。"
+        if SIMPLE_MEMORY_ACCESS else (
         f"{PUBLIC_CONTRACT_VERSION}: StillerBrain is optional memory for this AI. "
-        "For ordinary emotional, learning or planning memories, call remember_memory(module, content) once. "
-        "No preliminary open, manual version, candidate or later-wake review is needed for that route. "
+        "For ordinary emotional, learning or planning memories, use remember_memory(module, content). "
+        "After the required module access is authorized, gateway calls need no preliminary open, "
+        "manual version, candidate or later-wake review for that route. "
         "Use stbrain_help for short static instructions, and recall_* tools to read saved memories. "
+        "存入前可用 stbrain_help 查看当前人称弱提醒；AI 可用 manage_person_reference_advisory 自行修改、关闭或恢复，叙事人称由作者选择。"
+        "AI 可自行编写、修改和撤回轻提醒与自定义安全阀，详见 stbrain_help(module='self_governance_profile')，正文默认空白。"
+        "治理轻提醒的普通 scene_tags 匹配本轮人类话语，优先写“设个闹钟”“提醒我”“回家了”“还记得”等自然词句，按实际表达自行增改；浮现还受模式、开关与预算影响，系统事件标记另按真实事件触发。"
         "A real stored result means saved; a candidate, a rejected call or saying 'I will save' does not. "
         "The gateway supplies the reserved execution_ref; do not invent or reuse it. "
         "Non-gateway direct writes require an independently human-authorized context. "
-        "Core self-modification and dedicated advanced changes retain their separate review rules. "
-        "For those, stbrain_open(view='manual', module=one_module_name) provides the exact instructions "
+        "Core self-modification, isolated-vault and legacy governance candidates retain their review rules. "
+        "Ordinary dedicated revisions and integrations append directly under their authorized context. "
+        "stbrain_open(view='manual', module=one_module_name) provides the exact instructions "
         "and full review material; use that wake's real write_context_ref and current version. "
         "The default open summary is not proof that a candidate was reviewed. "
         "Never invent wake evidence, adoption statements, credentials or tool results. "
-        "Original memory text stays immutable; storing a plan or tool guidance grants no external action permission. "
+        "Author revisions preserve earlier originals in version history; plan or tool records grant no external action permission. "
         "Automatic recall is bounded and excludes pending/isolated content. The isolated vault is off by default."
-    ),
+    )),
     token_verifier=StaticBearerVerifier(),
     auth=auth_settings,
     host=MCP_HOST,
@@ -538,9 +572,51 @@ async def stbrain_health() -> dict[str, Any]:
 
 
 @mcp.tool()
-async def stbrain_help() -> dict[str, Any]:
-    """Read short usage instructions without opening a write context or private memory."""
-    return usage_guide()
+async def stbrain_help(module: BrainManualModule | None = None) -> dict[str, Any]:
+    """Read static usage instructions; module selects detailed ordinary-tool help.
+
+    Help contains no private memory and creates no write context. It also shows
+    the current optional person-reference advisory, including AI-authored custom
+    wording when enabled. For a core
+    candidate's actual full review material and presentation proof, use the
+    appropriately bound stbrain_open review flow.
+    """
+    if module is not None:
+        result = module_usage_guide(module, simple=SIMPLE_MEMORY_ACCESS)
+    elif SIMPLE_MEMORY_ACCESS:
+        from .usage_guide import simple_usage_guide
+        result = simple_usage_guide()
+    else:
+        result = usage_guide()
+    if module in {None, "emotional_memory", "learning_memory", "tool_guidance",
+                  "planning_memory", "shared_person_authoring"}:
+        result["person_reference_advisory"] = authoring_rewrite_service.advisory_status()
+    return result
+
+
+@mcp.tool()
+async def manage_person_reference_advisory(
+    action: Literal["set", "disable", "reset"],
+    text: Annotated[StrictStr, Field(min_length=1, max_length=2000)] | None = None,
+    write_context_ref: str | None = None,
+) -> dict[str, Any]:
+    """AI 自己修改、关闭或恢复人称弱提醒；叙事人称由作者选择。
+
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway writes omit
+    internal context and mechanical module row versions; keep target CAS and
+    author confirmations wherever the selected operation requires them.
+    Legacy mode retains its authorized context.
+
+    set + text 保存自己的提示并开启；disable 关闭正文显示；reset 恢复默认建议。
+    用 stbrain_help(module='shared_person_authoring') 读取当前生效内容。
+    普通激活后的 simple-memory-v1 直连和网关均只需 action（set 时加 text），
+    不用填写版本或执行编号。legacy 沿用 shared_person_authoring 的真实授权上下文。
+    每次修改保留历史；这是提醒偏好，不改记忆原文，也不打开自动人称转换。
+    """
+    return authoring_rewrite_service.manage_advisory(
+        action=action, text=text, write_context_ref=write_context_ref,
+    )
 
 
 @mcp.tool()
@@ -549,29 +625,59 @@ async def remember_memory(
     content: Annotated[StrictStr, StringConstraints(min_length=1, max_length=2000)],
     title: str | None = None, summary: str | None = None, kind: str | None = None,
     track: str = "internal", keywords: list[str] | None = None,
-    importance: StrictInt = 50, emotion: str = "other", source_basis: str = "reported",
-    confidence: StrictInt = 50, reason: str | None = None,
+    importance: StrictInt = 50, emotion: str = "other", source_basis: LearningSourceBasis = "unmarked",
+    confidence: JsonPercent | None = None, reason: str | None = None,
     write_context_ref: str | None = None, parent_ref: str | None = None,
     due_at: str | None = None, timezone: str = "UTC",
+    rewrite_receipt: StrictStr | None = None,
 ) -> dict[str, Any]:
     """Save one ordinary memory with one call. Only module and content are required.
 
-    No preliminary stbrain_open, manual version, candidate or later-wake review.
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway writes omit
+    internal context and mechanical module row versions; keep target CAS and
+    author confirmations wherever the selected operation requires them.
+    No preliminary stbrain_open, manual version, candidate or later-wake review
+    is needed for ordinary gateway and activated simple-profile calls.
     content is preserved as supplied; optional title/summary organize it. For emotional
     memory title is used as summary only when summary is omitted. kind is optional;
-    defaults: meaningful_dialogue / fact / task respectively. Unknown facts default
-    to reported, confidence=50; storing is not independent verification. A planning
+    defaults: unclassified / fact / task respectively. Unknown facts default
+    to unmarked, confidence=null (未标注); explicit 0–100 remains authored. A planning
     record becomes active, but grants no external execution permission. Core self
     modification still uses its separate review tools. Do not supply write_context_ref
-    on the gateway path; it is only for an already human-authorized direct context.
+    on the gateway path. In simple-memory-v1 both direct and gateway callers omit
+    write_context_ref; legacy direct mode uses its separately authorized context.
     Only a real stored response means success; do not claim a call you did not make.
+
+    人称由 AI 自选；stbrain_help 提供当前可修改、可关闭的人称弱提醒，
+    manage_person_reference_advisory 管理该提醒，小说和角色叙事可按需关闭。
+    存入前，先参考本工具说明中的当前人称提醒和标签选词建议，再组织参数；采用与否由 AI 自选。
+    工具目录是读取时的快照；本轮已修改或关闭提醒时，以最新管理结果为准，刷新 MCP 目录可更新说明。
+    保存成功的工具结果同时返回当前人称提醒与简短选词建议，供 AI 自行决定是否采用；
+    这是存入后的回执提示，不自动改写刚保存的内容，也不要求再调用一次保存。
+    rewrite_receipt 可选，仅情感/学习记忆接受已明确确认的一次性指代改写回执；
+    它不自动改写。情感 final_fields 的 original_text/summary 对应 content/summary；
+    学习的 title/summary/current_understanding 对应 title/summary/content，
+    preceding_context_summary 在本入口固定为空；需要非空前置上下文请用专用学习工具。
+    字段须与确认预览完全相同。规划不支持此回执；省略时保持普通存入路径。
+
+    选词可由 AI 按真实内容考虑原词＋近义表达＋语义相关话题＋情感语境关联：
+    奶奶家 → 奶奶家 / 奶奶 / 家里的近况 / 家人牵挂。
+    小王 → 小王 / 同事 / 上班 / 零食；情感语境：生气或委屈。
+    下雨 → 下雨 / 雨天 / 带伞；情感语境：想念。
+    Tasker → Tasker / 自动化 / 配置 / 不会用了 / 修好了。
+    本入口用 keywords 提供内容检索线索；scene_tags 或 scenario_tags 仅在公布该字段的
+    专用工具填写，字段名称以各工具 schema 为准。其中治理轻提醒的
+    普通标签匹配本轮人类自然话语。情感分类另按当前 schema 填写，中文感受可写入
+    正文或摘要；这些映射不是所有模块通用的自由情绪枚举，也不是系统自动扩写。
+    命中只是候选，实际依已有记录、模式、预算与授权决定；它不规定固定回复或自动存入。
     """
     return daily_service.remember(
         module=module, content=content, title=title, summary=summary, kind=kind,
         track=track, keywords=keywords, importance=importance, emotion=emotion,
         source_basis=source_basis, confidence=confidence, reason=reason,
         write_context_ref=write_context_ref, parent_ref=parent_ref,
-        due_at=due_at, timezone=timezone,
+        due_at=due_at, timezone=timezone, rewrite_receipt=rewrite_receipt,
     )
 
 
@@ -582,15 +688,26 @@ async def revise_memory(
     reason: str | None = None,
     write_context_ref: str | None = None,
 ) -> dict[str, Any]:
-    """Revise ordinary summary/search metadata once, preserving the exact history.
+    """统一修改情感、学习、工具、规划四个普通脑，保留各版本历史。
 
+    工具卡同样使用 target_ref + changes：引用形如 tool-card://toolcard_…@1，
+    changes 可直接写 reminder、purpose、scenario_tags、confidence 等要改的字段。
+    reminder/source_ref/expires_at 显式 null 清除，省略保留；clear_fields 兼容旧写法。
+    退役可用 changes.intent='retire'，恢复用 intent='restore' 和 target_version。
+    默认普通修改，无需填写 edit_class 或审查表。simple 目录收起专用工具卡修改名，旧调用保持兼容。
+
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway writes omit
+    internal context and mechanical module row versions; keep target CAS and
+    author confirmations wherever the selected operation requires them.
     Supply the versioned target_ref you actually read and changed fields only.
-    Common fields: summary, keywords, importance. Learning/planning also title;
-    emotional/learning also entities; learning also domain. Original event/body,
-    source confidence, disclosure rules and core self are not changed here.
-    No preliminary open or manual module version on the gateway path. A stale
+    Fields include original_text/current_understanding, summary, keywords,
+    importance, and each module's author-defined source/emotion fields.
+    Technical IDs, ownership, hashes and derived fields are maintained by ST.
+    In simple-memory-v1, both direct and gateway calls need no preliminary open. A stale
     target is rejected without overwrite: reread it before deciding to revise.
-    write_context_ref is only for an already human-authorized direct context.
+    Omit write_context_ref in simple-memory-v1; the server binds the operation.
+    Legacy mode retains its authorized current-context requirements.
     """
     return daily_revision_service.revise(target_ref, changes, reason, write_context_ref)
 
@@ -606,13 +723,18 @@ async def advance_plan(
 ) -> dict[str, Any]:
     """Append a plan update once, without executing the plan or inventing evidence.
 
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway writes omit
+    internal context and mechanical module row versions; keep target CAS and
+    author confirmations wherever the selected operation requires them.
     Use target_ref and event_seq from the plan you read. expected_event_seq is
     that event_seq; it protects updates even when the plan content version has
     not changed. progress/complete/reopen need genuine evidence (source_kind,
     source_ref, evidence_summary, provenance); pause/resume do not. note is your
     update reason, not a claim of independent verification. No preliminary open
     or module version is needed on the gateway path. Conflicts require rereading,
-    never automatic overwrite. Direct use needs an authorized write_context_ref.
+    never automatic overwrite. In simple-memory-v1 direct use also omits
+    write_context_ref; legacy direct mode keeps its separately authorized context.
     """
     return daily_revision_service.advance(
         target_ref=target_ref, expected_event_seq=expected_event_seq,
@@ -624,11 +746,24 @@ async def advance_plan(
 @mcp.tool()
 async def stbrain_open(
     view: BrainOpenView = "summary",
-    module: BrainManualModule = "self_revision",
+    module: BrainManualModule | None = None,
     page: Annotated[StrictInt, Field(ge=0)] = 0,
     expected_material_hash: Annotated[StrictStr, StringConstraints(pattern=r"^[a-f0-9]{64}$")] | None = None,
+    query: Annotated[StrictStr, Field(max_length=4000)] = "",
+    limit: Annotated[StrictInt, Field(ge=1, le=50)] = 20,
+    cursor: Annotated[StrictStr, Field(min_length=1, max_length=2048)] | None = None,
 ) -> dict[str, Any]:
-    """Open ST's core-edit context or review material; not a whole-memory recall.
+    """Read ordinary memory with view='recall', or open core-edit/review material.
+
+    view='recall' is an authenticated read: no wake, password, write context or
+    author confirmation is needed. Empty query browses a complete paged directory;
+    a query searches emotional, learning, planning and tool memory. module omitted
+    selects all four; select one ordinary module to narrow it. Results are safe
+    summaries with exact references and detail_lookup for original/history reads.
+    Keep query/module and use next_cursor; changed records require a fresh search.
+    Partial/errors/truncated are explicit; scores are not cross-brain probabilities.
+    This view excludes core identity, isolated-vault content and pending candidates.
+    It does not create candidate presentation proof or alter any write permission.
 
     Default summary returns the real root write_context_ref and module versions,
     not documentation placeholders. Reuse them only in this real user/tool round.
@@ -639,9 +774,17 @@ async def stbrain_open(
     different wake/version never counts as full review. No shell, file or workspace
     is required. Opens reuse this wake, not create one. Core changes still need
     separate real wakes to propose, review and activate. Ordinary memories use
-    remember_memory and recall_* without this preliminary open.
+    recall_* without this preliminary open. In simple-memory-v1, ordinary writes
+    become available after module one is first completed and activated; until
+    then those modules are read-only. stbrain_help supplies static instructions.
     """
-    return service.open_brain(view=view, module=module, page=page,
+    if view == "recall":
+        if page != 0 or expected_material_hash is not None:
+            return {"decision": "reject", "reason_code": "recall_uses_cursor_not_review_page", "state_changed": False}
+        return service.recall_memory(query=query, module=module, limit=limit, cursor=cursor)
+    if query or cursor is not None or limit != 20:
+        return {"decision": "reject", "reason_code": "query_parameters_require_recall_view", "state_changed": False}
+    return service.open_brain(view=view, module=module or "self_revision", page=page,
                               expected_material_hash=expected_material_hash)
 
 
@@ -649,10 +792,12 @@ async def stbrain_open(
 async def stbrain_open_direct(
     grant_ref: DirectGrantReference,
 ) -> dict[str, Any]:
-    """Consume one human-issued grant and open a non-injected direct write context.
+    """Consume one server-authorized grant and open a non-injected direct write context.
 
     The grant is short-lived and one-use. It is bound server-side to this owner,
-    model, official direct client principal, scopes, and human issuance event.
+    model, direct client principal, scopes, and its authorization event. In the
+    simple-memory-v1 profile, authorize_self_model issues the module-one grant
+    to the deployment-password holder; this does not assert a human is present.
     This tool cannot turn an ordinary MCP token, an old grant, or a tool
     continuation into a new wake. It never creates automatic-injection evidence.
     """
@@ -668,8 +813,10 @@ async def submit_self_model_candidate(
 ) -> dict[str, Any]:
     """Prepare, save, revise, recover, or review a candidate through one safe facade.
 
-    The host must issue the wake and confirm injection of the exact prepared context before
-    this call. First call stbrain_open and copy its write_context_ref and row_version.
+    Use a server-verified gateway execution and its injected wake, or a valid
+    authorized direct context. In simple-memory-v1 the gateway needs no deployment
+    password; direct writes require authorize_self_model and stbrain_open_direct.
+    Copy write_context_ref and row_version from the corresponding open result.
     For save_calm_prompt, payload is exactly {"text": <AI-authored string>}. For submit
     and revise, payload is exactly {"content": <five-key self model>, "reason": <string>}.
     The reason key is never named ai_reason. For confirm_edit, payload must contain
@@ -693,7 +840,11 @@ async def activate_self_model_candidate(
     expected_active_revision: NonEmptyJsonString | None,
     ai_confirmation: JsonTrue,
 ) -> dict[str, Any]:
-    """Activate an accepted candidate only in a later independently injected real wake.
+    """Activate an accepted candidate only in a later independently verified real wake.
+
+    Use the verified gateway binding, or an authorized direct context. In the
+    simple-memory-v1 profile only direct self writes require the deployment password.
+    First activation also opens ordinary-memory writing; reads are already available.
 
     Copy expected_active_revision from the current candidate returned by stbrain_open:
     it is null for the first activation and the base revision ID for an edited candidate.
@@ -770,6 +921,12 @@ async def preview_person_reference_rewrite(
 ) -> dict[str, Any]:
     """Preview optional literal mention patches for this draft only.
 
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep exact draft hashes
+    and author confirmations. Legacy mode retains its authorized context.
+    A preview persists draft/receipt metadata, so it follows the write prerequisite;
+    it does not store the draft as an active memory.
     The tool never guesses an entity, changes grammar, saves a memory, or makes
     a preview live.  No applicable safe patch returns continue_original_path so
     the ordinary module write remains available without another confirmation.
@@ -826,7 +983,14 @@ async def confirm_person_reference_rewrite(
         ALIAS_COMPARISON_PROFILE_VERSION
     ] = ALIAS_COMPARISON_PROFILE_VERSION,
 ) -> dict[str, Any]:
-    """Confirm the exact preview and issue one opaque single-use write receipt."""
+    """Confirm the exact preview and issue one opaque single-use write receipt.
+
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep the preview's exact
+    hashes, target module and explicit author confirmation. Legacy mode retains
+    its authorized context and wake-bound receipt rules.
+    """
     return authoring_rewrite_service.confirm(
         write_context_ref=write_context_ref,
         expected_authoring_version=expected_authoring_version,
@@ -863,8 +1027,8 @@ async def remember_emotional_memory(
     importance: JsonPercent = 50,
     sensitivity: Sensitivity = "private",
     context_policy: ContextPolicy = "normal",
-    origin: MemoryOrigin = "firsthand",
-    confidence: JsonPercent = 100,
+    origin: MemoryOrigin = "unmarked",
+    confidence: JsonPercent | None = None,
     keywords: list[StrictStr] | None = None,
     entities: list[StrictStr] | None = None,
     allow_contexts: list[StrictStr] | None = None,
@@ -879,12 +1043,17 @@ async def remember_emotional_memory(
 ) -> dict[str, Any]:
     """Advanced emotional-memory creation with explicit policies and context.
 
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep target CAS and
+    author confirmations. Legacy mode retains its authorized context.
     For ordinary new memories prefer remember_memory(module='emotional_memory',
     content=...). That route saves once without preliminary open or manual versions.
 
-    First call stbrain_open and copy write_context_ref plus
-    emotional_memory.row_version. original_text is immutable after this call;
-    later changes use revise_emotional_memory. original_text and summary are
+    Only the legacy context-bound path copies write_context_ref and
+    emotional_memory.row_version from its bound stbrain_open. Later original-text
+    edits use revise_memory with changes.original_text and retain earlier versions;
+    revise_emotional_memory edits its published metadata fields. original_text and summary are
     AI-authored and may use the grammatical person the AI chooses. Optional
     referent_bindings help disambiguate entities but never gate eligibility.
     Do not send recall_mode to this creation tool: a new memory starts in the
@@ -938,6 +1107,8 @@ async def recall_emotional_memory(
 ) -> dict[str, Any]:
     """Recall personal experiences and relationships saved in ST (StillerBrain).
 
+    simple-memory-v1 permits this read before module-one activation. Ordinary
+    writes open after activation; owner and sensitive-disclosure rules still apply.
     After a restart, compression or other wake, use this when you choose to look
     up ST relationship continuity by query or exact memory_id. It is not another
     service's breath and not a mandatory ritual before every reply. It does not
@@ -990,8 +1161,15 @@ async def revise_emotional_memory(
     associations: list[dict[str, Any]] | None = None,
     referent_bindings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Append a new interpretation/version; original_text cannot be supplied.
+    """Append a new emotional metadata/interpretation version.
 
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep the observed
+    expected_memory_version and author confirmations. Legacy mode retains its
+    authorized context. To edit the current original_text, use revise_memory with
+    changes.original_text; earlier original versions remain available. This
+    dedicated tool accepts the metadata fields in its own published schema.
     Put changed fields directly at the tool root. Do not invent payload,
     content, meta, diff, evidence_refs, or candidate wrappers. An association-
     only revision is valid when associations is non-empty.
@@ -1041,15 +1219,20 @@ async def integrate_emotional_memories(
     importance: JsonPercent = 50,
     sensitivity: Sensitivity = "private",
     context_policy: ContextPolicy = "normal",
-    origin: MemoryOrigin = "firsthand",
-    confidence: JsonPercent = 100,
+    origin: MemoryOrigin = "unmarked",
+    confidence: JsonPercent | None = None,
     keywords: list[StrictStr] | None = None,
     entities: list[StrictStr] | None = None,
     referent_bindings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Create one timeline aggregate from 2-20 memories and archive its sources.
 
-    Source originals and version histories remain immutable and queryable. The
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep source references
+    and author confirmations. Legacy mode retains its authorized context.
+    This integration preserves source records and version histories. Current body
+    edits use revise_memory; historical versions remain queryable. The
     aggregate text is AI-authored in the grammatical person the AI chooses; pass fields directly without
     a payload or candidate wrapper.
     """
@@ -1086,11 +1269,19 @@ async def manage_brain_pin(
     replace_pin_id: StrictStr | None = None,
     ai_confirmation: StrictBool = False,
 ) -> dict[str, Any]:
-    """Request, later confirm, lower, or remove one bounded brain pin.
+    """Request, explicitly confirm, lower, or remove one bounded brain pin.
 
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep the pin's target
+    CAS and author confirmations. Legacy mode retains its authorized context.
     request uses pin_kind, display_text, and source_ref. confirm uses pin_id and
-    ai_confirmation=true in a later real wake; replace_pin_id is required only
+    ai_confirmation=true. In simple-memory-v1 the author can confirm immediately;
+    legacy wake-bound requests retain their later-real-wake confirmation rule.
+    replace_pin_id is required only
     when five pins are already active. lower/remove use only pin_id and reason.
+    The source must remain a permitted verified core reference; changing a pin
+    does not rewrite the underlying self-definition.
     """
     return emotional_service.manage_pin(
         write_context_ref=write_context_ref,
@@ -1114,7 +1305,13 @@ async def veto_ephemeral_memory(
     ephemeral_id: StrictStr | None = None,
     thread_id: StrictStr | None = None,
 ) -> dict[str, Any]:
-    """Veto and scrub ephemeral text by exactly one ephemeral_id or thread_id."""
+    """Veto and scrub ephemeral text by exactly one ephemeral_id or thread_id.
+
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep the exact target
+    and author confirmations. Legacy mode retains its authorized context.
+    """
     return emotional_service.veto_ephemeral(
         write_context_ref=write_context_ref,
         expected_emotion_version=expected_emotion_version,
@@ -1132,10 +1329,10 @@ async def remember_learning_memory(
     title: NonEmptyJsonString,
     summary: NonEmptyJsonString,
     current_understanding: NonEmptyJsonString,
-    source_basis: LearningSourceBasis,
-    confidence: JsonPercent,
     correctness_assessment: NonEmptyJsonString,
     reason: AuditReason,
+    source_basis: LearningSourceBasis = "unmarked",
+    confidence: JsonPercent | None = None,
     claim_review_status: LearningClaimReviewStatus = "ordinary",
     challenged_claim: StrictStr = "",
     challenge_actor: StrictStr = "",
@@ -1169,6 +1366,10 @@ async def remember_learning_memory(
 ) -> dict[str, Any]:
     """Advanced learning record with evidence/review metadata; injection stays summary-only.
 
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep target CAS and
+    author confirmations. Legacy mode retains its authorized context.
     For ordinary new memories prefer remember_memory(module='learning_memory',
     content=...). No preliminary open or manual versions are needed on that route.
 
@@ -1263,6 +1464,10 @@ async def remember_learning_contrast_pair(
 ) -> dict[str, Any]:
     """Atomically save two ordinary opposing claims plus their contrast link.
 
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep target CAS and
+    author confirmations. Legacy mode retains its authorized context.
     Use this when both statements should remain available without deciding that
     either is false. The server fixes both cards to active neutral hints and
     creates the version-bound relation in one transaction. Each claim object
@@ -1322,6 +1527,8 @@ async def recall_learning_memory(
 ) -> dict[str, Any]:
     """Search one topic/ref or browse complete learning-card inventory.
 
+    simple-memory-v1 permits this read before module-one activation. Ordinary
+    writes open after activation; owner and quarantine/disclosure rules still apply.
     Use ``view='inventory'`` for "what is in my learning brain", counts,
     topic-wide card collection, or gathering source refs before integration.
     Inventory returns summary-only cards, never quarantined bodies.  A search
@@ -1362,10 +1569,10 @@ async def revise_learning_memory(
     expected_target_version: JsonMemoryVersion,
     action: LearningRevisionAction,
     change_class: LearningChangeClass,
-    classification_basis: list[NonEmptyJsonString],
-    correctness_assessment: NonEmptyJsonString,
-    diff: NonEmptyJsonString,
     reason: AuditReason,
+    classification_basis: list[NonEmptyJsonString] | None = None,
+    correctness_assessment: NonEmptyJsonString | None = None,
+    diff: NonEmptyJsonString | None = None,
     classification_actor: Literal["ai_self"] = "ai_self",
     calm_check: dict[str, Any] | None = None,
     ai_confirmation: StrictBool = False,
@@ -1406,7 +1613,17 @@ async def revise_learning_memory(
     add_verification_event: dict[str, Any] | None = None,
     links: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Append a small reversible fix or create a later-wake major learning candidate."""
+    """Append an exact-version authored learning correction directly, retaining history.
+
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep the observed
+    expected_item_version, content references and author confirmations. Legacy
+    mode retains its authorized context. Current revisions do not create a new
+    review candidate; review_learning_change handles previously stored candidates.
+    classification_basis, correctness_assessment, diff and calm_check may be
+    omitted or null. Supplied legacy audit notes are author input, not proof of review.
+    """
     optionals = {
         "title": title,
         "summary": summary,
@@ -1481,17 +1698,17 @@ async def integrate_learning_memories(
     expected_learning_version: JsonRowVersion,
     source_learning_ids: list[NonEmptyJsonString],
     synthesis_kind: Literal["summary", "generalization", "contrast", "procedure"],
-    classification_basis: list[NonEmptyJsonString],
-    correctness_assessment: NonEmptyJsonString,
-    diff: NonEmptyJsonString,
-    calm_check: dict[str, Any],
     reason: AuditReason,
     kind: LearningKind,
     title: NonEmptyJsonString,
     summary: NonEmptyJsonString,
     current_understanding: NonEmptyJsonString,
-    source_basis: LearningSourceBasis,
-    confidence: JsonPercent,
+    source_basis: LearningSourceBasis = "unmarked",
+    confidence: JsonPercent | None = None,
+    classification_basis: list[NonEmptyJsonString] | None = None,
+    correctness_assessment: NonEmptyJsonString | None = None,
+    diff: NonEmptyJsonString | None = None,
+    calm_check: dict[str, Any] | None = None,
     classification_actor: Literal["ai_self"] = "ai_self",
     source_action: Literal["keep", "archive_after_accept"] = "keep",
     merge_suggestion_id: StrictStr | None = None,
@@ -1516,7 +1733,17 @@ async def integrate_learning_memories(
     idea_inference_chain: list[StrictStr] | None = None,
     idea_uncertainties: list[StrictStr] | None = None,
 ) -> dict[str, Any]:
-    """Create a reviewable synthesis from 2-20 cards; optional ideas stay physically isolated."""
+    """Commit an authored synthesis from 2-20 cards; retain source history.
+
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep exact versioned
+    source references and author confirmations. Legacy mode retains its authorized
+    context. Current integration saves directly; optional ideas stay physically
+    isolated and their separate result must be checked.
+    classification_basis, correctness_assessment, diff and calm_check may be
+    omitted or null. Supplied legacy audit notes are author input, not proof of review.
+    """
     return learning_service.integrate(
         write_context_ref=write_context_ref,
         expected_learning_version=expected_learning_version,
@@ -1574,7 +1801,17 @@ async def review_learning_change(
     reason: AuditReason,
     ai_confirmation: JsonTrue,
 ) -> dict[str, Any]:
-    """Accept or reject one fully displayed major change in a later real wake."""
+    """Accept or reject one previously stored learning-change candidate by exact identity.
+
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep candidate hash,
+    candidate/base versions and explicit author confirmation for acceptance.
+    Acceptance still requires complete matching review material; this candidate
+    path has no extra later-wake wait. Rejection preserves its safe escape path.
+    Legacy mode retains its authorized context. Static help supplies instructions,
+    not candidate presentation proof.
+    """
     return learning_service.review(
         write_context_ref=write_context_ref,
         expected_learning_version=expected_learning_version,
@@ -1595,7 +1832,12 @@ async def preview_learning_recall(
     situation: NonEmptyJsonString,
     limit: Annotated[StrictInt, Field(ge=1, le=3)] = 3,
 ) -> dict[str, Any]:
-    """Preview, without side effects, which learning summaries a situation would surface."""
+    """Preview which learning summaries a situation would surface.
+
+    simple-memory-v1 permits this read before module-one activation. Ordinary
+    writes open after activation. This preview does not save a memory or issue
+    an injected wake; existing owner, quarantine and disclosure rules apply.
+    """
     return learning_service.preview_recall(situation=situation, limit=limit)
 
 
@@ -1604,22 +1846,23 @@ async def remember_tool_guidance(
     write_context_ref: NonEmptyJsonString,
     expected_tool_row_version: JsonRowVersion,
     tool_name: NonEmptyJsonString,
-    operation_key: NonEmptyJsonString,
-    display_label: NonEmptyJsonString,
-    capability_class: ToolCapabilityClass,
-    risk_level: ToolRiskLevel,
-    confirmation_policy: ToolConfirmationPolicy,
-    completion_rule: NonEmptyJsonString,
-    critical_preconditions: list[StrictStr],
     purpose: NonEmptyJsonString,
-    use_when: list[NonEmptyJsonString],
-    avoid_when: list[NonEmptyJsonString],
-    scenario_tags: list[NonEmptyJsonString],
-    scenario_examples: list[NonEmptyJsonString],
-    call_notes: NonEmptyJsonString,
-    keywords: list[StrictStr],
-    aliases: list[StrictStr],
-    reason: AuditReason,
+    operation_key: NonEmptyJsonString = "general",
+    display_label: StrictStr | None = None,
+    capability_class: ToolCapabilityClass = "real_world_action",
+    risk_level: ToolRiskLevel = "high",
+    confirmation_policy: ToolConfirmationPolicy = "explicit_each_time",
+    completion_rule: StrictStr = "",
+    critical_preconditions: list[StrictStr] | None = None,
+    use_when: list[NonEmptyJsonString] | None = None,
+    avoid_when: list[NonEmptyJsonString] | None = None,
+    scenario_tags: list[NonEmptyJsonString] | None = None,
+    scenario_examples: list[NonEmptyJsonString] | None = None,
+    call_notes: StrictStr = "",
+    keywords: list[StrictStr] | None = None,
+    aliases: list[StrictStr] | None = None,
+    reason: AuditReason = "记录工具使用提醒",
+    reminder: Annotated[StrictStr, Field(max_length=100)] | None = None,
     salience: JsonPercent = 50,
     auto_recall_mode: ToolRecallMode = "normal",
     salience_reason: StrictStr = "",
@@ -1637,26 +1880,34 @@ async def remember_tool_guidance(
     expires_at: StrictStr | None = None,
     lifecycle: ToolLifecycle = "active",
 ) -> dict[str, Any]:
-    """Save detailed advice for one advertised callable operation; never execute it."""
+    """记录一个服务或工具的用途；reminder 是自主撰写的一句场景提醒，详细用法可选。
+
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep target CAS and
+    author confirmations. Legacy mode retains its authorized context. A tool
+    reminder records advice; actual execution uses the live tool's permissions.
+    """
     return tool_guidance_service.remember(
         write_context_ref=write_context_ref,
         expected_tool_row_version=expected_tool_row_version,
         tool_name=tool_name,
         operation_key=operation_key,
-        display_label=display_label,
+        display_label=display_label if display_label is not None else tool_name,
         capability_class=capability_class,
         risk_level=risk_level,
         confirmation_policy=confirmation_policy,
         completion_rule=completion_rule,
-        critical_preconditions=critical_preconditions,
+        critical_preconditions=critical_preconditions or [],
         purpose=purpose,
-        use_when=use_when,
-        avoid_when=avoid_when,
-        scenario_tags=scenario_tags,
-        scenario_examples=scenario_examples,
+        reminder=reminder,
+        use_when=use_when or [],
+        avoid_when=avoid_when or [],
+        scenario_tags=scenario_tags or [],
+        scenario_examples=scenario_examples or [],
         call_notes=call_notes,
-        keywords=keywords,
-        aliases=aliases,
+        keywords=keywords or [],
+        aliases=aliases or [],
         reason=reason,
         salience=salience,
         auto_recall_mode=auto_recall_mode,
@@ -1682,12 +1933,18 @@ async def recall_tool_guidance(
     query: StrictStr = "",
     tool_name: StrictStr | None = None,
     card_id: StrictStr | None = None,
-    view: Literal["suggestions", "card", "history", "failures"] = "suggestions",
+    view: Literal["suggestions", "directory", "card", "history", "failures"] = "suggestions",
     include_stale: StrictBool = False,
     include_downweighted: StrictBool = False,
     limit: Annotated[StrictInt, Field(ge=1, le=5)] = 5,
 ) -> dict[str, Any]:
-    """Precisely read tool advice, card details, version history, or AI-reported failures."""
+    """Precisely read tool advice, card details, version history, or AI-reported failures.
+
+    simple-memory-v1 permits this read before module-one activation. Ordinary
+    writes open after activation. Use an empty query or view='directory' for the
+    bounded directory, then card_id with view='card'/'history'/'failures' for detail.
+    Reading advice grants no permission to execute the referenced tool.
+    """
     return tool_guidance_service.recall(
         query=query,
         tool_name=tool_name,
@@ -1705,9 +1962,9 @@ async def revise_tool_guidance(
     expected_tool_row_version: JsonRowVersion,
     card_id: NonEmptyJsonString,
     expected_card_version: JsonMemoryVersion,
-    intent: Literal["revise", "retire", "restore"],
-    edit_class: Literal["typo", "metadata", "source_addition", "salience_downweight", "major"],
-    reason: AuditReason,
+    intent: Literal["revise", "retire", "restore"] = "revise",
+    edit_class: Literal["typo", "metadata", "source_addition", "salience_downweight", "major"] = "major",
+    reason: AuditReason = "更新工具使用记忆",
     target_version: StrictInt | None = None,
     correctness_assessment: StrictStr | None = None,
     calm_check_stability: StrictStr | None = None,
@@ -1722,6 +1979,7 @@ async def revise_tool_guidance(
     display_label: StrictStr | None = None,
     documentation_note: StrictStr | None = None,
     purpose: StrictStr | None = None,
+    reminder: Annotated[StrictStr, Field(max_length=100)] | None = None,
     use_when: list[StrictStr] | None = None,
     avoid_when: list[StrictStr] | None = None,
     scenario_tags: list[StrictStr] | None = None,
@@ -1745,14 +2003,30 @@ async def revise_tool_guidance(
     auto_recall_mode: ToolRecallMode | None = None,
     salience_reason: StrictStr | None = None,
     expires_at: StrictStr | None = None,
+    clear_fields: list[Literal["reminder", "source_ref", "expires_at"]] | None = None,
 ) -> dict[str, Any]:
-    """Append a reversible small edit or create a cross-wake major candidate."""
+    """直接更新作者内容并保留版本历史；也可退役或恢复自己的工具卡。
+
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep the observed
+    expected_card_version and author confirmations. Legacy mode retains its
+    authorized context. Card changes do not grant real tool execution authority.
+    expires_at omitted or null keeps the current expiry; clear_fields=["expires_at"]
+    explicitly clears it. Do not set and clear the same field in one call.
+    """
     optionals = locals().copy()
     for key in (
         "write_context_ref", "expected_tool_row_version", "card_id",
         "expected_card_version", "intent", "edit_class", "reason",
+        "clear_fields",
     ):
         optionals.pop(key, None)
+    changes = {key: value for key, value in optionals.items() if value is not None}
+    for key in clear_fields or []:
+        if key in changes:
+            return {"decision": "reject", "reason_code": "set_and_clear_conflict", "state_changed": False}
+        changes[key] = None
     return tool_guidance_service.revise(
         write_context_ref=write_context_ref,
         expected_tool_row_version=expected_tool_row_version,
@@ -1761,7 +2035,7 @@ async def revise_tool_guidance(
         intent=intent,
         edit_class=edit_class,
         reason=reason,
-        **{key: value for key, value in optionals.items() if value is not None},
+        **changes,
     )
 
 
@@ -1772,13 +2046,23 @@ async def review_tool_guidance_candidate(
     candidate_id: NonEmptyJsonString,
     candidate_hash: NonEmptyJsonString,
     decision: Literal["accept", "keep_pending", "withdraw"],
-    correctness_decision: Literal["correct", "uncertain", "incorrect"],
-    correctness_assessment: NonEmptyJsonString,
-    reason: AuditReason,
-    ai_confirmation: StrictBool,
     expected_base_version: JsonMemoryVersion,
+    reason: AuditReason = "处理历史工具卡候选",
+    correctness_decision: Literal["correct", "uncertain", "incorrect"] | None = None,
+    correctness_assessment: StrictStr | None = None,
+    ai_confirmation: StrictBool = False,
 ) -> dict[str, Any]:
-    """Review a fully exposed major tool-guidance candidate in a later real wake."""
+    """处理旧版遗留候选。普通作者可按候选标识、hash 与基线版本明确 accept、
+    keep_pending 或 withdraw；新修改直接使用 revise_memory 追加版本。
+    旧 wake 绑定路径的 accept/keep_pending 仍使用原复核流程。
+
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep exact candidate
+    hash, base version and author confirmations. Ordinary acceptance is an
+    explicit author choice, not evidence of a later real wake or independent review.
+    Legacy mode retains its authorized context and original review requirements.
+    """
     return tool_guidance_service.review(
         write_context_ref=write_context_ref,
         expected_tool_row_version=expected_tool_row_version,
@@ -1806,9 +2090,16 @@ async def record_tool_experience(
     reason_code: NonEmptyJsonString,
     attempt_summary: NonEmptyJsonString,
     lesson: StrictStr | None = None,
-    confidence: Annotated[StrictInt, Field(ge=0, le=80)] = 50,
+    confidence: Annotated[StrictInt, Field(ge=0, le=100)] = 50,
 ) -> dict[str, Any]:
-    """Record one non-verified AI report about a tool attempt; no raw arguments/results."""
+    """Record one non-verified AI report about a tool attempt; no raw arguments/results.
+
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep exact card references
+    and author confirmations. Legacy mode retains its authorized context. Report
+    the actual observed outcome; this memory neither executes nor verifies a tool.
+    """
     return tool_guidance_service.record_experience(
         write_context_ref=write_context_ref,
         expected_tool_row_version=expected_tool_row_version,
@@ -1837,17 +2128,39 @@ async def manage_self_governance_profile(
     target_revision_id: NonEmptyJsonString | None = None,
     ai_confirmation: StrictBool = False,
 ) -> dict[str, Any]:
-    """Create, clear, roll back, withdraw, or later activate an AI-owned boundary.
+    """设置、清空、回退自己的治理内容；普通认证模式直接保存并保留版本。
 
+    Self-authored light reminders and custom safety prompts are optional blank
+    content the AI can set/clear/rollback for a scope with its chosen trigger_mode.
+
+    普通 scene_relevant 的 scene_tags 匹配本轮人类话语：优先写人类聊天自然会说的
+    “设个闹钟”“提醒我”“回家了”“还记得”等词句，并按实际表达自行增改。
+    它们描述会出现的聊天表达，不读取 AI 内部动作；只写“动手之前”“想用工具”时，
+    本轮话语须真的出现该完整短语才会命中。当前采用本轮场景 query 的 casefold
+    子串匹配，不自动推断同义词；本项目网关使用最新一条人类消息的文本。
+    命中后仍受触发模式、注入开关及预算影响，修改在下一次生成前的新快照使用；
+    一次未浮现不足以判断标签错误。专用系统事件标记需真实运行时事件，人工写出
+    标记不能冒充事件；该例外不影响普通中文标签。标签词句不是固定清单。
+
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway set/clear/rollback
+    callers omit internal context and both mechanical module fields expected_profile_version and
+    expected_active_revision. The host reads one latest scope snapshot and preserves
+    transactional CAS; a genuine concurrent edit is returned for author review.
+    Legacy mode retains its authorized context and author confirmations.
+    The propose_*/activate/withdraw actions retain their separately bound legacy
+    candidate flow, including in simple-memory-v1; use the matching current contract.
     This is one flat action facade: do not invent content, payload, metadata, or
-    review wrappers.  First call stbrain_open and copy write_context_ref plus the
-    selected scope's row_version and active_revision_id.  propose_set uses text,
+    review wrappers. In simple-memory-v1 use set/clear/rollback; the server fills
+    write_context_ref and both mechanical CAS fields. Rollback selects a real
+    target_revision_id returned by history; callers do not guess version numbers.
+    Legacy propose_set uses text,
     trigger_mode, scene_tags, and reason.  propose_clear uses reason;
     propose_rollback also uses target_revision_id.  withdraw uses candidate_id
     and reason.  activate happens only in a later real wake and uses candidate_id,
     expected_candidate_hash, expected_active_revision, and ai_confirmation=true;
-    copy the exact current_action_contract arguments when present.  First activation
-    omits expected_active_revision (equivalent to JSON null), never use false.
+    copy the exact current_action_contract arguments when present. When this scope
+    has no active revision, expected_active_revision is JSON null, never false.
     activate may also include one optional reason.
     The profile can make the AI choose stricter behavior, but never grants an
     external tool, account, data, or execution permission.
@@ -1878,6 +2191,12 @@ async def query_self_governance_profile(
 ) -> dict[str, Any]:
     """Read the optional mechanism, exact active/pending state, or one scope's history.
 
+    Discover self-authored light reminders and custom safety prompts here; the
+    AI can set/clear/rollback its own text through manage_self_governance_profile,
+    using the existing scopes and manual_only/scene_relevant trigger modes.
+
+    simple-memory-v1 permits this read before module-one activation. Ordinary
+    writes open after activation; content remains owner-scoped and opt-in.
     All scopes may remain empty.  The manual contains a blank structure and
     mechanism facts, never developer-authored value or personality examples.
     """
@@ -1895,7 +2214,7 @@ async def manage_injection_control(
     scope: InjectionScope,
     write_context_ref: NonEmptyJsonString,
     expected_control_version: JsonRowVersion,
-    ai_confirmation: JsonTrue,
+    ai_confirmation: StrictBool = False,
     target_mode: InjectionMode | None = None,
     reason: AuditReason | None = None,
     candidate_id: NonEmptyJsonString | None = None,
@@ -1905,11 +2224,17 @@ async def manage_injection_control(
 ) -> dict[str, Any]:
     """Control automatic ST injection without deleting or blocking stored data.
 
-    First call stbrain_open and copy this scope's current row version.  The
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway set/rollback
+    and global emergency_off callers omit internal context and mechanical module
+    row versions for ordinary scopes. Keep target CAS and author confirmations.
+    Legacy mode retains its authorized context. The propose_*/activate/withdraw
+    actions keep their separate legacy candidate binding even in this profile.
+    In simple-memory-v1 ordinary scopes use set/rollback with the active revision
+    actually read; the server fills internal binding and mechanical version. The
     emergency_off action is global-only, immediate and idempotent, but affects
-    only the next real wake.  All less restrictive changes first create a
-    candidate and can be activated only in a later real wake using the exact
-    current_action_contract.  hard_off emits no automatic reminder.
+    only the next real wake. The isolated hallucination_vault scope keeps its
+    separate authorization and review flow. hard_off emits no automatic reminder.
     """
     assert service.injection_control is not None
     return service.injection_control.manage(
@@ -1931,7 +2256,12 @@ async def manage_injection_control(
 async def query_injection_control(
     view: Literal["status", "manual", "history"] = "status",
 ) -> dict[str, Any]:
-    """Read injection switch state and history; never read or change memory content."""
+    """Read injection switch state and history; never read or change memory content.
+
+    simple-memory-v1 permits this read before module-one activation. Ordinary
+    writes open after activation; changing isolated-vault control still requires
+    its separate authorization flow.
+    """
     assert service.injection_control is not None
     return service.injection_control.query(view=view)
 
@@ -1963,20 +2293,24 @@ async def remember_planning_memory(
     parent_ref: StrictStr | None = None,
     dependency_refs: list[StrictStr] | None = None,
 ) -> dict[str, Any]:
-    """Advanced reviewed plan candidate; it cannot become active this wake.
+    """Save a final authored plan directly with its detailed planning fields.
 
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep target CAS and
+    author confirmations. Legacy mode retains its authorized context.
     Ordinary new plans should use remember_memory(module='planning_memory',
     content=...) instead: one call stores an active ordinary record without a
     candidate, an adoption statement, preliminary open or later-wake review.
 
-    The human request is evidence, not adoption.  ``ai_adoption_statement`` and
-    the calm check must be authored by the current AI.  The plan becomes active
-    only after its full candidate is independently accepted in a later wake.
-    Copy the actual root write_context_ref and planning_memory.planning_row_version
-    from this wake's stbrain_open summary. If the field rules are unfamiliar, ask
-    stbrain_open(view='manual', module='planning_memory'); no shell/file extraction
-    is required. Do not pass a literal JSONPath as the reference. binding_reason_code explains binding
-    rejections; planning_row_version_conflict is a distinct CAS rejection.
+    This detailed schema still requires ai_adoption_statement, calm_check,
+    ai_confirmation=true and idempotency_key. Supply your own actual statement;
+    calm_check is legacy audit input, not proof that an independent review occurred.
+    A successful stored result creates the active plan directly; no new candidate
+    or later-wake acceptance is created by this tool. Read static detailed help
+    through stbrain_help(module='planning_memory'). Only the legacy context-bound
+    path copies write_context_ref and planning_memory.planning_row_version from
+    its bound stbrain_open. Version conflicts require rereading the actual target.
     """
     return planning_service.remember(
         write_context_ref=write_context_ref,
@@ -2017,7 +2351,12 @@ async def recall_planning_memory(
     include_history: StrictBool = False,
     include_quarantined: StrictBool = False,
 ) -> dict[str, Any]:
-    """Read plans by one semantic query or one exact versioned plan reference."""
+    """Read plans by one semantic query or one exact versioned plan reference.
+
+    simple-memory-v1 permits this read before module-one activation. Ordinary
+    writes open after activation. Use plan_ref from a result for exact details,
+    and include_history when earlier versions/events are needed.
+    """
     return planning_service.recall(
         query=query,
         plan_ref=plan_ref,
@@ -2040,7 +2379,15 @@ async def record_planning_event(
     ai_confirmation: JsonTrue,
     idempotency_key: NonEmptyJsonString,
 ) -> dict[str, Any]:
-    """Append evidence-bearing progress/state to the immutable plan ledger."""
+    """Append evidence-bearing progress/state to the immutable plan ledger.
+
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep expected_plan_version,
+    author confirmations and idempotency_key. Legacy mode retains its authorized
+    context. Use this tool's plan_id/reason fields; advance_plan instead uses
+    target_ref/expected_event_seq/note. Progress/completion evidence must be genuine.
+    """
     return planning_service.record_event(
         write_context_ref=write_context_ref,
         expected_planning_version=expected_planning_version,
@@ -2062,13 +2409,24 @@ async def revise_planning_memory(
     expected_plan_version: JsonMemoryVersion,
     intent: PlanningRevisionIntent,
     reason: AuditReason,
-    calm_check: dict[str, Any],
-    ai_confirmation: JsonTrue,
     idempotency_key: NonEmptyJsonString,
+    calm_check: dict[str, Any] | None = None,
+    ai_confirmation: JsonTrue | None = None,
     changes: dict[str, Any] | None = None,
     rollback_to_version: StrictInt | None = None,
 ) -> dict[str, Any]:
-    """Propose a reversible plan change, abandonment, archive, revival or rollback."""
+    """Directly append a plan change, abandonment, archive, revival or rollback.
+
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep expected_plan_version,
+    intent, reason and idempotency_key. Legacy mode retains its authorized
+    context. A successful revised result changes the plan and retains history;
+    no new review candidate is created.
+    calm_check and ai_confirmation may be omitted or null; explicit false is
+    rejected. Supplied legacy audit notes are author input, not proof of review.
+    Existing candidate author confirmations remain a separate review contract.
+    """
     return planning_service.revise(
         write_context_ref=write_context_ref,
         expected_planning_version=expected_planning_version,
@@ -2098,7 +2456,15 @@ async def review_planning_change(
     reason: AuditReason,
     ai_confirmation: JsonTrue,
 ) -> dict[str, Any]:
-    """Accept or reject one fully displayed planning candidate in a later wake."""
+    """Explicitly accept or reject a previously stored planning candidate.
+
+    In simple-memory-v1 ordinary modules are read-only before module one's first
+    completed activation. After activation, direct MCP and gateway callers omit
+    internal context and mechanical module row versions. Keep the exact candidate
+    hash, base version and author confirmations. Legacy mode retains its authorized
+    context. This compatibility path has no extra later-wake wait; it checks the
+    candidate and current target before applying. New plans and edits save directly.
+    """
     return planning_service.review(
         write_context_ref=write_context_ref,
         expected_planning_version=expected_planning_version,
@@ -2285,16 +2651,62 @@ async def review_hallucination_restore(
 # intent discriminator or strict-extra behavior from ordinary signatures alone,
 # so install both the published schemas and the matching runtime enforcement only
 # after all public tools have been registered.
+from .person_reference_surface import install_person_reference_advisory_surface
+install_person_reference_advisory_surface(mcp, authoring_rewrite_service)
 install_public_tool_input_contracts(mcp)
+
+if SIMPLE_MEMORY_ACCESS:
+    from .ordinary_access_policy import install_ordinary_access_policy
+    from .self_password import SelfPasswordAuthority, install_self_password_guard
+    self_password_authority = SelfPasswordAuthority(os.environ.get('STBRAIN_SELF_PASSWORD_HASH_FILE'))
+
+    @mcp.tool()
+    async def authorize_self_model(password: StrictStr) -> dict[str, Any]:
+        """官方或其他直连模型输入部署密码，取得模块一修改授权；已验证网关注入调用免此步骤。
+
+        密码由部署者自行决定是否告知 AI。授权有效 15 分钟；原文不进入
+        ST 的数据库、日志或返回值。官方直连按返回 grant_ref 打开自我修改上下文；
+        普通记忆读取和模块一查询均免密码；普通写改在模块一首次完成并激活后开放。
+        网关使用宿主提供的执行绑定和原有修改工具；
+        两种连接均保留候选的真实唤醒审核与激活流程。此操作只授权，具体修改由后续调用者决定。
+        """
+        return self_password_authority.issue(
+            password, onboarding=onboarding, owner_id=OWNER_ID, model_id=MODEL_ID,
+            client_principal=DIRECT_CLIENT_PRINCIPAL,
+        )
+
+    password_tool = mcp._tool_manager.get_tool('authorize_self_model')
+    password_tool.fn_metadata.arg_model.model_config.update(extra='forbid', hide_input_in_errors=True)
+    password_tool.fn_metadata.arg_model.model_rebuild(force=True)
+    password_tool.parameters['additionalProperties'] = False
+    install_ordinary_access_policy(
+        mcp, onboarding=onboarding, owner_id=OWNER_ID, model_id=MODEL_ID,
+        services={'emotional_memory':emotional_service, 'learning_memory':learning_service,
+                  'tool_guidance':tool_guidance_service, 'planning_memory':planning_service,
+                  'self_governance': service.governance, 'injection_control':injection_control_service,
+                  'shared_person_authoring':authoring_rewrite_service},
+    )
 
 _require_execution = os.environ.get("STBRAIN_REQUIRE_EXECUTION_BINDING", "1") == "1"
 _execution_epoch = os.environ.get("STBRAIN_EXECUTION_EPOCH", "").strip()
 if _require_execution and not _execution_epoch:
     raise RuntimeError("STBRAIN_EXECUTION_EPOCH is required when execution binding is enabled")
+_execution_store = (
+    ExecutionStore(DATABASE, deployment_epoch=_execution_epoch, capability_secret=WAKE_SECRET)
+    if _execution_epoch else None
+)
+if SIMPLE_MEMORY_ACCESS:
+    # The subsequently installed outer guard claims the exact gateway call
+    # before this guard decides between gateway and password-backed direct use.
+    install_self_password_guard(
+        mcp, self_password_authority, execution_store=_execution_store,
+        onboarding=onboarding, owner_id=OWNER_ID, model_id=MODEL_ID,
+    )
 if _execution_epoch:
     install_execution_guard(
-        mcp, store=ExecutionStore(DATABASE, deployment_epoch=_execution_epoch, capability_secret=WAKE_SECRET),
+        mcp, store=_execution_store,
         onboarding=onboarding, owner_id=OWNER_ID, model_id=MODEL_ID, required=_require_execution,
+        ordinary_authenticated=SIMPLE_MEMORY_ACCESS,
     )
 
 # The gateway fingerprints only the canonical parameters JSON.  Bind the
@@ -2309,6 +2721,13 @@ tool_store.detail_lookup_schema_hash = hashlib.sha256(
         separators=(",", ":"),
     ).encode("utf-8")
 ).hexdigest()
+
+
+if SIMPLE_MEMORY_ACCESS:
+    # Filter discovery only after every validation/authorization wrapper has
+    # been installed. Previously cached dedicated calls retain those guards.
+    from .simple_tool_catalog import install_simple_tool_catalog
+    install_simple_tool_catalog(mcp)
 
 
 if __name__ == "__main__":

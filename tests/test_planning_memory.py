@@ -170,7 +170,7 @@ class PlanningMemoryStoreTests(unittest.TestCase):
         self.assertEqual(0, status["row_version"])
         self.assertEqual(0, status["counts"]["plans"])
 
-    def test_create_requires_later_wake_and_is_owner_scoped(self) -> None:
+    def test_legacy_candidate_accepts_exact_confirmation_without_later_wake(self) -> None:
         pending = self.propose(content("完成规划脑测试"))
         same_wake = self.store.present_pending_candidates(
             owner_id=OWNER,
@@ -178,9 +178,9 @@ class PlanningMemoryStoreTests(unittest.TestCase):
             wake_id=f"wake-{self.wake_seq}",
             wake_seq=self.wake_seq,
         )[0]
-        self.assertFalse(same_wake["fully_presented"])
-        with self.assertRaisesRegex(PlanningMemoryError, "later_real_wake_required"):
-            self.store.review_change(
+        self.assertTrue(same_wake["fully_presented"])
+        self.assertFalse(same_wake["review_requires_later_wake"])
+        accepted = self.store.review_change(
                 owner_id=OWNER,
                 model_id=MODEL,
                 wake_id=f"wake-{self.wake_seq}",
@@ -192,11 +192,9 @@ class PlanningMemoryStoreTests(unittest.TestCase):
                 expected_base_version=int(pending["base_version"]),
                 decision="accept",
                 correctness_assessment="我确认内容正确。",
-                calm_check=calm(),
                 reason="接受。",
                 ai_confirmation=True,
             )
-        accepted = self.accept(pending)
         exact = self.store.recall(
             owner_id=OWNER, model_id=MODEL, plan_ref=str(accepted["plan_ref"])
         )

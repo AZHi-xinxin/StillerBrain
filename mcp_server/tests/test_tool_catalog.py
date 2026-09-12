@@ -25,6 +25,7 @@ EXPECTED_PUBLIC_TOOLS = {
     "query_self_model",
     "preview_person_reference_rewrite",
     "confirm_person_reference_rewrite",
+    "manage_person_reference_advisory",
     "remember_emotional_memory",
     "recall_emotional_memory",
     "revise_emotional_memory",
@@ -209,13 +210,18 @@ class ToolCatalogTests(unittest.TestCase):
             self.assertFalse(schema["additionalProperties"])
 
         compact_open = schemas["stbrain_open"]
-        self.assertEqual({"view", "module", "page", "expected_material_hash"}, set(compact_open["properties"]))
+        self.assertEqual({"view", "module", "page", "expected_material_hash", "query", "limit", "cursor"}, set(compact_open["properties"]))
         self.assertEqual("summary", compact_open["properties"]["view"]["default"])
-        self.assertEqual(["summary", "manual", "review"], compact_open["properties"]["view"]["enum"])
+        self.assertEqual(["summary", "manual", "review", "recall"], compact_open["properties"]["view"]["enum"])
         self.assertEqual(0, compact_open["properties"]["page"]["default"])
         self.assertEqual(0, compact_open["properties"]["page"]["minimum"])
-        self.assertEqual("self_revision", compact_open["properties"]["module"]["default"])
-        self.assertIn("planning_memory", compact_open["properties"]["module"]["enum"])
+        self.assertIsNone(compact_open["properties"]["module"]["default"])
+        module_choices = compact_open["properties"]["module"]["anyOf"]
+        self.assertIn("planning_memory", next(choice["enum"] for choice in module_choices if "enum" in choice))
+        self.assertIn({"type": "null"}, module_choices)
+        self.assertEqual("", compact_open["properties"]["query"]["default"])
+        self.assertEqual(20, compact_open["properties"]["limit"]["default"])
+        self.assertEqual(50, compact_open["properties"]["limit"]["maximum"])
         self.assertFalse(compact_open.get("required"))
 
         direct = schemas["stbrain_open_direct"]
@@ -256,7 +262,12 @@ class ToolCatalogTests(unittest.TestCase):
         integrate_calm = schemas["integrate_learning_memories"]["properties"]["calm_check"]
         review_calm = schemas["review_learning_change"]["properties"]["calm_check"]
         self.assertEqual(revise_calm, integrate_calm)
-        self.assertEqual(integrate_calm, review_calm)
+        self.assertEqual(integrate_calm["anyOf"], [review_calm, {"type": "null"}])
+        self.assertIsNone(integrate_calm["default"])
+        for name in ("revise_learning_memory", "integrate_learning_memories"):
+            self.assertNotIn("calm_check", schemas[name].get("required", []))
+        self.assertIn("calm_check", schemas["review_learning_change"]["required"])
+        integrate_calm = integrate_calm["anyOf"][0]
         self.assertFalse(integrate_calm["additionalProperties"])
         self.assertEqual(
             {
@@ -340,7 +351,7 @@ class ToolCatalogTests(unittest.TestCase):
         self.assertNotIn("payload", remember["properties"])
         self.assertNotIn("content", remember["properties"])
         self.assertEqual(
-            {"shared_event", "feeling", "relationship", "meaningful_dialogue", "emotional_reflection"},
+            {"unclassified", "shared_event", "feeling", "relationship", "meaningful_dialogue", "emotional_reflection"},
             set(remember["properties"]["memory_type"]["enum"]),
         )
         self.assertEqual(1, remember["properties"]["secondary_emotions"]["anyOf"][0]["maxItems"])
@@ -351,6 +362,19 @@ class ToolCatalogTests(unittest.TestCase):
         self.assertNotIn("pattern", remember["properties"]["reason"])
         self.assertIn("firsthand", remember["properties"]["origin"]["description"])
         self.assertIn("OB/旧档案", remember["properties"]["origin"]["description"])
+        self.assertEqual("unmarked", remember["properties"]["origin"]["default"])
+        self.assertIn("unmarked", remember["properties"]["origin"]["enum"])
+        for name in ("remember_memory", "remember_emotional_memory", "remember_learning_memory",
+                     "integrate_emotional_memories", "integrate_learning_memories"):
+            parameters = schemas[name]
+            score = parameters["properties"]["confidence"]
+            self.assertNotIn("confidence", parameters.get("required", []))
+            self.assertIsNone(score["default"])
+            validator = jsonschema.Draft202012Validator(score)
+            for value in (None, 0, 50, 100):
+                self.assertTrue(validator.is_valid(value), (name, value))
+            for value in (-1, 101, True, "50", 1.5):
+                self.assertFalse(validator.is_valid(value), (name, value))
 
         revise = schemas["revise_emotional_memory"]
         self.assertNotIn("original_text", revise["properties"])
@@ -449,8 +473,14 @@ class ToolCatalogTests(unittest.TestCase):
             self.assertNotIn("links", claim["properties"])
 
         tool = schemas["remember_tool_guidance"]
-        self.assertIn("scenario_tags", tool["required"])
-        self.assertIn("completion_rule", tool["required"])
+        # Legacy explicit binding is still required in this non-simple-profile
+        # catalog. The only caller-authored required fields are name and purpose.
+        self.assertEqual({"write_context_ref", "expected_tool_row_version", "tool_name", "purpose"}, set(tool["required"]))
+        self.assertNotIn("scenario_tags", tool["required"])
+        self.assertNotIn("completion_rule", tool["required"])
+        minimal_tool = {"write_context_ref": "ref", "expected_tool_row_version": 0,
+                        "tool_name": "synthetic_tool", "purpose": "Read a synthetic example"}
+        jsonschema.Draft202012Validator(tool).validate(minimal_tool)
         self.assertNotIn("arguments", tool["properties"])
         self.assertNotIn("raw_result", tool["properties"])
         self.assertIn("referent_bindings", tool["properties"])
@@ -487,6 +517,7 @@ class ToolCatalogTests(unittest.TestCase):
         )
         self.assertEqual(
             {
+                "set", "clear", "rollback",
                 "propose_set",
                 "propose_clear",
                 "propose_rollback",
@@ -609,7 +640,7 @@ async def main():
             "module": "emotional_memory_module_two", "draft_version": 0,
             "draft_fields": {"/original_text": "她回来了。", "/summary": "她回来了。"},
             "referent_bindings": [{"field_path": "/original_text", "surface_form": "她", "occurrence_index": 0, "entity_ref": "person:x", "resolution_status": "resolved", "confidence": 100}],
-            "rewrite_targets": [{"field_path": "/original_text", "surface_form": "她", "occurrence_index": 0, "entity_ref": "person:x", "target_surface_form": "小乙", "mention_kind": "pronoun", "target_alias_ref": "alias://x@1", "target_alias_version": 1, "unique_in_scope": True}],
+            "rewrite_targets": [{"field_path": "/original_text", "surface_form": "她", "occurrence_index": 0, "entity_ref": "person:x", "target_surface_form": "昕昕", "mention_kind": "pronoun", "target_alias_ref": "alias://x@1", "target_alias_version": 1, "unique_in_scope": True}],
             "conversation_mode": "one_to_one", "authenticated_participant_entity_ids": ["person:x"],
             "alias_collision_scope": "conversation:test", "alias_collision_scope_version": 1,
             "protected_spans": [], "module_schema_version": "emotional-memory/0.1.1",
@@ -619,7 +650,7 @@ async def main():
             "module": "emotional_memory_module_two", "preview_id": "rwprev_00000000000000000000000000000000",
             "expected_source_draft_hash": "0" * 64, "expected_suggestion_hash": "1" * 64,
             "expected_validation_context_hash": "2" * 64,
-            "final_fields": {"/original_text": "小乙回来了。", "/summary": "她回来了。"},
+            "final_fields": {"/original_text": "昕昕回来了。", "/summary": "她回来了。"},
             "final_fields_hash": "3" * 64, "conversation_mode": "one_to_one",
             "authenticated_participant_entity_ids": ["person:x"],
             "alias_collision_scope": "conversation:test", "alias_collision_scope_version": 1,

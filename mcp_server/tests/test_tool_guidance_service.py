@@ -114,14 +114,16 @@ class ToolGuidanceAccessServiceTests(unittest.TestCase):
         )
         self.assertEqual([], other.recall(card_id=card_id, view="card")["results"])
 
-    def test_major_candidate_is_presented_by_manual_then_reviewed_in_later_wake(self) -> None:
+    def test_legacy_candidate_is_presented_by_manual_then_reviewed_in_later_wake(self) -> None:
         self.onboarding.allowed = True
         self.onboarding.add_wake("ref:one", "wake:one", 10)
         stored = self.remember()
         card_id = stored["card"]["card_id"]
-        pending = self.service.revise(
-            write_context_ref="ref:one",
-            expected_tool_row_version=1,
+        # Seed a legacy proposal directly; ordinary service.revise now appends.
+        pending = self.store.propose_revision(
+            owner_id="owner:service", model_id="model:service", wake_id="wake:one", wake_seq=10,
+            catalog=self.live_catalog,
+            expected_row_version=1,
             card_id=card_id,
             expected_card_version=1,
             intent="revise",
@@ -181,6 +183,56 @@ class ToolGuidanceAccessServiceTests(unittest.TestCase):
         self.assertEqual(2, accepted["card"]["version"])
         self.assertFalse(accepted["execution_performed"])
 
+    def test_ordinary_context_light_card_direct_revision_and_directory(self) -> None:
+        self.onboarding.allowed = True
+        self.onboarding.add_wake("ordinary-ref", "ordinary-wake", 1)
+        self.onboarding.contexts["ordinary-ref"]["context_mode"] = "ordinary_authenticated"
+        self.live_catalog = None
+        saved = self.service.remember(write_context_ref="ordinary-ref", expected_tool_row_version=0,
+            tool_name="家庭服务", purpose="到家时查看设备情况。", reminder="到家了，可以看看设备状态。", keywords=["到家"],
+            reason="Synthetic ordinary authenticated authoring")
+        self.assertEqual("stored", saved["decision"])
+        changed = self.service.revise(write_context_ref="ordinary-ref", expected_tool_row_version=1,
+            card_id=saved["card"]["card_id"], expected_card_version=1,
+            reason="Synthetic direct revision", reminder="回家后可以看看设备状态。")
+        self.assertEqual("direct_revision", changed["submission_mode"])
+        self.assertTrue(self.service.recall_for_injection(query="到家")["envelopes"])
+        directory = self.service.recall(view="directory")
+        self.assertEqual(saved["card"]["card_id"], directory["results"][0]["card_id"])
+        self.assertEqual(0, self.service.status()["counts"]["pending_candidates"])
+
+    def test_service_withdraw_old_pending_needs_no_catalog_or_review_essay(self) -> None:
+        self.onboarding.allowed = True
+        self.onboarding.add_wake("ref:one", "wake:one", 1)
+        card = self.remember()["card"]
+        pending = self.store.propose_revision(owner_id="owner:service", model_id="model:service",
+            wake_id="old-wake", wake_seq=100, expected_row_version=1,
+            card_id=card["card_id"], expected_card_version=1, intent="revise", edit_class="major",
+            purpose="Synthetic narrower home-device advice.", reason="Synthetic legacy proposal",
+            correctness_assessment="I compared the complete synthetic proposal with its source.",
+            calm_check_stability="The meaning remains stable across ordinary observations.",
+            calm_check_necessity="The narrower purpose makes this synthetic card more accurate.",
+            calm_check_consequences="Actual authorization and execution boundaries remain unchanged.",
+            calm_check_alternatives="Keeping the previous version remains a possible choice.", catalog=None)
+        self.live_catalog = None
+        result = self.service.review(write_context_ref="ref:one", expected_tool_row_version=2,
+            candidate_id=pending["candidate_id"], candidate_hash=pending["candidate_hash"],
+            expected_base_version=1, decision="withdraw", reason="退出旧候选。")
+        self.assertEqual("withdraw", result["decision"])
+        self.assertFalse(result["active_version_changed"])
+        self.assertFalse(result["execution_performed"])
+
+    def test_conflict_error_explains_directory_lookup(self) -> None:
+        self.onboarding.allowed = True
+        self.onboarding.add_wake("ref:one", "wake:one", 1)
+        card = self.remember()["card"]
+        result = self.service.revise(write_context_ref="ref:one", expected_tool_row_version=0,
+            card_id=card["card_id"], expected_card_version=1, reason="Synthetic stale write",
+            reminder="新的作者提醒。")
+        self.assertEqual(["tool_row_version_conflict"], result["reason_codes"])
+        self.assertEqual("directory", result["lookup_guidance"]["arguments"]["view"])
+        self.assertFalse(result["state_changed"])
+
     def test_risk_rejections_explain_high_floor_without_changing_cards(self) -> None:
         self.onboarding.allowed = True
         self.onboarding.add_wake("ref:one", "wake:one", 1)
@@ -205,25 +257,26 @@ class ToolGuidanceAccessServiceTests(unittest.TestCase):
         self.assertEqual("stored", stored["decision"])
         self.assertEqual("high", stored["card"]["content"]["risk_level"])
 
-    def test_machine_tag_rejection_keeps_natural_language_alternatives_visible(self) -> None:
+    def test_control_character_tag_rejection_keeps_natural_language_tags_visible(self) -> None:
         self.onboarding.allowed = True
         self.onboarding.add_wake("ref:one", "wake:one", 1)
         before = self.service.status()
-        rejected = self.remember(scenario_tags=["到家"])
+        rejected = self.remember(scenario_tags=["到家\n开灯"])
         self.assertEqual(["invalid_scenario_tags_item"], rejected["reason_codes"])
         self.assertEqual("scenario_tags", rejected["repair_guidance"]["field"])
-        self.assertIn("scenario_examples", rejected["repair_guidance"]["message"])
+        self.assertIn("中文", rejected["repair_guidance"]["message"])
         self.assertEqual(before, self.service.status())
         manual = self.service.manual()
         self.assertIn("high", manual["authoring_constraints"]["real_world_action"])
-        self.assertIn("scenario_examples", manual["authoring_constraints"]["scenario_tags"])
+        self.assertIn("中文", manual["authoring_constraints"]["scenario_tags"])
 
         stored = self.remember(
-            scenario_tags=["home.arrival"],
-            scenario_examples=["小乙到家后明确要求打开灯。"],
+            scenario_tags=["到家", "home.arrival"],
+            scenario_examples=["昕昕到家后明确要求打开灯。"],
             keywords=["到家", "开灯"],
         )
         self.assertEqual("stored", stored["decision"])
+        self.assertEqual(["到家", "home.arrival"], stored["card"]["content"]["scenario_tags"])
 
     def test_injection_and_execution_facades_only_advise(self) -> None:
         self.onboarding.allowed = True

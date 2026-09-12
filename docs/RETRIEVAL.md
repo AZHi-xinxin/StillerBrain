@@ -1,6 +1,8 @@
-# 检索机制与本轮改进
+# 情感检索的词法回退：机制与历史验证
 
-本文对应 `0.1.0-preview.2` 候选中的情感记忆检索。实现使用本地 Python 与 SQLite，新增路径没有模型请求、向量服务或额外 Python 依赖。
+本文保留 `0.1.0-preview.2` 引入的情感检索词法回退机制与当时的合成验证记录，下文“本轮”均指该次改进。实现使用本地 Python 与 SQLite，新增路径没有模型请求、向量服务或额外 Python 依赖。
+
+当前 `0.1.0-preview.3` 的日常查询优先使用 `stbrain_open(view="recall", query=...)`，统一查找情感、学习、工具和规划四个普通模块；`recall_emotional_memory` 仍是情感模块的专用入口。现行用法和权限见 [GUIDE](GUIDE.md)，目录与参数见 [TOOLS](TOOLS.md)，本版验证见 [UPDATE-VALIDATION](UPDATE-VALIDATION.md)。下面的词表、分数与旧测试结果描述特定回退路径，范围与当前跨模块查询分别说明。
 
 ## 先区分两种入口
 

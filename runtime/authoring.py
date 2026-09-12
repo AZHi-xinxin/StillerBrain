@@ -20,6 +20,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
+from .credential_guard import contains_credential_or_secret
 
 
 class AuthoringError(ValueError):
@@ -44,6 +45,17 @@ AUTHORING_REWRITE_MODULES: dict[str, frozenset[str]] = {
         }
     ),
 }
+
+
+def _ordinary_authoring_access(owner_id, model_id, module, *, preview=False):
+    """Only a verified dispatcher context can authorize the explicit workflow."""
+    if module not in AUTHORING_REWRITE_MODULES:
+        return False
+    from .ordinary_access import current_ordinary_access, MODULE_SCOPES
+    scope = 'shared_person_authoring' if preview else MODULE_SCOPES.get(module)
+    return bool(scope and current_ordinary_access(owner_id=owner_id, model_id=model_id, scope=scope))
+
+
 AUTHORING_SCHEMA_VERSIONS = {
     "emotional_memory_module_two": "emotional-memory/0.1.1",
     "learning_memory_module_three": "learning-memory/0.3",
@@ -53,15 +65,6 @@ REWRITE_ELIGIBLE_ALLOWLIST_VERSION = "person-rewrite-allowlist/1"
 MENTION_PARSER_RULE_VERSION = "literal-person-reference/1"
 ALIAS_COMPARISON_PROFILE_VERSION = "alias-comparison/nfc-casefold/1"
 
-_SECRET_PATTERNS = (
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----", re.I),
-    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{12,}", re.I),
-    re.compile(r"\b(?:sk|api|ghp|xox[baprs])[-_][A-Za-z0-9_-]{12,}\b", re.I),
-    re.compile(
-        r"\b(?:password|passwd|api[_ -]?key|secret|token|cookie)\s*[:=]", re.I
-    ),
-    re.compile(r"(?:密码|口令|私钥|令牌|密钥)\s*[:：=]", re.I),
-)
 
 
 AUTHORING_ADVISORY: dict[str, Any] = {
@@ -470,12 +473,7 @@ def _walk_text(value: Any) -> Iterable[str]:
 
 
 def _contains_secret(*values: Any) -> bool:
-    return any(
-        pattern.search(text)
-        for value in values
-        for text in _walk_text(value)
-        for pattern in _SECRET_PATTERNS
-    )
+    return contains_credential_or_secret(values)
 
 
 def _safe_unicode_lexeme(value: str) -> bool:
@@ -744,6 +742,10 @@ class AuthoringRewriteStore:
                     ON authoring_rewrite_receipts(owner_id, model_id, module, status);
                 """
             )
+            for table in ('authoring_rewrite_previews', 'authoring_rewrite_receipts'):
+                columns = {row['name'] for row in connection.execute('PRAGMA table_info(' + table + ')')}
+                if 'context_mode' not in columns:
+                    connection.execute('ALTER TABLE ' + table + " ADD COLUMN context_mode TEXT NOT NULL DEFAULT 'wake_bound'")
 
     @staticmethod
     def _state(
@@ -983,6 +985,8 @@ class AuthoringRewriteStore:
                     _utc_now(),
                 ),
             )
+            if _ordinary_authoring_access(owner_id, model_id, module, preview=True):
+                connection.execute("UPDATE authoring_rewrite_previews SET context_mode='ordinary_authenticated' WHERE preview_id=?", (preview_id,))
         return {
             **preview,
             "preview_id": preview_id,
@@ -1027,6 +1031,7 @@ class AuthoringRewriteStore:
         rewrite_eligible_allowlist_version: Any,
         mention_parser_rule_version: Any,
         alias_comparison_profile_version: Any,
+        expected_module: str | None = None,
     ) -> dict[str, Any]:
         if ai_confirmation is not True:
             raise AuthoringError("ai_confirmation_required")
@@ -1048,7 +1053,11 @@ class AuthoringRewriteStore:
             ).fetchone()
             if preview is None:
                 raise AuthoringError("rewrite_preview_not_found")
-            if preview["wake_id"] != wake_id:
+            if expected_module is not None and preview['module'] != expected_module:
+                raise AuthoringError('rewrite_module_mismatch')
+            ordinary = (preview['context_mode'] == 'ordinary_authenticated'
+                        and _ordinary_authoring_access(owner_id, model_id, preview['module'], preview=True))
+            if preview["wake_id"] != wake_id and not ordinary:
                 raise AuthoringError("rewrite_preview_wrong_wake")
             current_context = _canonical_validation_context(
                 module=preview["module"],
@@ -1122,6 +1131,8 @@ class AuthoringRewriteStore:
                     now,
                 ),
             )
+            if ordinary:
+                connection.execute("UPDATE authoring_rewrite_receipts SET context_mode='ordinary_authenticated' WHERE receipt_id=?", (receipt_id,))
             connection.execute(
                 "UPDATE authoring_rewrite_previews SET status = 'confirmed', confirmed_at = ? "
                 "WHERE preview_id = ?",
@@ -1156,9 +1167,10 @@ def claim_rewrite_receipt(
         # path merely by omitting lineage/receipt metadata.
         suggestion_hash = _sha256(dict(final_fields))
         try:
+            ordinary = _ordinary_authoring_access(owner_id, model_id, module)
             exposed = connection.execute(
                 "SELECT 1 FROM authoring_rewrite_previews WHERE owner_id = ? AND model_id = ? "
-                "AND module = ? AND wake_id = ? AND suggestion_hash = ? "
+                "AND module = ? AND (wake_id = ? " + ("OR context_mode='ordinary_authenticated'" if ordinary else "") + ") AND suggestion_hash = ? "
                 "AND status IN ('available', 'confirmed') LIMIT 1",
                 (owner_id, model_id, module, wake_id, suggestion_hash),
             ).fetchone()
@@ -1178,11 +1190,13 @@ def claim_rewrite_receipt(
     ).fetchone()
     if receipt is None:
         raise AuthoringError("rewrite_receipt_invalid")
+    ordinary = (receipt['context_mode'] == 'ordinary_authenticated'
+                and _ordinary_authoring_access(owner_id, model_id, module))
     if (
         receipt["owner_id"] != owner_id
         or receipt["model_id"] != model_id
         or receipt["module"] != module
-        or receipt["wake_id"] != wake_id
+        or (receipt["wake_id"] != wake_id and not ordinary)
     ):
         raise AuthoringError("rewrite_receipt_binding_mismatch")
     final_hash = _sha256(dict(final_fields))

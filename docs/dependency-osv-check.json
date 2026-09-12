@@ -1,6 +1,6 @@
 {
   "format": "stiller-dependency-osv-check/1",
-  "checked_at_utc": "2026-09-08T11:23:50.434471+00:00",
+  "checked_at_utc": "2026-09-12T21:11:13.691Z",
   "source": "https://api.osv.dev/v1/querybatch",
   "scope": "Exact public PyPI names and versions only; no source, credentials or local paths sent",
   "complete": true,

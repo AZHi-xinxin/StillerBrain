@@ -192,8 +192,9 @@ class GatewayPerformanceLogTests(unittest.TestCase):
                 "stable_context_changed",
                 "dynamic_context_changed",
                 "wire_tools_changed",
-                "prior_input_prefix_preserved",
+                "client_input_prefix_preserved",
                 "usage_observed",
+                "finish_reasons",
                 "usage_snapshot",
                 "usage_snapshot_complete",
                 "usage_snapshot_consistent",
@@ -322,7 +323,7 @@ class GatewayPerformanceProgressiveStreamTests(unittest.TestCase):
         stream = _GatedSSEStream(
             [
                 b'data: {"choices":[{"delta":{"reasoning_content":"phase-one"}}]}\n\n',
-                b'data: {"choices":[{"delta":{"reasoning_content":"phase-two"},"finish_reason":"stop"}],"usage":{"prompt_tokens":900,"completion_tokens":12,"prompt_cache_hit_tokens":800,"prompt_cache_miss_tokens":100,"private":"performance-output-must-not-be-logged"}}\n\ndata: [DONE]\n\n',
+                b'data: {"choices":[{"delta":{"reasoning_content":"phase-two","content":"answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":900,"completion_tokens":12,"prompt_cache_hit_tokens":800,"prompt_cache_miss_tokens":100,"private":"performance-output-must-not-be-logged"}}\n\ndata: [DONE]\n\n',
             ]
         )
         app = GatewayApplication(config(), control=FakeControl())

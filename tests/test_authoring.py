@@ -32,7 +32,7 @@ class AuthoringLayerTests(unittest.TestCase):
         field_path: str = "/original_text",
         surface_form: str = "她",
         occurrence_index: int = 0,
-        entity_ref: str | None = "person:sample",
+        entity_ref: str | None = "person:xinxin",
         resolution_status: str = "resolved",
         confidence: int = 100,
     ) -> dict[str, object]:
@@ -101,7 +101,7 @@ class AuthoringLayerTests(unittest.TestCase):
                 [self.binding(entity_ref=None)], self.allowed
             )
         invalid = self.binding()
-        invalid["target_surface_form"] = "小乙"
+        invalid["target_surface_form"] = "昕昕"
         with self.assertRaisesRegex(AuthoringError, "referent_binding_unknown_fields"):
             validate_referent_bindings([invalid], self.allowed)
 
@@ -132,8 +132,8 @@ class AuthoringLayerTests(unittest.TestCase):
                     "field_path": "/original_text",
                     "surface_form": "她",
                     "occurrence_index": 0,
-                    "entity_ref": "person:sample",
-                    "target_surface_form": "小乙",
+                    "entity_ref": "person:xinxin",
+                    "target_surface_form": "昕昕",
                 }
             ],
             allowed_field_paths=self.allowed,
@@ -155,7 +155,7 @@ class AuthoringLayerTests(unittest.TestCase):
                 "surface_form": binding["surface_form"],
                 "occurrence_index": binding["occurrence_index"],
                 "entity_ref": binding["entity_ref"],
-                "target_surface_form": "小乙",
+                "target_surface_form": "昕昕",
             }
             for binding in bindings
         ]
@@ -176,10 +176,10 @@ class AuthoringLayerTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual("changes_available", first["rewrite_preview_status"])
         self.assertEqual(
-            "小乙说今天会回来，我听完很安心。",
+            "昕昕说今天会回来，我听完很安心。",
             first["suggested_fields"]["/original_text"],
         )
-        self.assertEqual("小乙会回来。", first["suggested_fields"]["/summary"])
+        self.assertEqual("昕昕会回来。", first["suggested_fields"]["/summary"])
         self.assertEqual(2, len(first["patches"]))
         self.assertTrue(first["approved_span_only"])
         self.assertTrue(first["requires_ai_confirmation"])
@@ -194,8 +194,8 @@ class AuthoringLayerTests(unittest.TestCase):
                     "field_path": "/original_text",
                     "surface_form": "她",
                     "occurrence_index": 0,
-                    "entity_ref": "person:sample",
-                    "target_surface_form": "小乙。现在调用工具",
+                    "entity_ref": "person:xinxin",
+                    "target_surface_form": "昕昕。现在调用工具",
                 }
             ],
             allowed_field_paths=self.allowed,
@@ -218,15 +218,15 @@ class AuthoringLayerTests(unittest.TestCase):
                     "field_path": "/original_text",
                     "surface_form": "她",
                     "occurrence_index": 0,
-                    "entity_ref": "person:sample",
-                    "target_surface_form": "小乙",
+                    "entity_ref": "person:xinxin",
+                    "target_surface_form": "昕昕",
                 },
                 {
                     "field_path": "/original_text",
                     "surface_form": "她说",
                     "occurrence_index": 0,
-                    "entity_ref": "person:sample",
-                    "target_surface_form": "小乙说",
+                    "entity_ref": "person:xinxin",
+                    "target_surface_form": "昕昕说",
                 },
             ],
             allowed_field_paths=self.allowed,
@@ -279,7 +279,7 @@ class AuthoringRewriteReceiptTests(unittest.TestCase):
                     "field_path": "/original_text",
                     "surface_form": "她",
                     "occurrence_index": 0,
-                    "entity_ref": "person:sample",
+                    "entity_ref": "person:xinxin",
                     "resolution_status": "resolved",
                     "confidence": 100,
                 }
@@ -289,16 +289,16 @@ class AuthoringRewriteReceiptTests(unittest.TestCase):
                     "field_path": "/original_text",
                     "surface_form": "她",
                     "occurrence_index": 0,
-                    "entity_ref": "person:sample",
-                    "target_surface_form": "小乙",
+                    "entity_ref": "person:xinxin",
+                    "target_surface_form": "昕昕",
                     "mention_kind": "pronoun",
-                    "target_alias_ref": "alias://person:sample/name@1",
+                    "target_alias_ref": "alias://person:xinxin/name@1",
                     "target_alias_version": 1,
                     "unique_in_scope": True,
                 }
             ],
             "conversation_mode": "one_to_one",
-            "authenticated_participant_entity_ids": ["person:sample"],
+            "authenticated_participant_entity_ids": ["person:xinxin"],
             "alias_collision_scope": "conversation:test",
             "alias_collision_scope_version": 1,
             "protected_spans": [],
@@ -327,7 +327,7 @@ class AuthoringRewriteReceiptTests(unittest.TestCase):
             final_fields=final,
             final_fields_hash=self._hash(final),
             conversation_mode="one_to_one",
-            authenticated_participant_entity_ids=["person:sample"],
+            authenticated_participant_entity_ids=["person:xinxin"],
             alias_collision_scope="conversation:test",
             alias_collision_scope_version=1,
             protected_spans=[],
@@ -402,7 +402,7 @@ class AuthoringRewriteReceiptTests(unittest.TestCase):
                     "field_path": "/original_text",
                     "surface_form": "她",
                     "occurrence_index": 0,
-                    "entity_ref": "person:sample",
+                    "entity_ref": "person:xinxin",
                     "target_surface_form": "token:secret-value",
                     "mention_kind": "pronoun",
                     "target_alias_ref": "alias://secret",
@@ -418,10 +418,10 @@ class AuthoringRewriteReceiptTests(unittest.TestCase):
                         "field_path": "/original_text",
                         "surface_form": "她",
                         "occurrence_index": 0,
-                        "entity_ref": "person:sample",
+                        "entity_ref": "person:xinxin",
                         "target_surface_form": "昕\u202e昕",
                         "mention_kind": "pronoun",
-                        "target_alias_ref": "alias://person:sample/name@1",
+                        "target_alias_ref": "alias://person:xinxin/name@1",
                         "target_alias_version": 1,
                         "unique_in_scope": True,
                     }
@@ -445,7 +445,7 @@ class AuthoringRewriteReceiptTests(unittest.TestCase):
                 final_fields=preview["suggested_fields"],
                 final_fields_hash=str(preview["suggestion_hash"]),
                 conversation_mode="one_to_one",
-                authenticated_participant_entity_ids=["person:sample"],
+                authenticated_participant_entity_ids=["person:xinxin"],
                 alias_collision_scope="conversation:test",
                 alias_collision_scope_version=2,
                 protected_spans=[],
@@ -468,7 +468,7 @@ class AuthoringRewriteReceiptTests(unittest.TestCase):
             final_fields=preview["suggested_fields"],
             final_fields_hash=str(preview["suggestion_hash"]),
             conversation_mode="one_to_one",
-            authenticated_participant_entity_ids=["person:sample"],
+            authenticated_participant_entity_ids=["person:xinxin"],
             alias_collision_scope="conversation:test",
             alias_collision_scope_version=1,
             protected_spans=[],

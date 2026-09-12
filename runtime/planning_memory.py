@@ -4,11 +4,12 @@ The runtime deliberately separates an AI-authored plan from its mutable-looking
 state.  Plan text is immutable by version, progress is an append-only event, and
 the current state is a deterministic fold over those events.  The explicit
 ordinary-record route creates an active record directly, without claiming an
-AI adoption statement or a completed review.  Advanced plan creation,
-changing its meaning or graph, abandoning it, archiving it, reviving it, or
-rolling its text back first creates a candidate and requires a later real wake
-to review.  Recording evidence-backed progress is intentionally lighter, while
-remaining wake-bound, CAS-protected, versioned by the module row, and auditable.
+AI adoption statement or a completed review. Explicit advanced submissions now
+append the AI's final plan or change directly, without a mechanical calm form,
+another wake, or a fabricated review. Older pending candidates remain pending
+until the AI explicitly accepts their exact hash or rejects them. All changes
+remain wake-bound, CAS-protected, versioned and auditable; progress still needs
+evidence and neither editing nor rollback can restore quarantined records.
 
 This module contains no scheduler, notification sender, model call, or external
 tool executor.  ``next_action`` and automatic recall are read-only advice.
@@ -26,6 +27,9 @@ import re
 import sqlite3
 from typing import Any, Iterable, Iterator, Mapping, Sequence
 from uuid import uuid4
+from .credential_guard import contains_credential_or_secret
+from .lexical_retrieval import explicit_alias_match, prepare_explicit_alias_query
+from .reminder_excerpt import reminder_excerpt
 
 
 PLANNING_MODULE = "planning_memory_module_five"
@@ -60,17 +64,6 @@ _PLAN_ID = re.compile(r"^plan_[0-9a-f]{32}$")
 _PLAN_REF = re.compile(r"^plan://(plan_[0-9a-f]{32})@([1-9][0-9]*)$")
 _CANDIDATE_HASH = re.compile(r"^[0-9a-f]{64}$")
 _FIRST_PERSON = re.compile(r"^(?:我|I(?:\b|['’])|My\b)", re.I)
-_SECRET_PATTERNS = (
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----", re.I),
-    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{12,}", re.I),
-    re.compile(r"\b(?:sk|ghp|xox[baprs])[-_][A-Za-z0-9_-]{12,}\b", re.I),
-    re.compile(
-        r"\b(?:password|passwd|api[_ -]?key|secret|token|cookie)\s*[:=]\s*\S+",
-        re.I,
-    ),
-    re.compile(r"(?:密码|口令|私钥|令牌|密钥)\s*[:：=]\s*\S+", re.I),
-)
-
 _CONTENT_FIELDS = frozenset(
     {
         "kind",
@@ -148,12 +141,7 @@ def _walk(value: Any) -> Iterable[str]:
 
 
 def _contains_secret(*values: Any) -> bool:
-    return any(
-        pattern.search(text)
-        for value in values
-        for text in _walk(value)
-        for pattern in _SECRET_PATTERNS
-    )
+    return contains_credential_or_secret(values)
 
 
 def _text(name: str, value: Any, maximum: int, *, allow_empty: bool = False) -> str:
@@ -717,7 +705,10 @@ class PlanningMemoryStore:
         self, fields: Mapping[str, Any], *, ordinary: bool = False
     ) -> dict[str, Any]:
         required = _ORDINARY_CONTENT_FIELDS if ordinary else _CONTENT_FIELDS
-        if not isinstance(fields, Mapping) or set(fields) != required:
+        if not isinstance(fields, Mapping) or (
+            set(fields) != required
+            and not (ordinary and set(fields) == required | {"ai_adoption_statement"})
+        ):
             raise PlanningMemoryError("invalid_plan_content")
         if ordinary and fields.get("write_mode") != "ordinary_record":
             raise PlanningMemoryError("invalid_plan_write_mode")
@@ -726,12 +717,10 @@ class PlanningMemoryStore:
         reminder = _text("reminder", fields.get("reminder"), 50, allow_empty=True)
         if not ordinary and track == "internal" and not reminder:
             raise PlanningMemoryError("internal_reminder_required")
-        if not ordinary:
+        if not ordinary or "ai_adoption_statement" in fields:
             adoption = _text(
                 "ai_adoption_statement", fields.get("ai_adoption_statement"), 500
             )
-            if not _FIRST_PERSON.match(adoption):
-                raise PlanningMemoryError("ai_adoption_statement_not_first_person")
         original = fields.get("original_text")
         _text("original_text", original, 2000)
         if ordinary and len(original) > 2000:
@@ -749,7 +738,7 @@ class PlanningMemoryStore:
             "kind": kind,
             "track": track,
             "title": _text("title", fields.get("title"), 120),
-            "original_text": original if ordinary else original.strip(),
+            "original_text": original,
             "summary": _text("summary", fields.get("summary"), 200),
             "reminder": reminder,
             "importance": _integer("importance", fields.get("importance"), 0, 100),
@@ -776,7 +765,7 @@ class PlanningMemoryStore:
         }
         if ordinary:
             content["write_mode"] = "ordinary_record"
-        else:
+        if not ordinary or "ai_adoption_statement" in fields:
             content["ai_adoption_statement"] = adoption
         if content["start_at"] and content["due_at"]:
             if _parse_iso(content["due_at"]) < _parse_iso(content["start_at"]):
@@ -790,8 +779,8 @@ class PlanningMemoryStore:
     def _normalize_stored_content(self, fields: Mapping[str, Any]) -> dict[str, Any]:
         """Keep the recorded mode through advanced revisions and rollback.
 
-        Advanced creation still calls the legacy normalizer directly and cannot
-        use this mode to bypass its separate candidate/review contract.
+        Advanced creation uses the AI-adopted content shape; ordinary records
+        retain their honest ordinary-record provenance when later edited.
         """
         return self._normalize_content(
             fields,
@@ -847,12 +836,8 @@ class PlanningMemoryStore:
             if not self._hierarchy_valid(str(content["kind"]), str(parent["kind"])):
                 raise PlanningMemoryError("invalid_plan_hierarchy")
             targets.append(("parent", parent["plan_id"]))
-        elif (
-            content.get("write_mode") != "ordinary_record"
-            and content.get("kind") not in {"vision", "task", "commitment"}
-        ):
-            # Goals and milestones are graph concepts, not unbound flat cards.
-            raise PlanningMemoryError("parent_ref_required")
+        # Every kind can stand alone.  An explicit parent still has to exist,
+        # match the author's exact version and be a compatible acyclic link.
         for ref in content.get("dependency_refs", []):
             target = self._validate_ref_target(
                 connection,
@@ -1226,7 +1211,7 @@ class PlanningMemoryStore:
                 "original_text": content,
                 "summary": display_summary,
                 "reminder": (
-                    _text("summary", display_summary, 200)[:50]
+                    reminder_excerpt(_text("summary", display_summary, 200), 50)
                     if reminder is None else reminder
                 ),
                 "importance": importance,
@@ -1340,115 +1325,245 @@ class PlanningMemoryStore:
             return result
 
     def revise_ordinary(
+        self, *, owner_id: str, model_id: str, wake_id: str, wake_seq: int,
+        expected_row_version: int, plan_id: str, expected_plan_version: int,
+        changes: Mapping[str, Any], reason: str,
+    ) -> dict[str, Any]:
+        """Append author content through the same exact-version direct path."""
+        result = self.revise_direct(
+            owner_id=owner_id, model_id=model_id, wake_id=wake_id, wake_seq=wake_seq,
+            expected_row_version=expected_row_version, plan_id=plan_id,
+            expected_plan_version=expected_plan_version, intent="revise",
+            changes=changes, reason=reason, idempotency_key=_new_id("ordinaryrevision"),
+        )
+        return {**result, "decision": "revised", "id": plan_id,
+                "ref": _plan_ref(plan_id, expected_plan_version + 1),
+                "version": expected_plan_version + 1, "previous_version": expected_plan_version}
+
+    def _apply_submitted_change(
         self,
+        connection: sqlite3.Connection,
         *,
         owner_id: str,
         model_id: str,
         wake_id: str,
         wake_seq: int,
-        expected_row_version: int,
         plan_id: str,
-        expected_plan_version: int,
-        changes: Mapping[str, Any],
+        base_version: int,
+        intent: str,
+        proposed: Mapping[str, Any],
         reason: str,
     ) -> dict[str, Any]:
-        """Version a small display/retrieval edit without changing the plan itself.
-
-        The service first authenticates the exact request and planning scope;
-        caller-supplied item/module CAS is never replaced with a latest lookup.
-        An active execution claim, when present, is rechecked in this transaction.
-        Body, adoption, graph, presence and lifecycle fields retain their existing
-        values. Pending candidates are not rewritten: their original base version
-        becomes stale and the existing review gate rejects an attempted overwrite.
-        """
-        from .execution_binding import assert_bound_execution, expected_execution_wake
-
-        owner_id = _text("owner_id", owner_id, 200)
-        model_id = _text("model_id", model_id, 200)
-        wake_id = _text("wake_id", wake_id, 300)
-        if type(wake_seq) is not int or wake_seq < 0:
-            raise PlanningMemoryError("invalid_wake_seq")
-        if type(expected_row_version) is not int or expected_row_version < 0:
-            raise PlanningMemoryError("invalid_expected_planning_version")
-        if type(expected_plan_version) is not int or expected_plan_version < 1:
-            raise PlanningMemoryError("plan_version_conflict")
-        plan_id = _text("plan_id", plan_id, 80)
-        if not _PLAN_ID.fullmatch(plan_id):
-            raise PlanningMemoryError("invalid_plan_id")
-        if not isinstance(changes, Mapping) or not changes:
-            raise PlanningMemoryError("changes_required")
-        allowed = {"title", "summary", "keywords", "importance"}
-        if set(changes) - allowed:
-            raise PlanningMemoryError("ordinary_revision_requires_advanced")
-        reason = _text("reason", reason, 2000)
-        cleaned: dict[str, Any] = {}
-        for key, value in changes.items():
-            if key in {"title", "summary"}:
-                cleaned[key] = _text(key, value, 120 if key == "title" else 200)
-            elif key == "importance":
-                cleaned[key] = _integer(key, value, 0, 100)
-            else:
-                cleaned[key] = _string_list(key, value, maximum=16, item_maximum=160)
-        if _contains_secret(cleaned, reason):
-            raise PlanningMemoryError("credential_content_rejected")
-        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
-
-        with self._connect() as connection:
-            self._begin(connection)
-            assert_bound_execution(connection)
-            item = self._item(connection, owner_id, model_id, plan_id)
-            if int(item["current_version"]) != expected_plan_version:
-                raise PlanningMemoryError("plan_version_conflict")
-            if item["recall_lifecycle"] != "active":
-                raise PlanningMemoryError("plan_quarantined")
-            if self._projection(connection, owner_id, model_id, plan_id)["state"] not in {
-                "active", "paused"
-            }:
-                raise PlanningMemoryError("invalid_plan_state_transition")
-            before = self._current_content(connection, item)
-            proposed = {**before, **cleaned}
-            if len(_canonical(proposed)) > 8000:
-                raise PlanningMemoryError("plan_content_too_long")
-            diff = _diff(before, proposed)
-            if not diff:
-                raise PlanningMemoryError("no_effective_change")
-            row_version = self._advance_state(
-                connection, owner_id=owner_id, model_id=model_id,
-                expected_row_version=expected_row_version,
+        """Append a validated change inside the caller's transaction, not a review."""
+        rollback_ref = None
+        if intent == "create":
+            now = _iso()
+            connection.execute(
+                "INSERT INTO planning_items "
+                "(plan_id, owner_id, model_id, kind, track, current_version, recall_lifecycle, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, 1, 'active', ?, ?)",
+                (plan_id, owner_id, model_id, proposed["kind"], proposed["track"], now, now),
             )
-            version = expected_plan_version + 1
+            version, event_type = 1, "created"
+        elif intent in {"revise", "rollback"}:
+            version = base_version + 1
+            changed = connection.execute(
+                "UPDATE planning_items SET kind=?, track=?, current_version=?, updated_at=? "
+                "WHERE owner_id=? AND model_id=? AND plan_id=? AND current_version=? AND recall_lifecycle='active'",
+                (proposed["kind"], proposed["track"], version, _iso(), owner_id, model_id, plan_id, base_version),
+            ).rowcount
+            if changed != 1:
+                raise PlanningMemoryError("plan_version_conflict")
+            event_type = "content_rollback" if intent == "rollback" else "revised"
+            rollback_ref = _plan_ref(plan_id, base_version)
+        else:
+            version, event_type = base_version, intent
+        if intent in {"create", "revise", "rollback"}:
             self._insert_version(
                 connection, plan_id=plan_id, version=version,
-                previous_version=expected_plan_version, content=proposed,
+                previous_version=base_version or None, content=proposed,
                 reason=reason, wake_id=wake_id,
-            )
-            connection.execute(
-                "UPDATE planning_items SET current_version = ?, updated_at = ? "
-                "WHERE owner_id = ? AND model_id = ? AND plan_id = ? AND current_version = ?",
-                (version, _iso(), owner_id, model_id, plan_id, expected_plan_version),
             )
             self._replace_edges(
                 connection, owner_id=owner_id, model_id=model_id,
                 source_plan_id=plan_id, source_version=version, content=proposed,
             )
-            event = self._append_event(
-                connection, owner_id=owner_id, model_id=model_id, plan_id=plan_id,
-                event_type="revised", reason=reason, evidence=[],
-                wake_id=wake_id, wake_seq=wake_seq,
+        event = self._append_event(
+            connection, owner_id=owner_id, model_id=model_id, plan_id=plan_id,
+            event_type=event_type, reason=reason, evidence=[],
+            wake_id=wake_id, wake_seq=wake_seq,
+        )
+        event_seq = int(connection.execute(
+            "SELECT event_seq FROM planning_events WHERE event_id=?", (event["event_id"],),
+        ).fetchone()[0])
+        return {
+            "plan_id": plan_id, "plan_ref": _plan_ref(plan_id, version),
+            "plan_version": version, "previous_version": base_version or None,
+            "plan_state": self._projection(connection, owner_id, model_id, plan_id),
+            "event": event, "event_id": event["event_id"], "event_seq": event_seq,
+            "rollback_ref": rollback_ref,
+        }
+
+    def remember_direct(
+        self, *, owner_id: str, model_id: str, wake_id: str, wake_seq: int,
+        expected_row_version: int, content: Mapping[str, Any], reason: str,
+        idempotency_key: str, calm_check: Mapping[str, Any] | None = None,
+        ai_confirmation: bool | None = None,
+    ) -> dict[str, Any]:
+        """Commit the submitted final plan; the facade authenticates its author.
+
+        Optional legacy calm input is checked for secrets, never interpreted as
+        completed reflection. An explicit false confirmation is never overridden.
+        """
+        return self._submit_direct(
+            owner_id=owner_id, model_id=model_id, wake_id=wake_id, wake_seq=wake_seq,
+            expected_row_version=expected_row_version, intent="create", content=content,
+            reason=reason, idempotency_key=idempotency_key,
+            calm_check=calm_check, ai_confirmation=ai_confirmation,
+        )
+
+    def revise_direct(
+        self, *, owner_id: str, model_id: str, wake_id: str, wake_seq: int,
+        expected_row_version: int, plan_id: str, expected_plan_version: int,
+        intent: str, reason: str, idempotency_key: str,
+        changes: Mapping[str, Any] | None = None, rollback_to_version: int | None = None,
+        expected_event_seq: int | None = None,
+        calm_check: Mapping[str, Any] | None = None, ai_confirmation: bool | None = None,
+    ) -> dict[str, Any]:
+        """Commit one exact-version edit/state transition without creating a candidate.
+
+        The observed module CAS remains required even for old clients which do
+        not supply the additional event-sequence coordinate. No version is
+        refreshed and no pending candidate is silently accepted or rewritten.
+        """
+        return self._submit_direct(
+            owner_id=owner_id, model_id=model_id, wake_id=wake_id, wake_seq=wake_seq,
+            expected_row_version=expected_row_version, plan_id=plan_id,
+            expected_plan_version=expected_plan_version, expected_event_seq=expected_event_seq,
+            intent=intent, changes=changes, rollback_to_version=rollback_to_version,
+            reason=reason, idempotency_key=idempotency_key,
+            calm_check=calm_check, ai_confirmation=ai_confirmation,
+        )
+
+    def _submit_direct(
+        self, *, owner_id: str, model_id: str, wake_id: str, wake_seq: int,
+        expected_row_version: int, intent: str, reason: str, idempotency_key: str,
+        content: Mapping[str, Any] | None = None, plan_id: str | None = None,
+        expected_plan_version: int = 0, expected_event_seq: int | None = None,
+        changes: Mapping[str, Any] | None = None, rollback_to_version: int | None = None,
+        calm_check: Mapping[str, Any] | None = None, ai_confirmation: bool | None = None,
+    ) -> dict[str, Any]:
+        from .execution_binding import assert_bound_execution, expected_execution_wake
+
+        owner_id, model_id = _text("owner_id", owner_id, 200), _text("model_id", model_id, 200)
+        wake_id = _text("wake_id", wake_id, 300)
+        if type(wake_seq) is not int or wake_seq < 0:
+            raise PlanningMemoryError("invalid_wake_seq")
+        if type(expected_row_version) is not int or expected_row_version < 0:
+            raise PlanningMemoryError("invalid_expected_planning_version")
+        if ai_confirmation is not None and ai_confirmation is not True:
+            raise PlanningMemoryError("ai_confirmation_required")
+        if calm_check is not None and not isinstance(calm_check, Mapping):
+            raise PlanningMemoryError("invalid_legacy_calm_check")
+        if expected_event_seq is not None and (type(expected_event_seq) is not int or expected_event_seq < 0):
+            raise PlanningMemoryError("invalid_expected_event_seq")
+        intent = _enum("planning_intent", intent, CANDIDATE_INTENTS)
+        reason, idempotency_key = _text("reason", reason, 2000), _text("idempotency_key", idempotency_key, 200)
+        if _contains_secret(reason, calm_check, changes):
+            raise PlanningMemoryError("credential_content_rejected")
+        if intent == "create":
+            proposed = self._normalize_content(content)
+        else:
+            plan_id = _text("plan_id", plan_id, 80)
+            if not _PLAN_ID.fullmatch(plan_id):
+                raise PlanningMemoryError("invalid_plan_id")
+            if type(expected_plan_version) is not int or expected_plan_version < 1:
+                raise PlanningMemoryError("plan_version_conflict")
+            if intent == "revise":
+                if not isinstance(changes, Mapping) or not changes:
+                    raise PlanningMemoryError("changes_required")
+                if not set(changes).issubset(_CONTENT_FIELDS) or rollback_to_version is not None:
+                    raise PlanningMemoryError("invalid_plan_changes")
+            elif changes is not None:
+                raise PlanningMemoryError("invalid_plan_changes")
+            if intent == "rollback":
+                if type(rollback_to_version) is not int or rollback_to_version < 1 or rollback_to_version == expected_plan_version:
+                    raise PlanningMemoryError("invalid_rollback_version")
+            elif rollback_to_version is not None:
+                raise PlanningMemoryError("invalid_rollback_version")
+            proposed = None
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
+        request_hash = _sha256({
+            "wake_id": wake_id, "wake_seq": wake_seq, "expected_row_version": expected_row_version,
+            "intent": intent, "content": proposed, "plan_id": plan_id,
+            "expected_plan_version": expected_plan_version, "expected_event_seq": expected_event_seq,
+            "changes": dict(changes) if changes is not None else None,
+            "rollback_to_version": rollback_to_version, "reason": reason,
+        })
+        with self._connect() as connection:
+            self._begin(connection)
+            assert_bound_execution(connection)
+            prior = self._idempotency_get(
+                connection, owner_id=owner_id, model_id=model_id, action=f"direct_{intent}",
+                idempotency_key=idempotency_key, request_hash=request_hash,
             )
-            self._audit(
-                connection, owner_id=owner_id, model_id=model_id,
-                action="revise_ordinary", decision="revised", wake_id=wake_id,
-                plan_id=plan_id, reason_codes=["ordinary_projection_change_applied"],
-                details={"version": version, "changed_fields": sorted(diff),
-                         "diff_origin": "server_computed", "verification_performed": False},
+            if prior is not None:
+                return {**prior, "state_changed": False, "active_plan_changed": False, "idempotent_replay": True}
+            if intent == "create":
+                plan_id = _new_id("plan")
+                now = _iso()
+                connection.execute(
+                    "INSERT INTO planning_module_state "
+                    "(owner_id, model_id, module_version, status, row_version, created_at, updated_at) "
+                    "VALUES (?, ?, ?, 'active', 0, ?, ?) ON CONFLICT(owner_id, model_id) DO NOTHING",
+                    (owner_id, model_id, PLANNING_VERSION, now, now),
+                )
+            else:
+                item = self._item(connection, owner_id, model_id, plan_id)
+                if int(item["current_version"]) != expected_plan_version:
+                    raise PlanningMemoryError("plan_version_conflict")
+                if item["recall_lifecycle"] != "active":
+                    raise PlanningMemoryError("plan_quarantined")
+                events = self._event_rows(connection, owner_id, model_id, plan_id)
+                if expected_event_seq is not None and expected_event_seq != max((int(event["event_seq"]) for event in events), default=0):
+                    raise PlanningMemoryError("plan_event_seq_conflict")
+                current_state = fold_plan_events(events)["state"]
+                allowed = {"revise": {"active", "paused"}, "rollback": {"active", "paused"},
+                           "abandon": {"active", "paused"}, "archive": {"paused", "completed", "abandoned"},
+                           "revive": {"abandoned"}}
+                if current_state not in allowed[intent]:
+                    raise PlanningMemoryError("invalid_plan_state_transition")
+                current = self._current_content(connection, item)
+                proposed = current
+                if intent == "revise":
+                    proposed = self._normalize_stored_content({**current, **dict(changes)})
+                elif intent == "rollback":
+                    proposed = self._normalize_stored_content(_json(self._version(connection, plan_id, rollback_to_version)["content_json"], {}))
+                if intent in {"revise", "rollback"} and not _diff(current, proposed):
+                    raise PlanningMemoryError("no_effective_change")
+            if intent in {"create", "revise", "rollback", "revive"}:
+                self._validate_graph(connection, owner_id=owner_id, model_id=model_id, source_plan_id=plan_id, content=proposed)
+                self._validate_persistent_slot(connection, owner_id=owner_id, model_id=model_id, plan_id=plan_id, content=proposed)
+            row_version = self._advance_state(connection, owner_id=owner_id, model_id=model_id, expected_row_version=expected_row_version)
+            result = self._apply_submitted_change(
+                connection, owner_id=owner_id, model_id=model_id, wake_id=wake_id, wake_seq=wake_seq,
+                plan_id=plan_id, base_version=expected_plan_version, intent=intent, proposed=proposed, reason=reason,
             )
-            return {
-                "decision": "revised", "id": plan_id, "ref": _plan_ref(plan_id, version),
-                "version": version, "previous_version": expected_plan_version,
-                "planning_row_version": row_version, "event_id": event["event_id"],
-                "state_changed": True,
+            response = {
+                **result, "decision": "stored" if intent == "create" else "revised", "intent": intent,
+                "planning_row_version": row_version, "state_changed": True, "active_plan_changed": True,
+                "candidate_created": False, "review_performed": False, "review_requires_later_wake": False,
+                "idempotent_replay": False, "reason_codes": ["explicit_plan_submission_applied"],
             }
+            self._audit(
+                connection, owner_id=owner_id, model_id=model_id, action=f"direct_{intent}",
+                decision=response["decision"], wake_id=wake_id, plan_id=plan_id,
+                reason_codes=["explicit_plan_submission_applied"],
+                details={"base_version": expected_plan_version, "content_hash": _sha256(proposed), "review_performed": False},
+            )
+            self._idempotency_put(connection, owner_id=owner_id, model_id=model_id, action=f"direct_{intent}",
+                                  idempotency_key=idempotency_key, request_hash=request_hash, response=response)
+            return response
 
     def propose_create(
         self,
@@ -1464,6 +1579,7 @@ class PlanningMemoryStore:
         ai_confirmation: bool,
         idempotency_key: str,
     ) -> dict[str, Any]:
+        """Legacy explicit staging primitive, not the public remember route."""
         self.ensure_state(owner_id=owner_id, model_id=model_id)
         wake_id = _text("wake_id", wake_id, 300)
         if isinstance(wake_seq, bool) or not isinstance(wake_seq, int) or wake_seq < 0:
@@ -1557,6 +1673,7 @@ class PlanningMemoryStore:
         changes: Mapping[str, Any] | None = None,
         rollback_to_version: int | None = None,
     ) -> dict[str, Any]:
+        """Legacy explicit staging primitive; public revisions use revise_direct."""
         self.ensure_state(owner_id=owner_id, model_id=model_id)
         wake_id = _text("wake_id", wake_id, 300)
         if isinstance(wake_seq, bool) or not isinstance(wake_seq, int) or wake_seq < 0:
@@ -1684,10 +1801,9 @@ class PlanningMemoryStore:
     ) -> list[dict[str, Any]]:
         """Present a bounded, wake-stable batch without starving older candidates.
 
-        Keep this wake's fully presented candidates pinned.  On a later wake,
-        prefer reviewable candidates that have never been presented, then those
-        least recently presented.  Presentation changes no candidate lifecycle
-        or active plan, and does not waive any of the review gates.
+        Keep this wake's batch pinned and rotate unshown legacy candidates on
+        later reads in another wake. Presentation is a UI convenience, not an
+        authorization token or a requirement to wait for another wake.
         """
         self.ensure_state(owner_id=owner_id, model_id=model_id)
         wake_id = _text("wake_id", wake_id, 300)
@@ -1710,7 +1826,6 @@ class PlanningMemoryStore:
             rows = sorted(rows, key=lambda row: (row["created_at"], row["candidate_id"]))
             result: list[dict[str, Any]] = []
             for row in rows:
-                later = wake_seq > int(row["submitted_wake_seq"])
                 projection: dict[str, Any] = {
                     "candidate_id": row["candidate_id"],
                     "candidate_hash": row["candidate_hash"],
@@ -1719,28 +1834,29 @@ class PlanningMemoryStore:
                     "intent": row["intent"],
                     "base_version": row["base_version"],
                     "status": row["status"],
-                    "review_requires_later_wake": not later,
-                    "fully_presented": later,
+                    "review_requires_later_wake": False,
+                    "fully_presented": True,
+                    "proposed_content_hash": row["proposed_content_hash"],
                 }
-                if later:
-                    if (
-                        row["presented_wake_id"] != wake_id
-                        or row["presented_wake_seq"] != wake_seq
-                    ):
-                        connection.execute(
-                            "UPDATE planning_change_candidates SET presented_wake_id = ?, "
-                            "presented_wake_seq = ?, updated_at = ? WHERE candidate_id = ?",
-                            (wake_id, wake_seq, _iso(), row["candidate_id"]),
-                        )
-                    projection.update(
-                        {
-                            "proposed_content": _json(row["proposed_content_json"], {}),
-                            "canonical_diff": _json(row["diff_json"], {}),
-                            "reason": row["reason"],
-                            "calm_check": _json(row["calm_check_json"], {}),
-                            "presentation_bound_to_current_wake": True,
-                        }
+                if (
+                    row["presented_wake_id"] != wake_id
+                    or row["presented_wake_seq"] != wake_seq
+                ):
+                    connection.execute(
+                        "UPDATE planning_change_candidates SET presented_wake_id = ?, "
+                        "presented_wake_seq = ?, updated_at = ? WHERE candidate_id = ?",
+                        (wake_id, wake_seq, _iso(), row["candidate_id"]),
                     )
+                projection.update(
+                    {
+                        "proposed_content": _json(row["proposed_content_json"], {}),
+                        "canonical_diff": _json(row["diff_json"], {}),
+                        "reason": row["reason"],
+                        "calm_check": _json(row["calm_check_json"], {}),
+                        "presentation_bound_to_current_wake": True,
+                        "presentation_required_for_review": False,
+                    }
+                )
                 result.append(projection)
             return result
 
@@ -2036,29 +2152,50 @@ class PlanningMemoryStore:
         expected_candidate_hash: str,
         expected_base_version: int,
         decision: str,
-        correctness_assessment: str,
-        calm_check: Mapping[str, Any],
+        correctness_assessment: str | None = None,
+        calm_check: Mapping[str, Any] | None = None,
         reason: str,
         ai_confirmation: bool,
+        expected_event_seq: int | None = None,
     ) -> dict[str, Any]:
-        self.ensure_state(owner_id=owner_id, model_id=model_id)
+        """Explicitly resolve a legacy candidate, never auto-activate old pending.
+
+        The exact candidate hash binds its complete content, diff and original
+        author submission. Confirmation is current; calm text and presentation
+        stamps are not treated as evidence of reflection or authority.
+        """
+        from .execution_binding import assert_bound_execution, expected_execution_wake
+
+        owner_id, model_id = _text("owner_id", owner_id, 200), _text("model_id", model_id, 200)
         wake_id = _text("wake_id", wake_id, 300)
         if isinstance(wake_seq, bool) or not isinstance(wake_seq, int) or wake_seq < 0:
             raise PlanningMemoryError("invalid_wake_seq")
+        for value, minimum, code in (
+            (expected_row_version, 0, "invalid_expected_planning_version"),
+            (expected_candidate_version, 1, "candidate_version_mismatch"),
+            (expected_base_version, 0, "candidate_base_mismatch"),
+        ):
+            if type(value) is not int or value < minimum:
+                raise PlanningMemoryError(code)
         decision = _enum("planning_candidate_decision", decision, CANDIDATE_DECISIONS)
-        correctness = _text("correctness_assessment", correctness_assessment, 2000)
+        correctness = None if correctness_assessment is None else _text("correctness_assessment", correctness_assessment, 2000)
         review_reason = _text("reason", reason, 2000)
-        review_calm = _validate_calm_check(calm_check)
+        if calm_check is not None and not isinstance(calm_check, Mapping):
+            raise PlanningMemoryError("invalid_legacy_calm_check")
         if ai_confirmation is not True:
             raise PlanningMemoryError("ai_confirmation_required")
+        if expected_event_seq is not None and (type(expected_event_seq) is not int or expected_event_seq < 0):
+            raise PlanningMemoryError("invalid_expected_event_seq")
         if not isinstance(expected_candidate_hash, str) or not _CANDIDATE_HASH.fullmatch(
             expected_candidate_hash
         ):
             raise PlanningMemoryError("candidate_hash_mismatch")
-        if _contains_secret(correctness, review_reason, review_calm):
+        if _contains_secret(correctness, review_reason, calm_check):
             raise PlanningMemoryError("credential_content_rejected")
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
         with self._connect() as connection:
             self._begin(connection)
+            assert_bound_execution(connection)
             row = connection.execute(
                 "SELECT * FROM planning_change_candidates WHERE owner_id = ? AND model_id = ? "
                 "AND candidate_id = ?",
@@ -2074,12 +2211,16 @@ class PlanningMemoryStore:
                 raise PlanningMemoryError("candidate_hash_mismatch")
             if int(row["base_version"]) != expected_base_version:
                 raise PlanningMemoryError("candidate_base_mismatch")
-            if wake_seq <= int(row["submitted_wake_seq"]):
-                raise PlanningMemoryError("later_real_wake_required")
-            if row["presented_wake_id"] != wake_id or int(
-                row["presented_wake_seq"] or -1
-            ) != wake_seq:
-                raise PlanningMemoryError("candidate_not_fully_presented")
+            proposed_raw = _json(row["proposed_content_json"], {})
+            material = {
+                "candidate_id": row["candidate_id"], "candidate_version": row["candidate_version"],
+                "plan_id": row["plan_id"], "intent": row["intent"], "base_version": row["base_version"],
+                "proposed_content": proposed_raw, "canonical_diff": _json(row["diff_json"], {}),
+                "reason": row["reason"], "calm_check": _json(row["calm_check_json"], {}),
+                "submitted_wake_id": row["submitted_wake_id"], "submitted_wake_seq": row["submitted_wake_seq"],
+            }
+            if _sha256(proposed_raw) != row["proposed_content_hash"] or _sha256(material) != expected_candidate_hash:
+                raise PlanningMemoryError("candidate_hash_mismatch")
 
             if decision == "reject":
                 connection.execute(
@@ -2103,7 +2244,7 @@ class PlanningMemoryStore:
                     plan_id=row["plan_id"],
                     candidate_id=candidate_id,
                     reason_codes=["ai_rejected_candidate"],
-                    details={"correctness_hash": _sha256(correctness)},
+                    details={"correctness_hash": _sha256(correctness) if correctness is not None else None},
                 )
                 return {
                     "decision": "candidate_rejected",
@@ -2129,7 +2270,14 @@ class PlanningMemoryStore:
                 item = self._item(connection, owner_id, model_id, plan_id)
                 if int(item["current_version"]) != base_version:
                     raise PlanningMemoryError("candidate_base_changed")
-            if intent in {"create", "revise", "rollback"}:
+                if item["recall_lifecycle"] != "active":
+                    raise PlanningMemoryError("plan_quarantined")
+                events = self._event_rows(connection, owner_id, model_id, plan_id)
+                if expected_event_seq is not None and expected_event_seq != max((int(event["event_seq"]) for event in events), default=0):
+                    raise PlanningMemoryError("plan_event_seq_conflict")
+                if intent in {"revise", "rollback"} and fold_plan_events(events)["state"] not in {"active", "paused"}:
+                    raise PlanningMemoryError("invalid_plan_state_transition")
+            if intent in {"create", "revise", "rollback", "revive"}:
                 self._validate_graph(
                     connection,
                     owner_id=owner_id,
@@ -2277,11 +2425,12 @@ class PlanningMemoryStore:
                 wake_id=wake_id,
                 plan_id=plan_id,
                 candidate_id=candidate_id,
-                reason_codes=["later_wake_review_complete"],
+                reason_codes=["legacy_candidate_explicitly_accepted"],
                 details={
-                    "correctness_hash": _sha256(correctness),
+                    "correctness_hash": _sha256(correctness) if correctness is not None else None,
                     "review_reason_hash": _sha256(review_reason),
                     "intent": intent,
+                    "confirmation_basis": "current_ai_confirmation_of_exact_candidate_hash",
                 },
             )
             return {
@@ -2506,6 +2655,9 @@ class PlanningMemoryStore:
                 ]
             else:
                 candidates: list[tuple[float, sqlite3.Row]] = []
+                alias_query = prepare_explicit_alias_query(query)
+                alias_matches: dict[str, dict[str, object]] = {}
+                alias_candidates: list[tuple[float, sqlite3.Row]] = []
                 rows = connection.execute(
                     "SELECT * FROM planning_items WHERE owner_id = ? AND model_id = ?",
                     (owner_id, model_id),
@@ -2520,10 +2672,26 @@ class PlanningMemoryStore:
                     score = self._semantic_score(content, query)
                     if score >= 0.15:
                         candidates.append((score, item))
+                    else:
+                        alias_match = explicit_alias_match(alias_query, [
+                            content.get("title", ""), content.get("summary", ""),
+                            *content.get("scene_tags", []), *content.get("keywords", []),
+                        ])
+                        if alias_match:
+                            alias_matches[item["plan_id"]] = alias_match
+                            alias_candidates.append((score, item))
                 candidates.sort(key=lambda item: (-item[0], item[1]["plan_id"]))
+                alias_candidates.sort(key=lambda pair: (
+                    -float(alias_matches[pair[1]["plan_id"]]["score"]), -pair[0], pair[1]["plan_id"],
+                ))
+                candidates.extend(alias_candidates)
                 plans = [
                     {
                         "semantic_score": round(score, 4),
+                        **({"retrieval_evidence": alias_matches[item["plan_id"]],
+                            "retrieval_match": "lexical_alias_candidate", "candidate_only": True,
+                            "candidate_score": alias_matches[item["plan_id"]]["score"]}
+                           if item["plan_id"] in alias_matches else {}),
                         **self._public_plan(
                             connection,
                             owner_id=owner_id,

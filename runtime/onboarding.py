@@ -31,6 +31,7 @@ from .self_revision import (
 )
 from .emotional_memory import EmotionalMemoryStore
 from .mixed_recall import select_mixed_recall
+from .facet_selection import append_facet_projection
 from .self_model_review import ReviewPageError, prepare_review_page, record_review_page
 from .self_governance import (
     LEARNING_EPISODE_BOUNDARY_SIGNAL,
@@ -46,6 +47,8 @@ from .execution_binding import (
 
 FLOW_VERSION = "module-one/1"
 CONTEXT_LAYOUT_CONTRACT = "stbrain-context-layout/1"
+TAIL_CONTEXT_LAYOUT_CONTRACT = "stbrain-context-layout/2"
+_CONTEXT_LAYOUT_UNSET = object()
 MAX_CALM_PROMPT_CHARS = 2000
 MAX_CANDIDATE_REASON_CHARS = 2000
 MAX_DIFF_ITEMS = 64
@@ -90,6 +93,10 @@ SERVER_DERIVED_CANDIDATE_MARKER = "_server_derive_candidate_metadata"
 OPTIONAL_BRAIN_NOTICE = (
     "我有一个可选的大脑；使用说明可调用 `stbrain_help`，日常记忆可一次调用 "
     "`remember_memory`，不需要手动 open。高级自我修改仍按专用流程进行；"
+    "可自写、修改或撤回轻提醒与安全阀，入口见 `stbrain_help(module='self_governance_profile')`；"
+    "轻提醒的普通 scene_tags 匹配本轮人类话语，优先写“设个闹钟”“提醒我”“回家了”“还记得”等自然词句，按实际表达自行增改；"
+    "浮现仍受模式、开关和预算影响，系统事件标记另按真实事件触发。"
+    "存入前可用 stbrain_help 查看人称弱提醒，可用 manage_person_reference_advisory 自行修改、关闭或恢复，叙事人称由我选择。"
     "也可以先正常和人类交流。"
 )
 BRAIN_ENTRY_HINT = OPTIONAL_BRAIN_NOTICE
@@ -682,6 +689,7 @@ class ModuleOneOnboardingStore:
         injection_control_store: InjectionControlStore | None = None,
         planning_store: Any | None = None,
         hallucination_vault: Any | None = None,
+        ordinary_memory_independent: bool = False,
     ) -> None:
         if isinstance(capability_secret, str):
             capability_secret = capability_secret.encode("utf-8")
@@ -703,6 +711,7 @@ class ModuleOneOnboardingStore:
         self.tool_store = tool_store
         self.planning_store = planning_store
         self.hallucination_vault = hallucination_vault
+        self.ordinary_memory_independent = ordinary_memory_independent is True
         # A governance profile is an optional cross-module mechanism, not a
         # developer-authored default.  Initialising its empty tables creates no
         # AI content and does not alter onboarding progression.
@@ -1304,8 +1313,9 @@ class ModuleOneOnboardingStore:
         client_principal: str,
         request_id: str,
         requested_scopes: Sequence[str],
+        authorization_basis: str = "human_attestation",
     ) -> dict[str, Any]:
-        """Issue one short-lived human-attested grant without creating a wake.
+        """Issue one short-lived authorized grant without creating a wake.
 
         The opaque reference is returned exactly once.  Only its hash is persisted;
         replaying ``request_id`` therefore returns the tombstone metadata but never
@@ -1317,6 +1327,8 @@ class ModuleOneOnboardingStore:
         actor_id = _require_text("actor_id", actor_id)
         client_principal = _require_text("client_principal", client_principal)
         request_id = _require_text("request_id", request_id)
+        if authorization_basis not in {"human_attestation", "deployment_password_possession"}:
+            raise OnboardingError("direct_authorization_basis_invalid")
         scopes = self._normalize_direct_scopes(requested_scopes)
         protected_payload = {
             "owner_id": owner_id,
@@ -1340,6 +1352,7 @@ class ModuleOneOnboardingStore:
                 "actor_id": actor_id,
                 "client_principal": client_principal,
                 "requested_scopes": scopes,
+                **({"authorization_basis": authorization_basis} if authorization_basis != "human_attestation" else {}),
             }
         )
         self.ensure_state(owner_id=owner_id, model_id=model_id)
@@ -1399,10 +1412,10 @@ class ModuleOneOnboardingStore:
                 stage_before=state["stage"],
                 stage_after=state["stage"],
                 action="issue_direct_grant",
-                actor="human",
+                actor="password_holder" if authorization_basis == "deployment_password_possession" else "human",
                 wake_id=None,
                 decision="issued",
-                reason_codes=["human_attested_direct_grant_issued"],
+                reason_codes=["password_possession_direct_grant_issued" if authorization_basis == "deployment_password_possession" else "human_attested_direct_grant_issued"],
                 details={
                     "grant_id": grant_id,
                     "actor_id": actor_id,
@@ -1410,6 +1423,7 @@ class ModuleOneOnboardingStore:
                     "authorized_scopes": scopes,
                     "target_wake_seq": target_wake_seq,
                     "request_id_hash": _sha256(request_id),
+                    "authorization_basis": authorization_basis,
                 },
             )
             connection.execute(
@@ -2373,6 +2387,32 @@ class ModuleOneOnboardingStore:
             }
         return block
 
+    @staticmethod
+    def _ordinary_capture_allowed(
+        connection: sqlite3.Connection, *, owner_id: str, model_id: str
+    ) -> bool:
+        """Authorize new ephemeral content from actual activation in this transaction.
+
+        Independent pre-activation recall is read-only. Keep the same established
+        active basis during normal self editing, rather than treating a new
+        candidate as activation or interrupting an already active self.
+        """
+        return connection.execute(
+            "SELECT 1 FROM brain_module_unlocks u "
+            "JOIN self_models m ON m.owner_id=u.owner_id AND m.model_id=u.model_id "
+            "JOIN brain_onboarding_state s ON s.owner_id=u.owner_id AND s.model_id=u.model_id "
+            "JOIN self_model_revisions r ON r.model_id=m.model_id "
+            "AND r.revision_id=m.active_revision_id "
+            "WHERE u.owner_id=? AND u.model_id=? AND u.module_name='module_one' "
+            "AND u.unlocked=1 AND u.basis_revision_id=r.revision_id "
+            "AND s.base_revision_id=r.revision_id AND s.module_one_status='complete' "
+            "AND s.injection_policy='normal' "
+            "AND (s.stage='live' OR (s.flow_kind='edit' AND s.stage IN "
+            "('edit_consent','edit_body_draft','candidate_wait','candidate_review'))) "
+            "AND r.author='ai' AND r.activation_checkpoint_id IS NOT NULL",
+            (owner_id, model_id),
+        ).fetchone() is not None
+
     def build_pre_generation_context(
         self,
         *,
@@ -2382,10 +2422,11 @@ class ModuleOneOnboardingStore:
         wake_capability: str,
         source_digest: str,
         host_contract_digest: str,
-        facet_names: Sequence[str] = (),
+        facet_names: Sequence[str] | None = None,
         source_frame: Mapping[str, Any] | None = None,
         advertised_tools: Mapping[str, Any] | None = None,
-        context_layout: Mapping[str, Any] | None = None,
+        context_layout: Mapping[str, Any] | None | object = _CONTEXT_LAYOUT_UNSET,
+        context_layout_offer: Mapping[str, Any] | object = _CONTEXT_LAYOUT_UNSET,
     ) -> dict[str, Any]:
         """Prepare or reuse exact system material for one authenticated wake.
 
@@ -2395,13 +2436,25 @@ class ModuleOneOnboardingStore:
         automatic context and are exposed only when the AI calls ``stbrain_open``.
         After activation, including controlled edit stages, the message contains
         only the AI-authored current active identity fields.
-        Hosts explicitly opting into context layout v1 receive a hash-bound
-        ordered bundle with unchanged stable/dynamic field values.  The initial
-        human boundary and layout are immutable, host-only snapshot metadata.
+        Hosts explicitly opting into context layout v1, or offering tail layout
+        v2 through its separate field, receive a hash-bound ordered bundle with
+        unchanged stable/dynamic field values. Missing facet_names opts into
+        lightweight current-scene selection in the dynamic layer; an explicit
+        empty list selects none, while named facets keep exact host selection.
+        The selected layout is immutable,
+        host-only snapshot metadata; v2 does not claim a fixed client history.
         """
         source_digest = _require_text("source_digest", source_digest)
         host_contract_digest = _require_text("host_contract_digest", host_contract_digest)
-        context_layout_snapshot = self._validate_context_layout(context_layout)
+        if context_layout is not _CONTEXT_LAYOUT_UNSET and context_layout_offer is not _CONTEXT_LAYOUT_UNSET:
+            raise OnboardingError("context_layout_fields_conflict")
+        context_layout_snapshot = (
+            self._validate_context_layout_offer(context_layout_offer)
+            if context_layout_offer is not _CONTEXT_LAYOUT_UNSET
+            else self._validate_context_layout(
+                None if context_layout is _CONTEXT_LAYOUT_UNSET else context_layout
+            )
+        )
         if advertised_tools is None:
             advertised_tools = {}
         if not isinstance(advertised_tools, Mapping):
@@ -2479,7 +2532,7 @@ class ModuleOneOnboardingStore:
                             or type(layout_metadata["hard_suppressed"]) is not bool
                         ):
                             raise OnboardingError("context_layout_metadata_invalid")
-                        stored_layout = self._validate_context_layout(layout_metadata["layout"])
+                        stored_layout = self._validate_stored_context_layout(layout_metadata["layout"])
                         if stored_layout is None:
                             raise OnboardingError("context_layout_metadata_invalid")
                     elif layout_metadata != {}:
@@ -2514,6 +2567,20 @@ class ModuleOneOnboardingStore:
                     return {
                         "decision": "self_model_context_unavailable",
                         "reason_codes": ["active_injection_structure_invalid"],
+                        "may_generate": False,
+                        "state_changed": False,
+                        "pointer_changed": False,
+                    }
+                # A valid historical hash proves integrity, not that the old
+                # detector recognized a credential. Revalidate without altering
+                # the immutable snapshot or its author's memory.
+                stored_payload = {"stable": stable, "dynamic": dynamic}
+                if contains_credential_or_secret(stored_payload) or self._contains_protected_value(
+                    connection, owner_id=owner_id, model_id=model_id, value=stored_payload,
+                ):
+                    return {
+                        "decision": "self_model_context_unavailable",
+                        "reason_codes": ["protected_persistence_value"],
                         "may_generate": False,
                         "state_changed": False,
                         "pointer_changed": False,
@@ -2618,6 +2685,7 @@ class ModuleOneOnboardingStore:
                 and state["injection_policy"] == "normal"
             )
             stable: dict[str, Any] = {}
+            automatic_facets: Mapping[str, str] = {}
             if (
                 live_module
                 and automatic_scope_enabled("self_model")
@@ -2634,7 +2702,7 @@ class ModuleOneOnboardingStore:
                 content = active["content"]
                 selected_facets = {
                     name: content["facets"][name]
-                    for name in facet_names
+                    for name in (facet_names or ())
                     if name in content.get("facets", {})
                 }
                 stable = {
@@ -2642,6 +2710,8 @@ class ModuleOneOnboardingStore:
                     "active_identity_capsule": content["active_identity_capsule"],
                     "facets": selected_facets,
                 }
+                if facet_names is None:
+                    automatic_facets = content.get("facets", {})
                 if active_injection_structure_violations(stable):
                     return {
                         "decision": "self_model_context_unavailable",
@@ -2660,7 +2730,7 @@ class ModuleOneOnboardingStore:
             memory_notice_presented = False
             episode_reflection_presented = False
             if (
-                live_module
+                (live_module or self.ordinary_memory_independent)
                 and global_injection_mode == "enabled"
                 and isinstance(source_frame, Mapping)
             ):
@@ -2832,6 +2902,25 @@ class ModuleOneOnboardingStore:
                     estimate_tokens=_estimate_tokens,
                     budget=1200,
                 )
+                # Keep the stable identity/cache prefix unchanged. Automatic
+                # facets use only residual shared space after ordinary recall;
+                # no authored body is shortened to fit and no memory is evicted.
+                if automatic_facets:
+                    candidate_dynamic = append_facet_projection(
+                        dynamic, automatic_facets, query_text,
+                        estimate_tokens=_estimate_tokens, budget=1200,
+                    )
+                    if "self_facets" in candidate_dynamic:
+                        facet_projection = {**stable, "facets": candidate_dynamic["self_facets"]["facets"]}
+                        if active_injection_structure_violations(facet_projection):
+                            return {
+                                "decision": "self_model_context_unavailable",
+                                "reason_codes": ["active_injection_structure_invalid"],
+                                "may_generate": False,
+                                "state_changed": state_changed,
+                                "pointer_changed": False,
+                            }
+                    dynamic = candidate_dynamic
 
                 # No related recall can remain quiet. Keep the AI-authored
                 # governance above, but do not add a host-written save/reflection
@@ -2840,6 +2929,8 @@ class ModuleOneOnboardingStore:
                 # Capture only after recall, so the current input cannot be
                 # reflected back as an old memory in this same generation.  A
                 # missing stable conversation lineage disables the feature.
+                # Unlike recall snapshots/audit or TTL privacy cleanup, this
+                # persists ordinary message content and needs an activated basis.
                 source_event_id = source_frame.get("source_event_id")
                 if (
                     thread_id
@@ -2847,6 +2938,9 @@ class ModuleOneOnboardingStore:
                     and source_event_id.strip()
                     and isinstance(capture_items, list)
                     and self.emotional_store is not None
+                    and self._ordinary_capture_allowed(
+                        connection, owner_id=owner_id, model_id=model_id
+                    )
                 ):
                     capture_payload = {
                         "owner_id": owner_id,
@@ -3004,6 +3098,24 @@ class ModuleOneOnboardingStore:
         return result
 
     @staticmethod
+    def _validate_context_layout_offer(value: Any) -> dict[str, str]:
+        """Accept only the explicit v2 offer; null is not a legacy downgrade."""
+        expected = {
+            "contract": TAIL_CONTEXT_LAYOUT_CONTRACT,
+            "insertion_rule": "after-client-messages",
+        }
+        if not isinstance(value, Mapping) or dict(value) != expected:
+            raise OnboardingError("context_layout_offer_invalid")
+        return dict(expected)
+
+    @classmethod
+    def _validate_stored_context_layout(cls, value: Any) -> dict[str, Any] | None:
+        """Read a previously selected version without widening either input field."""
+        if isinstance(value, Mapping) and value.get("contract") == TAIL_CONTEXT_LAYOUT_CONTRACT:
+            return cls._validate_context_layout_offer(value)
+        return cls._validate_context_layout(value)
+
+    @staticmethod
     def _context_bundle(
         *, stable: Mapping[str, Any], dynamic: Mapping[str, Any],
         message: Mapping[str, str], layout: Mapping[str, Any] | None,
@@ -3022,7 +3134,7 @@ class ModuleOneOnboardingStore:
             if dynamic else None
         )
         return {
-            "contract": CONTEXT_LAYOUT_CONTRACT,
+            "contract": layout["contract"],
             "layout": dict(layout),
             "binding": {
                 "owner_id": wake["owner_id"], "model_id": wake["model_id"],
@@ -3237,6 +3349,11 @@ class ModuleOneOnboardingStore:
         )
         if consumed.rowcount != 1:
             raise OnboardingError("direct_grant_consume_conflict")
+        issuing_event = connection.execute(
+            "SELECT reason_codes_json FROM brain_onboarding_events WHERE event_id=? AND owner_id=? AND model_id=?",
+            (grant["issue_event_id"], state["owner_id"], state["model_id"]),
+        ).fetchone()
+        password_authorized = bool(issuing_event and "password_possession_direct_grant_issued" in json.loads(issuing_event["reason_codes_json"]))
         self._insert_event(
             connection,
             owner_id=state["owner_id"],
@@ -3248,7 +3365,7 @@ class ModuleOneOnboardingStore:
             wake_id=wake_id,
             candidate_id=state["current_candidate_id"],
             decision="opened",
-            reason_codes=["human_attested_direct_context_opened"],
+            reason_codes=["password_possession_direct_context_opened" if password_authorized else "human_attested_direct_context_opened"],
             details={
                 "grant_id": grant["grant_id"],
                 "authorized_scopes": scopes,
@@ -3621,6 +3738,13 @@ class ModuleOneOnboardingStore:
         evidence (injected for Gateway or grant-bound prepared for direct), current-wake
         status, manual-open artifact, scope, and row-version CAS.
         """
+        from .ordinary_access import current_ordinary_access, ORDINARY_SCOPES
+        ordinary = current_ordinary_access(owner_id=owner_id, model_id=model_id, scope=required_scope)
+        if ordinary is not None and required_scope in ORDINARY_SCOPES:
+            if (write_context_ref != ordinary['write_context_ref']
+                    or (expected_wake_id is not None and expected_wake_id != ordinary['wake_id'])):
+                return {'write_context_available': False, 'reason_code': 'write_context_binding_mismatch'}
+            return ordinary
         if required_scope is not None and required_scope not in DIRECT_WRITE_SCOPES:
             raise OnboardingError("unsupported direct grant scope")
         expected_wake_id = expected_execution_wake(
@@ -3879,6 +4003,14 @@ class ModuleOneOnboardingStore:
             ).fetchone()
             if snapshot is None or snapshot["context_hash"] != context_hash:
                 return self._deny(state, "context_not_injected")
+            stored_payload = {
+                "stable": json.loads(snapshot["stable_json"]),
+                "dynamic": json.loads(snapshot["dynamic_json"]),
+            }
+            if contains_credential_or_secret(stored_payload) or self._contains_protected_value(
+                connection, owner_id=owner_id, model_id=model_id, value=stored_payload,
+            ):
+                return self._deny(state, "protected_persistence_value")
             if snapshot["status"] in {"injected", "closed"}:
                 return {
                     "decision": "injected",
@@ -5772,6 +5904,12 @@ class ModuleOneOnboardingStore:
     ) -> dict[str, Any]:
         """Read-only gate used by every later module before accepting writes."""
         module_name = _require_text("module_name", module_name)
+        from .ordinary_access import current_ordinary_access, MODULE_SCOPES
+        ordinary_scope = MODULE_SCOPES.get(module_name)
+        if ordinary_scope is not None and current_ordinary_access(
+                owner_id=owner_id, model_id=model_id, scope=ordinary_scope) is not None:
+            return {'decision': 'allowed', 'reason_codes': ['authenticated_ordinary_operation'],
+                    'requested_module': module_name, 'state_changed': False, 'pointer_changed': False}
         self.ensure_state(owner_id=owner_id, model_id=model_id)
         with self._connect() as connection:
             # Read state, unlock and active basis from one consistent snapshot.

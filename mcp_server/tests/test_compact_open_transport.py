@@ -69,15 +69,20 @@ async def synthetic_probe() -> dict:
             **plan_content("离线无沙箱协议验收"),
             "write_context_ref": ref,
             "expected_planning_version": opened["planning_memory"]["planning_row_version"],
-            "reason": "我选择保存这条纯合成的协议测试候选。",
+            "reason": "我选择保存这条纯合成的协议测试计划。",
             "calm_check": calm(), "ai_confirmation": True,
             "idempotency_key": "synthetic-native-compact-create",
         }
         created = await call("remember_planning_memory", arguments)
-        assert created["decision"] == "candidate_pending"
+        assert created["decision"] == "stored"
         assert created["state_changed"] is True
-        assert created["active_plan_changed"] is False
-        assert created["review_requires_later_wake"] is True
+        assert created["active_plan_changed"] is True
+        assert created["candidate_created"] is False
+        assert created["review_performed"] is False
+        assert created["review_requires_later_wake"] is False
+
+        replay = await call("remember_planning_memory", arguments)
+        assert replay["idempotent_replay"] is True and replay["state_changed"] is False
 
         # CAS remains a separate error rather than being mislabeled as no open.
         conflict = await call("remember_planning_memory", {
@@ -94,8 +99,9 @@ async def synthetic_probe() -> dict:
         return {
             "decision": "PASS", "tool_count": len(names), "sandbox_tools": 0,
             "summary_utf8_bytes": size, "all_modules_summarized": True,
-            "structured_and_text_equal": True, "native_open_to_candidate": True,
-            "active_plan_changed": False, "version_conflict_preserved": True,
+            "structured_and_text_equal": True, "native_open_to_active_plan": True,
+            "active_plan_changed": True, "version_conflict_preserved": True,
+            "idempotency_replay_preserved": True,
             "private_database_accessed": False,
         }
     finally:

@@ -370,10 +370,19 @@ class ControlApplication:
                 source_event_id=_required_text(body, "source_event_id"),
             )
         if route == "/v1/host/context/prepare":
-            facet_names = body.get("facet_names", [])
-            if not isinstance(facet_names, list) or not all(
+            # Preserve absent vs null. Old Control ignores the new offer field;
+            # new Control must never silently select a layout from two inputs.
+            if "context_layout" in body and "context_layout_offer" in body:
+                raise ValueError("context_layout_fields_conflict")
+            layout_arguments = {
+                key: body[key] for key in ("context_layout", "context_layout_offer") if key in body
+            }
+            # Absent means local situation selection; [] deliberately selects none.
+            # Explicit null is malformed, not a request to change host policy.
+            facet_names = body.get("facet_names")
+            if "facet_names" in body and (not isinstance(facet_names, list) or not all(
                 isinstance(item, str) for item in facet_names
-            ):
+            )):
                 raise ValueError("facet_names must be an array of strings")
             return self.onboarding.build_pre_generation_context(
                 **common,
@@ -384,7 +393,7 @@ class ControlApplication:
                 facet_names=facet_names,
                 source_frame=_source_frame(body),
                 advertised_tools=_advertised_tools(body),
-                context_layout=body.get("context_layout"),
+                **layout_arguments,
             )
         if route == "/v1/host/context/confirm":
             return self.onboarding.confirm_context_injected(
@@ -515,6 +524,7 @@ def build_application_from_env() -> ControlApplication:
     )
     onboarding = ModuleOneOnboardingStore(
         database,
+        ordinary_memory_independent=os.environ.get('STBRAIN_ACCESS_PROFILE', '') == 'simple-memory-v1',
         capability_secret=wake_secret,
         wake_ttl_seconds=int(os.environ.get("STBRAIN_WAKE_TTL_SECONDS", "1800")),
         edit_challenge_ttl_seconds=int(

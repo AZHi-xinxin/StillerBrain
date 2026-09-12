@@ -20,7 +20,7 @@ import re
 import time
 import uuid
 from dataclasses import asdict, dataclass
-from typing import Any, Callable, Mapping, Protocol, Sequence
+from typing import Any, Callable, Collection, Mapping, Protocol, Sequence
 
 from jsonschema import Draft202012Validator, SchemaError, ValidationError
 from referencing.exceptions import Unresolvable
@@ -31,9 +31,179 @@ HOST_RECEIPT_CONTRACT = "native-tool-host-receipt/1"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _TOOL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
+# These are diagnostic labels, not an author-field allowlist. Unknown tools and
+# schema properties still validate normally; only their diagnostic field labels
+# are redacted. A schema property can itself contain private data, so accepting
+# every syntactically valid ASCII identifier would not be a safe log boundary.
+_DIAGNOSTIC_FIELDS = frozenset({
+    "action", "text", "enabled", "mode", "module", "query", "limit", "cursor",
+    "target_ref", "changes", "write_context_ref", "execution_ref", "reason",
+    "memory_ref", "item_ref", "plan_ref", "tool_ref", "card_ref", "source_ref",
+    "memory_id", "item_id", "plan_id", "card_id", "expected_version",
+    "expected_state_version", "expected_event_seq", "target_version", "version",
+    "original_text", "memory_type", "source_timestamp", "summary", "primary_emotion",
+    "secondary_emotions", "importance", "sensitivity", "context_policy", "origin",
+    "confidence", "keywords", "entities", "referent_bindings", "recall_mode",
+    "allow_contexts", "deny_contexts", "default_decision", "explicit_request_override",
+    "disclosure", "lifecycle", "kind", "title", "current_understanding", "steps",
+    "application_contexts", "scene_tags", "preceding_context_summary", "uncertainties",
+    "domain", "source_basis", "claim_review", "time_sensitivity", "valid_as_of",
+    "review_after", "track", "reminder", "presence_mode", "start_at", "due_at",
+    "timezone", "allow_coordination_hint", "parent_ref", "dependency_refs",
+    "ai_adoption_statement", "tool_name", "operation_key", "field_name", "before_text",
+    "after_text", "display_label", "documentation_note", "purpose", "use_when",
+    "avoid_when", "scenario_tags", "scenario_examples", "call_notes", "aliases",
+    "capability_class", "risk_level", "confirmation_policy", "completion_rule",
+    "critical_preconditions", "linked_tool_refs", "chain_role", "handoff_condition",
+    "related_refs", "source_type", "additional_source_refs", "salience", "auto_recall_mode",
+    "salience_reason", "expires_at", "intent", "edit_class", "correctness_assessment",
+    "calm_check_stability", "calm_check_necessity", "calm_check_consequences",
+    "calm_check_alternatives", "clear_fields", "content", "context", "metadata",
+    "facets", "key", "value", "triggers", "situation", "scene", "bindings",
+    "speaker", "referent", "occurrence", "scope", "scopes", "status", "options",
+})
+_DIAGNOSTIC_VALIDATORS = frozenset({
+    "type", "required", "additionalProperties", "unevaluatedProperties", "properties",
+    "patternProperties", "propertyNames", "enum", "const", "minimum", "maximum",
+    "exclusiveMinimum", "exclusiveMaximum", "multipleOf", "minLength", "maxLength",
+    "pattern", "format", "minItems", "maxItems", "uniqueItems", "items", "prefixItems",
+    "additionalItems", "unevaluatedItems", "contains", "minContains", "maxContains",
+    "minProperties", "maxProperties", "dependentRequired", "dependentSchemas",
+    "dependencies", "allOf", "anyOf", "oneOf", "not", "if", "then", "else", "$ref",
+})
+_DIAGNOSTIC_PATH_MARKERS = frozenset({"<field>", "[]", "<truncated>"})
+
+
+def _diagnostic_field(value: Any) -> str:
+    return value if type(value) is str and value in _DIAGNOSTIC_FIELDS else "<field>"
+
+
+def _schema_field_path(error: ValidationError) -> list[str]:
+    """Project schema structure, never instance paths or arbitrary map keys."""
+
+    path: list[str] = []
+    parts = iter(error.absolute_schema_path)
+    for part in parts:
+        if part == "properties":
+            path.append(_diagnostic_field(next(parts, None)))
+        elif part in {"patternProperties", "$defs", "definitions"}:
+            next(parts, None)  # A regex/definition label may contain private data.
+            if part == "patternProperties":
+                path.append("<field>")
+        elif part in {"additionalProperties", "unevaluatedProperties", "propertyNames"}:
+            path.append("<field>")
+        elif part in {"items", "prefixItems", "additionalItems", "unevaluatedItems", "contains"}:
+            path.append("[]")
+        if len(path) >= 10:
+            path.append("<truncated>")
+            break
+    return path
+
+
+def _validation_detail(error: ValidationError) -> dict[str, Any]:
+    validator = error.validator
+    detail: dict[str, Any] = {
+        "validator": validator if type(validator) is str and validator in _DIAGNOSTIC_VALIDATORS else "other",
+        "field_path": _schema_field_path(error),
+    }
+    if validator == "required" and isinstance(error.schema, Mapping) and isinstance(error.instance, Mapping):
+        required = error.schema.get("required")
+        if isinstance(required, list):
+            missing: list[str] = []
+            for field in required[:32]:
+                # Membership is used only to identify absence. Never copy the
+                # instance, actual keys, values, schema text or error message.
+                if type(field) is str and field not in error.instance:
+                    label = _diagnostic_field(field)
+                    if label not in missing:
+                        missing.append(label)
+                    if len(missing) >= 6:
+                        break
+            if missing:
+                detail["required_fields"] = missing
+    return detail
+
+
+def _validation_diagnostic(tool_name: str, error: ValidationError) -> dict[str, Any]:
+    detail = _validation_detail(error)
+    detail["tool_name"] = tool_name
+    if error.validator in {"oneOf", "anyOf"}:
+        branches: list[dict[str, Any]] = []
+        # Bound both traversal and output. No recursive flattening of arbitrary
+        # branch schemas, enum alternatives or validator messages is performed.
+        for child in error.context[:16]:
+            branch = _validation_detail(child)
+            if branch not in branches:
+                branches.append(branch)
+            if len(branches) >= 4:
+                break
+        if branches:
+            detail["branch_errors"] = branches
+    return detail
+
+
+def normalize_validation_diagnostic(
+    value: Any, *, allowed_tool_names: Collection[str] | None = None
+) -> dict[str, Any] | None:
+    """Keep the exception's optional metadata value-free even for future callers.
+
+    The gateway supplies names from its current advertised catalog, then scans
+    the entire result against current protected values and omits the whole
+    metadata object on any collision. Syntax alone cannot authenticate a tool
+    name supplied by an adapter. Internal exception copies omit that optional
+    membership check; only bind_call builds diagnostics from validated calls.
+    """
+
+    if not isinstance(value, Mapping):
+        return None
+    tool_name = value.get("tool_name")
+    if type(tool_name) is not str or _TOOL_NAME.fullmatch(tool_name) is None:
+        return None
+    if allowed_tool_names is not None and tool_name not in allowed_tool_names:
+        return None
+
+    def copy_detail(detail: Mapping[str, Any]) -> dict[str, Any]:
+        validator = detail.get("validator")
+        result: dict[str, Any] = {
+            "validator": validator if type(validator) is str and validator in _DIAGNOSTIC_VALIDATORS else "other",
+            "field_path": [],
+        }
+        fields = detail.get("field_path")
+        if isinstance(fields, (list, tuple)):
+            result["field_path"] = [
+                item if type(item) is str and item in _DIAGNOSTIC_PATH_MARKERS else _diagnostic_field(item)
+                for item in fields[:11]
+            ]
+        required = detail.get("required_fields")
+        if isinstance(required, (list, tuple)) and required:
+            result["required_fields"] = list(dict.fromkeys(_diagnostic_field(item) for item in required[:6]))
+        return result
+
+    result = copy_detail(value)
+    result["tool_name"] = tool_name
+    branches = value.get("branch_errors")
+    if result["validator"] in {"oneOf", "anyOf"} and isinstance(branches, (list, tuple)):
+        cleaned = [copy_detail(branch) for branch in branches[:4] if isinstance(branch, Mapping)]
+        if cleaned:
+            result["branch_errors"] = cleaned
+    return result
+
 
 class ToolExecutionBoundaryError(RuntimeError):
     """A stable, value-free boundary rejection."""
+
+    def __init__(self, code: str, *, validation_diagnostic: Mapping[str, Any] | None = None) -> None:
+        super().__init__(code)
+        self._validation_diagnostic = (
+            normalize_validation_diagnostic(validation_diagnostic)
+            if code == "tool_arguments_schema_invalid" else None
+        )
+
+    @property
+    def validation_diagnostic(self) -> dict[str, Any] | None:
+        # Give consumers an independent, re-sanitized projection. They cannot
+        # accidentally append raw error data to metadata held by the exception.
+        return normalize_validation_diagnostic(self._validation_diagnostic)
 
 
 def canonical_json(value: Any) -> str:
@@ -406,6 +576,7 @@ class HostExecutionBoundary:
         if canonical_hash(schema) != schema_hash:
             raise ToolExecutionBoundaryError("tool_schema_hash_mismatch")
         arguments = parse_arguments(call.arguments_text)
+        validation_diagnostic = None
         try:
             Draft202012Validator(dict(schema)).validate(arguments)
         except Unresolvable as exc:
@@ -423,7 +594,14 @@ class HostExecutionBoundary:
                 "advertised_tool_schema_recursion_unsupported"
             ) from exc
         except ValidationError as exc:
-            raise ToolExecutionBoundaryError("tool_arguments_schema_invalid") from exc
+            validation_diagnostic = _validation_diagnostic(call.tool_name, exc)
+        if validation_diagnostic is not None:
+            # Raise outside the handler, so neither __cause__ nor __context__
+            # retains ValidationError's instance, full schema or message.
+            raise ToolExecutionBoundaryError(
+                "tool_arguments_schema_invalid",
+                validation_diagnostic=validation_diagnostic,
+            ) from None
         binding = ToolExecutionBinding(
             contract=EXECUTION_BINDING_CONTRACT,
             wake_id=wake_id,

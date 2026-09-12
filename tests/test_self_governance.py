@@ -278,13 +278,13 @@ class SelfGovernanceStoreTests(unittest.TestCase):
                 expected_row_version=0,
                 expected_active_revision=None,
             )
-        with self.assertRaisesRegex(SelfGovernanceError, "first_person"):
+        with self.assertRaisesRegex(SelfGovernanceError, "invalid_governance_content_structure"):
             self.store.propose_candidate(
                 owner_id=self.owner,
                 model_id=self.model,
                 scope="global",
                 operation="set",
-                content=profile("开发者要求采用这个边界。"),
+                content={**profile("第三人称也可由 AI 自主选择。"), "author": "human"},
                 reason="我想保存。",
                 wake_id="wake-1",
                 wake_seq=1,

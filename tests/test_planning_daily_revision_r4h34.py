@@ -145,16 +145,23 @@ class PlanningDailyRevisionTests(unittest.TestCase):
         self.assertTrue(all(row["source_version"] == 2 for row in active_edges))
         self.assertEqual(4, len(self.rows("planning_edges")))
 
-    def test_nonwhitelisted_semantic_and_lifecycle_fields_require_advanced(self) -> None:
+    def test_system_fields_and_invalid_authored_shapes_are_rejected(self) -> None:
         initial = self.ordinary()
-        forbidden = ("original_text", "reminder", "presence_mode", "track", "kind", "scene_tags",
-                     "parent_ref", "dependency_refs", "due_at", "review_after", "start_at", "timezone",
-                     "allow_coordination_hint", "ai_adoption_statement", "write_mode", "state",
-                     "recall_lifecycle", "unknown")
-        for field in forbidden:
+        for field in ("write_mode", "state", "recall_lifecycle", "unknown", "owner_id"):
             with self.subTest(field=field):
-                self.assert_rejected_unchanged("ordinary_revision_requires_advanced",
+                self.assert_rejected_unchanged("invalid_plan_changes",
                     lambda: self.revise(initial, changes={"summary": "Allowed part", field: None}))
+        for field, invalid in (("original_text", None), ("reminder", None), ("presence_mode", "invalid"),
+                               ("track", "invalid"), ("kind", "invalid"), ("scene_tags", "bad"),
+                               ("parent_ref", "bad"), ("dependency_refs", "bad"), ("timezone", None),
+                               ("allow_coordination_hint", None)):
+            with self.subTest(field=field):
+                self.assert_rejected_unchanged("invalid",
+                    lambda: self.revise(initial, changes={field: invalid}))
+        revised = self.revise(initial, changes={"original_text": "New body", "parent_ref": None,
+                                                "dependency_refs": [], "start_at": None, "due_at": None})
+        self.assertEqual(2, revised["version"])
+        self.assertEqual("New body", self.read(revised["ref"])["content"]["original_text"])
 
     def test_invalid_metadata_noop_and_secrets_reject_without_partial_writes(self) -> None:
         initial = self.ordinary(title="Same title")

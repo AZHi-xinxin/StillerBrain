@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:stiller-brain:tool-guidance:0.2.0",
   "title": "AI-authored Tool Guidance Card",
-  "description": "Detailed historical guidance for one concrete callable operation. It is advice only, never a permission, parameter payload, execution proxy, or receipt. Grammatical person is chosen by the AI and is not used as an authorship test.",
+  "description": "AI-authored tool or MCP service reminder with optional callable operation details. It is advice only, never a permission, parameter payload, execution proxy, or receipt. Grammatical person is chosen by the AI and is not used as an authorship test.",
   "$ref": "#/$defs/cardContent",
   "$defs": {
     "shortText": {
@@ -14,7 +14,9 @@
       "type": "array",
       "maxItems": 8,
       "uniqueItems": true,
-      "items": {"$ref": "#/$defs/shortText"}
+      "items": {
+        "$ref": "#/$defs/shortText"
+      }
     },
     "tagList": {
       "type": "array",
@@ -24,26 +26,70 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 128,
-        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f]{1,128}$"
       }
     },
     "hintList": {
       "type": "array",
       "maxItems": 16,
       "uniqueItems": true,
-      "items": {"type": "string", "minLength": 1, "maxLength": 160}
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 160
+      }
     },
     "referentBinding": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["field_path", "surface_form", "occurrence_index", "entity_ref", "resolution_status", "confidence"],
+      "required": [
+        "field_path",
+        "surface_form",
+        "occurrence_index",
+        "entity_ref",
+        "resolution_status",
+        "confidence"
+      ],
       "properties": {
-        "field_path": {"enum": ["/display_label", "/completion_rule", "/purpose", "/call_notes", "/documentation_note", "/salience_reason", "/handoff_condition"]},
-        "surface_form": {"type": "string", "minLength": 1, "maxLength": 200},
-        "occurrence_index": {"type": "integer", "minimum": 0},
-        "entity_ref": {"type": ["string", "null"], "maxLength": 300},
-        "resolution_status": {"enum": ["resolved", "unresolved", "ambiguous"]},
-        "confidence": {"type": "integer", "minimum": 0, "maximum": 100}
+        "field_path": {
+          "enum": [
+            "/display_label",
+            "/completion_rule",
+            "/purpose",
+            "/call_notes",
+            "/documentation_note",
+            "/salience_reason",
+            "/handoff_condition"
+          ]
+        },
+        "surface_form": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "occurrence_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "entity_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 300
+        },
+        "resolution_status": {
+          "enum": [
+            "resolved",
+            "unresolved",
+            "ambiguous"
+          ]
+        },
+        "confidence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        }
       }
     },
     "relatedRef": {
@@ -94,8 +140,7 @@
         "canonical_tool_name": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128,
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
+          "maxLength": 128
         },
         "operation_key": {
           "type": "string",
@@ -103,33 +148,98 @@
           "maxLength": 128,
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
         },
-        "display_label": {"type": "string", "minLength": 1, "maxLength": 120},
-        "capability_class": {"enum": ["information_query", "real_world_action"]},
-        "risk_level": {"enum": ["low", "medium", "high", "critical"]},
-        "confirmation_policy": {"enum": ["none", "contextual", "explicit_each_time"]},
-        "completion_rule": {"type": "string", "minLength": 1, "maxLength": 300},
+        "display_label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "capability_class": {
+          "enum": [
+            "information_query",
+            "real_world_action"
+          ]
+        },
+        "risk_level": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ]
+        },
+        "confirmation_policy": {
+          "enum": [
+            "none",
+            "contextual",
+            "explicit_each_time"
+          ]
+        },
+        "completion_rule": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 300
+        },
         "critical_preconditions": {
           "type": "array",
           "maxItems": 4,
-          "items": {"$ref": "#/$defs/shortText"}
+          "items": {
+            "$ref": "#/$defs/shortText"
+          }
         },
-        "purpose": {"type": "string", "minLength": 1, "maxLength": 300},
-        "use_when": {"$ref": "#/$defs/shortTextList"},
-        "avoid_when": {"$ref": "#/$defs/shortTextList"},
-        "scenario_tags": {"$ref": "#/$defs/tagList"},
-        "scenario_examples": {"$ref": "#/$defs/shortTextList"},
-        "call_notes": {"type": "string", "maxLength": 800},
-        "documentation_note": {"type": "string", "maxLength": 500},
+        "purpose": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "use_when": {
+          "$ref": "#/$defs/shortTextList"
+        },
+        "avoid_when": {
+          "$ref": "#/$defs/shortTextList"
+        },
+        "scenario_tags": {
+          "$ref": "#/$defs/tagList"
+        },
+        "scenario_examples": {
+          "$ref": "#/$defs/shortTextList"
+        },
+        "call_notes": {
+          "type": "string",
+          "maxLength": 800
+        },
+        "documentation_note": {
+          "type": "string",
+          "maxLength": 500
+        },
         "referent_bindings": {
           "type": "array",
           "maxItems": 64,
-          "items": {"$ref": "#/$defs/referentBinding"}
+          "items": {
+            "$ref": "#/$defs/referentBinding"
+          }
         },
-        "keywords": {"$ref": "#/$defs/hintList"},
-        "aliases": {"$ref": "#/$defs/hintList"},
-        "salience": {"type": "integer", "minimum": 0, "maximum": 100},
-        "auto_recall_mode": {"enum": ["normal", "downweighted", "never_auto"]},
-        "salience_reason": {"type": "string", "maxLength": 300},
+        "keywords": {
+          "$ref": "#/$defs/hintList"
+        },
+        "aliases": {
+          "$ref": "#/$defs/hintList"
+        },
+        "salience": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "auto_recall_mode": {
+          "enum": [
+            "normal",
+            "downweighted",
+            "never_auto"
+          ]
+        },
+        "salience_reason": {
+          "type": "string",
+          "maxLength": 300
+        },
         "linked_tool_refs": {
           "type": "array",
           "maxItems": 8,
@@ -139,42 +249,122 @@
             "pattern": "^tool-card://toolcard_[0-9a-f]{32}@[1-9][0-9]*$"
           }
         },
-        "chain_role": {"enum": ["standalone", "entry", "middle", "terminal"]},
-        "handoff_condition": {"type": "string", "maxLength": 300},
+        "chain_role": {
+          "enum": [
+            "standalone",
+            "entry",
+            "middle",
+            "terminal"
+          ]
+        },
+        "handoff_condition": {
+          "type": "string",
+          "maxLength": 300
+        },
         "related_refs": {
           "type": "array",
           "maxItems": 8,
           "uniqueItems": true,
-          "items": {"$ref": "#/$defs/relatedRef"}
+          "items": {
+            "$ref": "#/$defs/relatedRef"
+          }
         },
-        "source_type": {"enum": ["ai_firsthand", "external_document", "human_reported", "ai_inferred"]},
-        "source_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2000},
+        "source_type": {
+          "enum": [
+            "ai_firsthand",
+            "external_document",
+            "human_reported",
+            "ai_inferred"
+          ]
+        },
+        "source_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 2000
+        },
         "additional_source_refs": {
           "type": "array",
           "maxItems": 16,
           "uniqueItems": true,
-          "items": {"type": "string", "minLength": 1, "maxLength": 2000}
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
         },
-        "claimed_confidence": {"type": "integer", "minimum": 0, "maximum": 100},
-        "effective_confidence": {"type": "integer", "minimum": 0, "maximum": 85},
+        "claimed_confidence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "effective_confidence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
         "observed_schema_hash": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "^[a-f0-9]{64}$"
         },
-        "valid_from": {"type": "string", "format": "date-time"},
-        "expires_at": {"type": "string", "format": "date-time"},
-        "lifecycle": {"enum": ["active", "retired"]}
+        "valid_from": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Optional AI-chosen expiry. Null means no fixed expiry; a timezone-aware ISO timestamp may represent a past or future date."
+        },
+        "lifecycle": {
+          "enum": [
+            "active",
+            "retired"
+          ]
+        },
+        "reminder": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "AI-authored one-sentence scene reminder. Optional for legacy cards; omission keeps their stored shape."
+        }
       }
     },
     "calmCheck": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["stability", "necessity", "consequences", "alternatives"],
+      "required": [
+        "stability",
+        "necessity",
+        "consequences",
+        "alternatives"
+      ],
       "properties": {
-        "stability": {"type": "string", "minLength": 12, "maxLength": 1000},
-        "necessity": {"type": "string", "minLength": 12, "maxLength": 1000},
-        "consequences": {"type": "string", "minLength": 12, "maxLength": 1000},
-        "alternatives": {"type": "string", "minLength": 12, "maxLength": 1000}
+        "stability": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 1000
+        },
+        "necessity": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 1000
+        },
+        "consequences": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 1000
+        },
+        "alternatives": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 1000
+        }
       }
     },
     "majorCandidate": {
@@ -194,29 +384,71 @@
         "schema_status"
       ],
       "properties": {
-        "candidate_id": {"type": "string", "pattern": "^toolcand_[0-9a-f]{32}$"},
-        "card_id": {"type": "string", "pattern": "^toolcard_[0-9a-f]{32}$"},
-        "base_version": {"type": "integer", "minimum": 1},
-        "proposed_content": {"$ref": "#/$defs/cardContent"},
+        "candidate_id": {
+          "type": "string",
+          "pattern": "^toolcand_[0-9a-f]{32}$"
+        },
+        "card_id": {
+          "type": "string",
+          "pattern": "^toolcard_[0-9a-f]{32}$"
+        },
+        "base_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "proposed_content": {
+          "$ref": "#/$defs/cardContent"
+        },
         "diff": {
           "type": "array",
           "minItems": 1,
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["op", "path"],
+            "required": [
+              "op",
+              "path"
+            ],
             "properties": {
-              "op": {"const": "replace"},
-              "path": {"type": "string", "pattern": "^/[A-Za-z0-9_]+$"}
+              "op": {
+                "const": "replace"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^/[A-Za-z0-9_]+$"
+              }
             }
           }
         },
-        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
-        "correctness_assessment": {"type": "string", "minLength": 20, "maxLength": 2000},
-        "calm_check": {"$ref": "#/$defs/calmCheck"},
-        "candidate_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-        "creation_tool_row_version": {"type": "integer", "minimum": 0},
-        "schema_status": {"enum": ["matched", "stale_schema", "not_advertised", "unknown"]}
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "correctness_assessment": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 2000
+        },
+        "calm_check": {
+          "$ref": "#/$defs/calmCheck"
+        },
+        "candidate_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "creation_tool_row_version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "schema_status": {
+          "enum": [
+            "matched",
+            "stale_schema",
+            "not_advertised",
+            "unknown"
+          ]
+        }
       }
     },
     "experience": {
@@ -238,9 +470,18 @@
         "cooldown_until"
       ],
       "properties": {
-        "experience_id": {"type": "string", "pattern": "^toolexp_[0-9a-f]{32}$"},
-        "card_id": {"type": "string", "pattern": "^toolcard_[0-9a-f]{32}$"},
-        "card_version": {"type": "integer", "minimum": 1},
+        "experience_id": {
+          "type": "string",
+          "pattern": "^toolexp_[0-9a-f]{32}$"
+        },
+        "card_id": {
+          "type": "string",
+          "pattern": "^toolcard_[0-9a-f]{32}$"
+        },
+        "card_version": {
+          "type": "integer",
+          "minimum": 1
+        },
         "outcome": {
           "enum": [
             "success",
@@ -255,15 +496,45 @@
             "unknown"
           ]
         },
-        "reason_code": {"type": "string", "minLength": 1, "maxLength": 160},
-        "attempt_summary": {"type": "string", "minLength": 1, "maxLength": 1000},
-        "lesson": {"type": "string", "maxLength": 1000},
-        "confidence": {"type": "integer", "minimum": 0, "maximum": 80},
-        "provenance": {"const": "ai_reported"},
-        "evidence_ref": {"type": "null"},
-        "verified": {"const": false},
-        "occurred_at": {"type": "string", "format": "date-time"},
-        "cooldown_until": {"type": ["string", "null"], "format": "date-time"}
+        "reason_code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "attempt_summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "lesson": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "confidence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "provenance": {
+          "const": "ai_reported"
+        },
+        "evidence_ref": {
+          "type": "null"
+        },
+        "verified": {
+          "const": false
+        },
+        "occurred_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "cooldown_until": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
       }
     },
     "recallEnvelope": {
@@ -273,56 +544,115 @@
         "module",
         "item_ref",
         "kind",
-        "scene_cues",
         "semantic_score",
         "salience_score",
-        "confidence",
-        "freshness",
-        "provenance_class",
-        "gate_decision",
-        "presentation",
         "token_cost",
-        "reason_codes",
         "content",
-        "detail_lookup",
-        "module_extension"
+        "summary_source"
       ],
       "properties": {
-        "module": {"const": "tool_guidance_module"},
-        "item_ref": {"type": "string", "pattern": "^tool-card://toolcard_[0-9a-f]{32}@[1-9][0-9]*$"},
-        "kind": {"const": "tool_card_summary"},
-        "scene_cues": {"$ref": "#/$defs/tagList"},
-        "semantic_score": {"type": "number", "minimum": 0, "maximum": 1},
-        "salience_score": {"type": "number", "minimum": 0, "maximum": 1},
-        "confidence": {"type": "integer", "minimum": 0, "maximum": 85},
-        "freshness": {"const": "current"},
-        "provenance_class": {"enum": ["firsthand", "reported", "inferred"]},
-        "gate_decision": {"const": "background_reference"},
-        "presentation": {"const": "short_summary"},
-        "token_cost": {"type": "integer", "minimum": 1},
-        "reason_codes": {"type": "array", "items": {"type": "string"}},
+        "module": {
+          "const": "tool_guidance_module"
+        },
+        "item_ref": {
+          "type": "string",
+          "pattern": "^tool-card://toolcard_[0-9a-f]{32}@[1-9][0-9]*$"
+        },
+        "kind": {
+          "const": "tool_card_summary"
+        },
+        "scene_cues": {
+          "$ref": "#/$defs/tagList"
+        },
+        "semantic_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "salience_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "confidence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 85
+        },
+        "freshness": {
+          "const": "current"
+        },
+        "provenance_class": {
+          "enum": [
+            "firsthand",
+            "reported",
+            "inferred"
+          ]
+        },
+        "gate_decision": {
+          "const": "background_reference"
+        },
+        "presentation": {
+          "const": "short_summary"
+        },
+        "token_cost": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "content": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["scene_summary"],
+          "required": [
+            "scene_summary"
+          ],
           "properties": {
-            "scene_summary": {"type": "string", "minLength": 1, "maxLength": 100}
+            "scene_summary": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
           }
         },
         "detail_lookup": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["available", "tool", "ref"],
+          "required": [
+            "available",
+            "tool",
+            "ref"
+          ],
           "properties": {
-            "available": {"type": "boolean"},
-            "tool": {"type": ["string", "null"], "enum": ["recall_tool_guidance", null]},
-            "ref": {"type": "string", "pattern": "^tool-card://toolcard_[0-9a-f]{32}@[1-9][0-9]*$"}
+            "available": {
+              "type": "boolean"
+            },
+            "tool": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "enum": [
+                "recall_tool_guidance",
+                null
+              ]
+            },
+            "ref": {
+              "type": "string",
+              "pattern": "^tool-card://toolcard_[0-9a-f]{32}@[1-9][0-9]*$"
+            }
           }
         },
         "module_extension": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["tool_guidance"],
+          "required": [
+            "tool_guidance"
+          ],
           "properties": {
             "tool_guidance": {
               "type": "object",
@@ -336,15 +666,41 @@
                 "recall_gate"
               ],
               "properties": {
-                "tool_name": {"type": "string"},
-                "operation_key": {"type": "string"},
-                "capability_class": {"enum": ["information_query", "real_world_action"]},
-                "risk_level": {"enum": ["low", "medium", "high", "critical"]},
-                "critical_precondition_applied": {"type": "boolean"},
-                "recall_gate": {"const": "passed"}
+                "tool_name": {
+                  "type": "string"
+                },
+                "operation_key": {
+                  "type": "string"
+                },
+                "capability_class": {
+                  "enum": [
+                    "information_query",
+                    "real_world_action"
+                  ]
+                },
+                "risk_level": {
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "critical"
+                  ]
+                },
+                "critical_precondition_applied": {
+                  "type": "boolean"
+                },
+                "recall_gate": {
+                  "const": "passed"
+                }
               }
             }
           }
+        },
+        "summary_source": {
+          "enum": [
+            "authored_reminder",
+            "legacy_purpose_excerpt"
+          ]
         }
       }
     }
@@ -366,6 +722,9 @@
     "raw_arguments_allowed": false,
     "raw_results_allowed": false,
     "credentials_allowed": false,
-    "host_verified_receipts_supported": false
+    "host_verified_receipts_supported": false,
+    "reminder_eligibility": "author_switch_lifecycle_relevance_budget",
+    "catalog_and_schema_required_for_reminder": false,
+    "ordinary_revision": "append_version_without_approval"
   }
 }

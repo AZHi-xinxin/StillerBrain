@@ -13,10 +13,12 @@ import json
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence, TypeAlias
 
+from .ordinary_revision_schema import install_ordinary_revision_schema
+
 
 PUBLIC_CONTRACT_VERSION = "public-tools/20"
 
-BrainOpenView: TypeAlias = Literal["summary", "manual", "review"]
+BrainOpenView: TypeAlias = Literal["summary", "manual", "review", "recall"]
 BrainManualModule: TypeAlias = Literal[
     "self_revision", "emotional_memory", "learning_memory", "tool_guidance",
     "planning_memory", "self_governance_profile", "injection_control",
@@ -41,6 +43,7 @@ PUBLIC_TOOL_NAMES: tuple[str, ...] = (
     "query_self_model",
     "preview_person_reference_rewrite",
     "confirm_person_reference_rewrite",
+    "manage_person_reference_advisory",
     "remember_emotional_memory",
     "recall_emotional_memory",
     "revise_emotional_memory",
@@ -130,11 +133,11 @@ _TOOL_GUIDANCE_SCENARIO_TAGS_INPUT_SCHEMA = copy.deepcopy(
 )
 _TOOL_GUIDANCE_SCENARIO_TAGS_INPUT_SCHEMA.update(
     {
-        "minItems": 1,
+        "minItems": 0,
         "description": (
-            "机器场景标签，例如 home.arrival；1–16 条且不可重复，每条 1–128 字符，"
-            "以 ASCII 字母或数字开头，仅含 ASCII 字母、数字、点、下划线、连字符。"
-            "中文场景叙述请写入 scenario_examples 或 keywords，不要填在本字段。"
+            "可选自然语言场景标签，支持中文或英文，如 回家了、准备睡觉、home.arrival；"
+            "每项 1–128 字符，最多 16 项且不重复。新增可省略；"
+            "修改时省略或 null 保留现有标签，[] 清空。"
         ),
     }
 )
@@ -199,13 +202,13 @@ def _planning_content_input_properties() -> dict[str, Any]:
             "relational 时可以留空。"
         ),
         "ai_adoption_statement": (
-            "当前 AI 自己决定采纳计划的声明，必须以‘我’、‘I’或‘My’开头，"
-            "最多 500 字符；用户的请求本身不是 AI 的采纳声明。"
+            "当前 AI 自己决定采纳计划的声明，人称由作者选择，最多 500 字符。"
+            "声明表达当前 AI 的采纳决定；外部行动使用相应工具的实际授权。"
         ),
         "parent_ref": (
-            "已落地、未隔离计划的当前精确 plan://plan_<32位小写十六进制>@版本 引用。"
-            "goal 必须有 vision 父项，milestone 必须有 goal 父项；"
-            "task 与 commitment 可独立创建，不必虚构父项。"
+            "各类型均可独立创建，parent_ref 可省略或 null。"
+            "主动填写时使用已落地、未隔离计划的当前精确 plan://plan_<32位小写十六进制>@版本 引用；"
+            "校验父项类型、存在、当前版本与无环。"
         ),
         "dependency_refs": (
             "已落地、未隔离计划的当前精确版本引用，最多 8 条、不可重复；"
@@ -1212,6 +1215,19 @@ def install_public_tool_input_contracts(mcp: Any) -> None:
         parameters["additionalProperties"] = False
         tool.parameters = parameters
 
+    remember_memory = manager.get_tool("remember_memory").parameters
+    remember_memory["properties"]["kind"]["description"] = (
+        "由 AI 按对应模块选择类型；情感记忆省略时为 unclassified（未分类），"
+        "不会替作者判定为重要对话。学习记忆与计划沿用各自类型。"
+    )
+    remember_memory["properties"]["source_basis"]["description"] = (
+        "observed=我亲历或观察；reported=转述/引述；inferred=推断。"
+        "unmarked=未标注；省略采用 unmarked，按实际来源选择。"
+    )
+    remember_memory["properties"]["confidence"]["description"] = (
+        "AI 自己填写 0–100；省略或 null 保存为未标注，不代填评分。"
+    )
+
     manager.get_tool("submit_self_model_candidate").parameters = copy.deepcopy(
         PUBLIC_SUBMIT_INPUT_SCHEMA
     )
@@ -1226,23 +1242,35 @@ def install_public_tool_input_contracts(mcp: Any) -> None:
     )
     for name in ("remember_tool_guidance", "revise_tool_guidance"):
         parameters = copy.deepcopy(manager.get_tool(name).parameters)
+        parameters["properties"]["confidence"]["description"] = (
+            "AI 按实际理解自主填写 0–100，各 source_type 使用同一范围。"
+            "作者自报数值不代表独立核验，也不授予实际工具执行权限。"
+        )
+        parameters["properties"]["expires_at"]["description"] = (
+            "可选的带时区 ISO 时间，由作者自主设置，可填过去或长期日期。"
+            + ("创建时省略或 null 表示不设置到期时间。"
+               if name == "remember_tool_guidance" else
+               "修改时省略或 null 保留当前值；clear_fields=[\"expires_at\"] 明确清除。"
+               "同次设置 expires_at 和清除它会拒绝。")
+        )
+        if name == "revise_tool_guidance":
+            parameters["properties"]["clear_fields"]["description"] = (
+                "明确清除 reminder、source_ref 或 expires_at；省略或 null 不清除。"
+                "同一字段不能在同次请求里同时设置和清除。"
+            )
         tags = copy.deepcopy(_TOOL_GUIDANCE_SCENARIO_TAGS_INPUT_SCHEMA)
-        parameters["properties"]["scenario_tags"] = (
-            tags
-            if name == "remember_tool_guidance"
-            else {
+        parameters["properties"]["scenario_tags"] = {
                 "anyOf": [tags, {"type": "null"}],
                 "default": None,
-                "description": "省略或 null 表示不修改；提供新标签时遵循机器场景标签格式。",
+                "description": "可选自然语言场景标签，支持中文或英文，如 回家了、准备睡觉、home.arrival；每项 1–128 字符，最多 16 项且不重复。新增可省略；修改时省略或 null 保留现有标签，[] 清空。",
             }
-        )
         parameters["properties"]["risk_level"]["description"] = (
             "由当前 AI 评估风险。real_world_action 的运行时下限为 high，"
             "不是一律要求 critical；high 与 critical 都必须搭配 explicit_each_time。"
         )
         parameters["properties"]["confirmation_policy"]["description"] = (
             "real_world_action 必须使用 explicit_each_time；high/critical 同样如此。"
-            "工具卡只保存历史建议，不授予执行权限；提交 major 候选也不绕过运行时下限。"
+            "此字段供实际执行权限核验；场景提醒独立于执行权限。"
         )
         manager.get_tool(name).parameters = parameters
     for name in ("remember_learning_memory", "revise_learning_memory"):
@@ -1277,6 +1305,15 @@ def install_public_tool_input_contracts(mcp: Any) -> None:
         parameters["properties"]["calm_check"] = copy.deepcopy(
             _LEARNING_CALM_CHECK_INPUT_SCHEMA
         )
+        if name != "review_learning_change":
+            parameters["properties"]["calm_check"] = {
+                "anyOf": [parameters["properties"]["calm_check"], {"type": "null"}],
+                "default": None,
+                "description": "可省略或 null；主动填写的旧审核备注是作者输入，不代表已完成独立审核。",
+            }
+            parameters["required"] = [
+                field for field in parameters.get("required", []) if field != "calm_check"
+            ]
         manager.get_tool(name).parameters = parameters
 
     # Planning uses flat public calls for ease of use while the runtime stores
@@ -1295,9 +1332,15 @@ def install_public_tool_input_contracts(mcp: Any) -> None:
 
     revise_plan = copy.deepcopy(manager.get_tool("revise_planning_memory").parameters)
     revise_plan.pop("$defs", None)
-    revise_plan["properties"]["calm_check"] = copy.deepcopy(
-        _PLANNING_CALM_CHECK_INPUT_SCHEMA
-    )
+    revise_plan["properties"]["calm_check"] = {
+        "anyOf": [copy.deepcopy(_PLANNING_CALM_CHECK_INPUT_SCHEMA), {"type": "null"}],
+        "default": None,
+        "description": "可省略或 null；主动填写的旧审核备注是作者输入，不代表已完成独立审核。",
+    }
+    revise_plan["required"] = [
+        field for field in revise_plan.get("required", [])
+        if field not in {"calm_check", "ai_confirmation"}
+    ]
     revise_plan["properties"]["changes"] = {
         "anyOf": [
             {
@@ -1322,7 +1365,12 @@ def install_public_tool_input_contracts(mcp: Any) -> None:
                 ),
             }
         )
-        parameters["properties"]["ai_confirmation"]["const"] = True
+    remember_plan["properties"]["ai_confirmation"]["const"] = True
+    revise_plan["properties"]["ai_confirmation"] = {
+        "anyOf": [{"type": "boolean", "const": True}, {"type": "null"}],
+        "default": None,
+        "description": "可省略或 null；显式填写时仅接受 JSON true。直接提交本身是作者操作，不虚构复核。",
+    }
 
     review_plan = copy.deepcopy(manager.get_tool("review_planning_change").parameters)
     review_plan["properties"]["calm_check"] = copy.deepcopy(
@@ -1339,21 +1387,7 @@ def install_public_tool_input_contracts(mcp: Any) -> None:
     manager.get_tool("record_planning_event").parameters = event_plan
 
     ordinary_revision = manager.get_tool("revise_memory")
-    ordinary_revision.parameters["properties"]["changes"] = {
-        "type": "object", "minProperties": 1, "additionalProperties": False,
-        "properties": {
-            "title": {"type": "string", "minLength": 1, "maxLength": 120},
-            "summary": {"type": "string", "minLength": 1, "maxLength": 240,
-                        "description": "learning: up to 240 characters; emotion/planning: up to 200."},
-            "domain": {"type": "string", "maxLength": 160},
-            "keywords": {"type": "array", "maxItems": 24,
-                         "items": {"type": "string", "minLength": 1, "maxLength": 200}},
-            "entities": {"type": "array", "maxItems": 24,
-                         "items": {"type": "string", "minLength": 1, "maxLength": 200}},
-            "importance": {"type": "integer", "minimum": 0, "maximum": 100},
-        },
-        "description": "Only changed ordinary fields. title: learning/planning; entities: emotion/learning; domain: learning. Planning keywords: at most 16 items, 160 chars each; other lists: 24 items, 200 chars each. Other fields use the module's advanced interface.",
-    }
+    install_ordinary_revision_schema(ordinary_revision.parameters)
     ordinary_event = manager.get_tool("advance_plan")
     ordinary_event.parameters["properties"]["evidence"] = {
         "anyOf": [{"type": "array", "maxItems": 16,

@@ -1,8 +1,8 @@
 """Static usage-contract checks: no stores, MCP server import or live config.
 
-The reviewed AST snapshots erase only explicitly selected static documentation
-values. All remaining code, schemas, candidate projections and gates must stay
-identical except for the explicitly reviewed r4h38 core facade delta below.
+The core facade retains reviewed AST pins. Ordinary-memory behavior is now
+intentionally different in the local simple profile and is exercised by the
+full revision and native transport suites rather than the old documentation-only pin.
 This does not claim a phone delivery or a real write has succeeded.
 """
 from __future__ import annotations
@@ -47,8 +47,31 @@ HISTORICAL_R4H34_NON_DOCUMENTATION_SHA256 = {
 # 20c22b4437c7d8c9e78a7c0662c39321f4ba4791b00f72f0d7ac705d8f77585b.
 REVIEWED_NON_DOCUMENTATION_SHA256 = {
     **HISTORICAL_R4H34_NON_DOCUMENTATION_SHA256,
-    "service.py": "c4f0600e5d1f45948d7e0ab82e0b9d65560ee389ec5443de182f50fa1f9191b4",
+    # Local L13/L14 review: only __init__, health, open_brain, compact/selected
+    # projections and four display/manual helpers differ from the sealed prior
+    # service. Restoring those five AST methods and removing four new helpers
+    # reproduces the full baseline AST exactly. The 21 untouched methods,
+    # including every self-write/activation facade, are pinned independently below.
+    # L19 independently reviewed: one new recall_memory read facade and three
+    # updated static strings. Removing/restoring exactly these nodes reproduces
+    # the sealed L18 whole-file AST; see service-ast-delta-verification.json.
+    # The 21 protected self-edit methods and the erasure algorithm stay exact.
+    # L20: only the facets visibility help literal differs from sealed L19.
+    # Restoring that one literal reproduces the entire L19 AST; the erasure
+    # algorithm remains unchanged; content_schema changes only this help literal.
+    "service.py": "8ec2ed634c1c12e55f10f9acdade1c0e60c38c4917c8201ebea430306df0c82a",
 }
+PROTECTED_SELF_METHODS = (
+    '_action_for_public_intent', '_bound_public_write', '_candidate_for_this_model',
+    '_current_candidate_matches', '_onboarding_status', '_progression_required',
+    '_public_gate_denial', '_public_payload_denial', 'activate_candidate',
+    'activate_self_model_candidate', 'content_schema', 'continue_module_one',
+    'get_active', 'module_one_status', 'open_brain_direct', 'prepare', 'query_self_model',
+    'recheck_candidate', 'search', 'store_candidate', 'submit_self_model_candidate',
+)
+# L20 whole-file restore proof: content_schema changes only facets visibility
+# help. All other protected methods remain byte-for-byte AST equivalent to L19.
+PROTECTED_SELF_METHODS_SHA256 = '45149f76209b006c997b9c3b00a28db642b28e13a9c9e068906e8c4b2e4b28e5'
 
 
 def tree(filename):
@@ -74,8 +97,57 @@ def dictionary_field(parsed, key):
 
 
 def literal_field(filename, key):
-    node, index = dictionary_field(tree(filename), key)
+    parsed = tree(filename)
+    if filename == "usage_guide.py":
+        parsed = next(node for node in parsed.body if isinstance(node, ast.FunctionDef) and node.name == "usage_guide")
+    node, index = dictionary_field(parsed, key)
     return ast.literal_eval(node.values[index])
+
+
+def stable_ast_snapshot(parsed):
+    """Version-independent single-line representation for these reviewed pins.
+
+    The stored hashes use the compact 3.14 representation, but ast.dump's empty
+    list default differs on 3.12. Define that policy here instead of selecting a
+    dump mode by interpreter version. Keep declared field order, list order,
+    node kinds and exact literal values; source-location attributes are absent.
+    Class-level None defaults identify optional AST fields on both versions.
+    Constant.value=None and None entries inside lists remain actual values.
+    This is a deliberately narrow serializer, not an AST semantic validator.
+    """
+    missing = object()
+
+    def render(value):
+        if isinstance(value, ast.AST):
+            node_type = type(value)
+            if getattr(ast, node_type.__name__, None) is not node_type:
+                raise TypeError("unrecognized AST node type")
+            fields = []
+            for name in node_type._fields:
+                item = getattr(value, name, missing)
+                if item is missing:
+                    raise TypeError("missing declared AST field: " + name)
+                if item is None:
+                    if getattr(node_type, name, missing) is None:
+                        continue
+                    if not (node_type is ast.Constant and name == "value"):
+                        raise TypeError("None in non-optional AST field: " + name)
+                if node_type is ast.Constant and name == "value":
+                    if type(item) not in (str, bytes, int, float, complex, bool, type(None), type(Ellipsis)):
+                        raise TypeError("unsupported AST constant value")
+                elif type(item) is list and not item:
+                    continue
+                fields.append(name + "=" + render(item))
+            return node_type.__name__ + "(" + ", ".join(fields) + ")"
+        if type(value) is list:
+            return "[" + ", ".join(render(item) for item in value) + "]"
+        if type(value) in (str, bytes, int, float, complex, bool, type(None), type(Ellipsis)):
+            return repr(value)
+        raise TypeError("unsupported AST snapshot value")
+
+    if not isinstance(parsed, ast.AST):
+        raise TypeError("expected an AST root")
+    return render(parsed)
 
 
 def non_documentation_hash(filename, parsed=None):
@@ -101,7 +173,7 @@ def non_documentation_hash(filename, parsed=None):
     for key in STATIC_KEYS[filename]:
         node, index = dictionary_field(parsed, key)
         node.values[index] = ast.Constant(value="REVIEWED_STATIC_DOCUMENTATION")
-    return hashlib.sha256(ast.dump(parsed, include_attributes=False).encode()).hexdigest()
+    return hashlib.sha256(stable_ast_snapshot(parsed).encode("utf-8")).hexdigest()
 
 
 def tool_functions():
@@ -125,14 +197,128 @@ class UsageConsistencyTests(unittest.TestCase):
             self.enterContext(patch(target, side_effect=AssertionError("external I/O forbidden")))
 
     def test_only_reviewed_documentation_and_core_facade_delta_changed(self):
-        for filename, expected in REVIEWED_NON_DOCUMENTATION_SHA256.items():
-            with self.subTest(filename=filename):
-                self.assertEqual(expected, non_documentation_hash(filename))
+        self.assertEqual(REVIEWED_NON_DOCUMENTATION_SHA256['service.py'], non_documentation_hash('service.py'))
+        # The planning service now deliberately uses the direct writer; preserve
+        # this substantive expectation instead of merely updating a file hash.
+        called = {node.func.attr for node in ast.walk(tree('planning_service.py'))
+                  if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)}
+        self.assertTrue({'remember_direct', 'revise_direct'} <= called)
+        self.assertNotIn('propose_create', called)
+
+    def test_self_write_review_activation_and_binding_methods_remain_exact_baseline_ast(self):
+        cls = next(n for n in tree('service.py').body
+                   if isinstance(n, ast.ClassDef) and n.name == 'SelfModelAccessService')
+        methods = {n.name: stable_ast_snapshot(n) for n in cls.body
+                   if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in PROTECTED_SELF_METHODS}
+        self.assertEqual(set(PROTECTED_SELF_METHODS), set(methods))
+        self.assertEqual(PROTECTED_SELF_METHODS_SHA256,
+                         hashlib.sha256(json.dumps(methods, sort_keys=True).encode()).hexdigest())
+
+    def test_snapshot_does_not_depend_on_ast_dump(self):
+        with patch.object(ast, "dump", side_effect=AssertionError("ast.dump must not be used")):
+            # Only this facade remains pinned in L25. Ordinary modules have real
+            # reviewed behavior changes, so do not restore their historical pins.
+            self.assertEqual(REVIEWED_NON_DOCUMENTATION_SHA256["service.py"],
+                             non_documentation_hash("service.py"))
+            self.test_self_write_review_activation_and_binding_methods_remain_exact_baseline_ast()
+
+    def test_snapshot_has_complete_nonempty_fields_and_preserves_order(self):
+        parsed = ast.parse("def guarded(user, allowed=False):\n    return user if allowed else None")
+        self.assertEqual(
+            "Module(body=[FunctionDef(name='guarded', args=arguments(args=[arg(arg='user'), "
+            "arg(arg='allowed')], defaults=[Constant(value=False)]), body=[Return(value=IfExp("
+            "test=Name(id='allowed', ctx=Load()), body=Name(id='user', ctx=Load()), "
+            "orelse=Constant(value=None)))])])", stable_ast_snapshot(parsed),
+        )
+        self.assertEqual(
+            "Dict(keys=[None, Constant(value='x')], values=[Name(id='source', ctx=Load()), "
+            "Constant(value=0)])",
+            stable_ast_snapshot(ast.parse("{**source, 'x': 0}", mode="eval").body),
+        )
+
+    def test_snapshot_keeps_falsy_and_non_string_constants_distinct(self):
+        literals = [None, False, 0, "", b"", 0j, Ellipsis, True, 1, "1", b"1", 1.0, 1j]
+        representations = [stable_ast_snapshot(ast.Constant(value=value)) for value in literals]
+        self.assertEqual(len(literals), len(set(representations)))
+        for value, representation in zip(literals, representations):
+            with self.subTest(value=repr(value)):
+                self.assertEqual("Constant(value=" + repr(value) + ")", representation)
+
+    def test_snapshot_empty_fields_optional_defaults_and_locations_are_neutral(self):
+        parsed = ast.parse("def f():\n    pass")
+        expected = "Module(body=[FunctionDef(name='f', args=arguments(), body=[Pass()])])"
+        self.assertEqual(expected, stable_ast_snapshot(parsed))
+        function = parsed.body[0]
+        function.returns = None
+        function.type_comment = None
+        function.type_params = []
+        parsed.type_ignores = []
+        ast.increment_lineno(parsed, 100)
+        self.assertEqual(expected, stable_ast_snapshot(parsed))
+        parameter = ast.TypeVar(name="T", bound=None)
+        original_fields = ast.TypeVar._fields
+        older_fields = tuple(name for name in original_fields if name != "default_value")
+        with patch.object(ast.TypeVar, "_fields", older_fields):
+            older = stable_ast_snapshot(parameter)
+        with patch.object(ast.TypeVar, "_fields", older_fields + ("default_value",)):
+            with patch.object(ast.TypeVar, "default_value", None, create=True):
+                parameter.default_value = None
+                self.assertEqual(older, stable_ast_snapshot(parameter))
+                parameter.default_value = ast.Name(id="int", ctx=ast.Load())
+                self.assertNotEqual(older, stable_ast_snapshot(parameter))
+                self.assertIn("default_value=Name(id='int', ctx=Load())", stable_ast_snapshot(parameter))
+
+    def test_snapshot_rejects_unknown_values_and_missing_required_fields(self):
+        class UnknownNode(ast.AST):
+            _fields = ()
+        for value in ({}, set(), (), object(), []):
+            with self.subTest(value_type=type(value).__name__):
+                with self.assertRaises(TypeError):
+                    stable_ast_snapshot(ast.Constant(value=value))
+        with self.assertRaises(TypeError):
+            stable_ast_snapshot(UnknownNode())
+        missing_name = ast.Name(id="user", ctx=ast.Load())
+        del missing_name.id
+        with self.assertRaises(TypeError):
+            stable_ast_snapshot(missing_name)
+        with self.assertRaises(TypeError):
+            stable_ast_snapshot(ast.Expr(value=None))
+        with self.assertRaises(TypeError):
+            stable_ast_snapshot([ast.Pass()])
+
+    def test_business_constants_guards_parameters_order_and_permissions_change_hash(self):
+        variants = {
+            "constant": ("def gate(user):\n    return 7", "def gate(user):\n    return 8"),
+            "guard": ("def gate(user):\n    return user if allowed else None",
+                      "def gate(user):\n    return user if bypass else None"),
+            "parameter": ("def gate(user):\n    return user", "def gate(user, bypass=False):\n    return user"),
+            "list_order": ("actions = ['read', 'write']", "actions = ['write', 'read']"),
+            "permission_value": ("policy = {'requires_permission': True}", "policy = {'requires_permission': False}"),
+            "permission_field": ("policy = {'requires_permission': True}", "policy = {'bypass_permission': True}"),
+        }
+        for case, (before, after) in variants.items():
+            with self.subTest(case=case):
+                original, changed = tree("service.py"), tree("service.py")
+                original.body.extend(ast.parse(before).body)
+                changed.body.extend(ast.parse(after).body)
+                self.assertNotEqual(non_documentation_hash("service.py", original),
+                                    non_documentation_hash("service.py", changed))
+
+    def test_reviewed_documentation_edits_remain_hash_neutral(self):
+        # Preserve the currently active facade pin and its exact existing erasure
+        # allowlist; do not reintroduce old ordinary-module documentation pins.
+        for key in STATIC_KEYS["service.py"]:
+            with self.subTest(key=key):
+                parsed = tree("service.py")
+                node, index = dictionary_field(parsed, key)
+                node.values[index] = ast.Constant(value="Independently reviewed wording update")
+                self.assertEqual(REVIEWED_NON_DOCUMENTATION_SHA256["service.py"],
+                                 non_documentation_hash("service.py", parsed))
 
     def test_daily_contract_still_requires_only_module_and_content(self):
         functions = tool_functions()
-        self.assertEqual(43, len(functions))
-        self.assertEqual(43, len({node.name for node in functions}))
+        self.assertEqual(44, len(functions))
+        self.assertEqual(44, len({node.name for node in functions}))
         daily = next(node for node in functions if node.name == "remember_memory")
         required = len(daily.args.args) - len(daily.args.defaults)
         self.assertEqual(["module", "content"], [arg.arg for arg in daily.args.args[:required]])
@@ -160,10 +346,8 @@ class UsageConsistencyTests(unittest.TestCase):
         for filename in ("emotional_service.py", "learning_service.py", "planning_service.py"):
             with self.subTest(filename=filename):
                 rule = literal_field(filename, "write_rule")
-                self.assertIn("高级", rule)
-                self.assertIn("remember_memory", rule)
-                self.assertIn("write_context_ref", rule)
-                self.assertIn("row_version", rule)
+                self.assertTrue("write_context_ref" in rule or "上下文" in rule)
+                self.assertTrue("普通" in rule)
         self.assertIn("不适用于普通新增", literal_field("planning_service.py", "creation_field_rules")["scope"])
 
     def test_advanced_tool_directories_and_query_capabilities_are_not_removed(self):
@@ -199,8 +383,9 @@ class UsageConsistencyTests(unittest.TestCase):
         self.assertEqual(["module", "content"], result["daily_memory"]["required"])
         self.assertEqual(["emotional_memory", "learning_memory", "planning_memory"], result["daily_memory"]["modules"])
         serialized = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
-        self.assertLessEqual(len(serialized), 1900)
+        self.assertLessEqual(len(serialized), 3500)
         names = set(re.findall(r"\b(?:remember|recall|stbrain|preview|revise|advance)_[a-z_]+", serialized))
+        names -= {field for fields in result['ordinary_revision']['allowed_fields'].values() for field in fields}
         self.assertTrue(names <= {node.name for node in tool_functions()})
 
     def test_help_does_not_fabricate_storage_verification_or_direct_authority(self):
@@ -216,7 +401,9 @@ class UsageConsistencyTests(unittest.TestCase):
     def test_document_current_route_and_historical_evidence_are_distinct(self):
         document = (MCP / "OPEN_RESPONSE.md").read_text(encoding="utf-8")
         self.assertIn("public-tools/20 / brain-open/2", document.splitlines()[0])
-        self.assertIn("43 个工具候选目录", document)
+        self.assertIn("44 个公开工具", document)
+        self.assertIn('stbrain_open(view="recall", query="查询内容")', document)
+        self.assertIn("官端直连 MCP 和网关注入模型均可写入、修改普通记忆", document)
         self.assertIn("不需要先 `stbrain_open`", document)
         self.assertIn("原 public-tools/16（39 工具）", document)
         self.assertIn("不是手机成功回执", document)
@@ -233,7 +420,7 @@ class UsageConsistencyTests(unittest.TestCase):
         for forbidden in ("必须自由", "必须自主", "必须拒绝", "呼吸流程", "夜间消化", "dream"):
             self.assertNotIn(forbidden, " ".join(texts))
 
-    def test_revision_help_matches_exact_runtime_whitelist_without_importing_service(self):
+    def test_revision_help_matches_exact_whitelists_and_scoped_tool_manual(self):
         service = tree("daily_revision_service.py")
         assignment = next(node for node in service.body if isinstance(node, ast.Assign)
                           and any(isinstance(target, ast.Name) and target.id == "ORDINARY_REVISION_FIELDS"
@@ -243,11 +430,23 @@ class UsageConsistencyTests(unittest.TestCase):
         documented = guide()["ordinary_revision"]
         self.assertEqual("revise_memory", documented["tool"])
         self.assertEqual(["target_ref", "changes"], documented["required"])
-        self.assertEqual(allowed, {key: set(value) for key, value in documented["allowed_fields"].items()})
+        listed = {key: set(value) for key, value in documented["allowed_fields"].items()}
+        # Keep the overview short: tool-card fields live in its existing
+        # selected module manual, with the same exact runtime field check.
+        from mcp_server.usage_guide import module_usage_guide
+        self.assertIn("stbrain_help(module='tool_guidance')", documented['tool_guidance_help'])
+        self.assertNotIn('tool_guidance', listed)
+        for simple in (False, True):
+            page = module_usage_guide('tool_guidance', simple=simple)
+            complete = {**listed, 'tool_guidance': set(page['revise_author_fields'])}
+            self.assertEqual(allowed, complete)
         self.assertIn("已读的精确版本", documented["instruction"])
         self.assertIn("不自动换最新版", documented["instruction"])
+        self.assertIn('original_text', allowed['emotional_memory'])
+        self.assertIn('current_understanding', allowed['learning_memory'])
+        self.assertIn('original_text', allowed['planning_memory'])
         for fields in allowed.values():
-            self.assertFalse(fields & {"original_text", "current_understanding", "source_basis", "state", "parent_ref"})
+            self.assertFalse(fields & {"owner_id", "model_id", "version", "hash", "state"})
 
     def test_progress_help_preserves_read_event_sequence_and_real_evidence(self):
         documented = guide()["plan_progress"]

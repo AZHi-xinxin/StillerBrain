@@ -3,9 +3,10 @@
 This reference runtime implements only record-integrity mechanics.  It does
 not ship value prose, score an AI's values, or interpret a profile as an
 external permission grant.  Every state-changing operation is append-only,
-owner/model scoped, CAS-bound, and authored by the current AI.  Candidate
-activation always requires a genuinely later wake; using the stricter rule for
-all changes keeps the host out of the business of judging semantic magnitude.
+owner/model scoped, CAS-bound, and authored by the current AI.  All governance
+profiles support direct revisions; they do not change module-one self-definition
+or grant external permissions. Explicitly proposed legacy candidates retain
+independent review. The host does not classify the importance of value prose.
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ import re
 import sqlite3
 from typing import Any, Iterator, Mapping, Sequence
 import uuid
+from .credential_guard import contains_credential_or_secret
+from .execution_binding import assert_bound_execution, expected_execution_wake
 
 
 GOVERNANCE_CONTRACT_VERSION = "self-governance/0.3"
@@ -31,6 +34,7 @@ GOVERNANCE_SCOPES = (
     "tool_use",
 )
 GOVERNANCE_TRIGGER_MODES = ("manual_only", "scene_relevant")
+GOVERNANCE_DIRECT_SCOPES = GOVERNANCE_SCOPES
 
 # Reserved mechanism tags are authored into ``scene_tags`` by the AI, but they
 # can never be activated by matching human text.  The host may present one of
@@ -52,17 +56,6 @@ class GovernanceLimits:
     max_scene_tags: int = 32
     scene_tag_characters: int = 80
     injection_tokens: int = 360
-
-
-_FIRST_PERSON_PREFIX = re.compile(
-    r"^\s*(?:我|I(?:\s|['’])|My(?:\s|$))", re.IGNORECASE
-)
-_SECRET_PATTERNS = (
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----", re.I),
-    re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"),
-    re.compile(r"\b(?:password|passwd|api[_ -]?key|secret|token|cookie)\s*[:=]", re.I),
-    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{12,}", re.I),
-)
 
 
 def _now() -> str:
@@ -92,8 +85,7 @@ def _required_text(name: str, value: Any, maximum: int) -> str:
 
 
 def _contains_secret(*values: Any) -> bool:
-    text = _canonical(values)
-    return any(pattern.search(text) for pattern in _SECRET_PATTERNS)
+    return contains_credential_or_secret(values)
 
 
 def _estimate_tokens(value: Any) -> int:
@@ -122,13 +114,16 @@ class SelfGovernanceStore:
         connection.execute("PRAGMA busy_timeout = 10000")
         try:
             with connection:
+                assert_bound_execution(connection)
                 yield connection
+                assert_bound_execution(connection)
         finally:
             connection.close()
 
     @staticmethod
     def _begin(connection: sqlite3.Connection) -> None:
         connection.execute("BEGIN IMMEDIATE")
+        assert_bound_execution(connection)
 
     def _initialize(self) -> None:
         with self._connect() as connection:
@@ -224,6 +219,7 @@ class SelfGovernanceStore:
 
     @staticmethod
     def _validate_identity(owner_id: Any, model_id: Any) -> tuple[str, str]:
+        expected_execution_wake(owner_id=owner_id, model_id=model_id)
         return (
             _required_text("owner_id", owner_id, 300),
             _required_text("model_id", model_id, 300),
@@ -249,8 +245,6 @@ class SelfGovernanceStore:
         if set(value) != expected or value.get("schema_version") != "0.1.0":
             raise SelfGovernanceError("invalid_governance_content_structure")
         text = _required_text("governance_text", value.get("text"), self.limits.text_characters)
-        if _FIRST_PERSON_PREFIX.match(text) is None:
-            raise SelfGovernanceError("governance_text_must_be_ai_first_person")
         trigger_mode = value.get("trigger_mode")
         if trigger_mode not in GOVERNANCE_TRIGGER_MODES:
             raise SelfGovernanceError("invalid_governance_trigger_mode")
@@ -366,6 +360,7 @@ class SelfGovernanceStore:
         owner_id, model_id = self._validate_identity(owner_id, model_id)
         scope = self._validate_scope(scope)
         wake_id, wake_seq = self._validate_wake(wake_id, wake_seq)
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
         self._require_ai(actor)
         if operation not in {"set", "clear", "rollback"}:
             raise SelfGovernanceError("invalid_governance_operation")
@@ -504,6 +499,113 @@ class SelfGovernanceStore:
                 "external_permission_changed": False,
             }
 
+    def commit_revision(
+        self,
+        *,
+        owner_id: str,
+        model_id: str,
+        scope: str,
+        operation: str,
+        content: Mapping[str, Any] | None,
+        wake_id: str,
+        wake_seq: int,
+        expected_row_version: int,
+        expected_active_revision: str | None,
+        reason: str | None = None,
+        target_revision_id: str | None = None,
+        actor: str = "ai",
+    ) -> dict[str, Any]:
+        """Append a non-core author's current submission, without a fake review."""
+        owner_id, model_id = self._validate_identity(owner_id, model_id)
+        scope = self._validate_scope(scope)
+        wake_id, wake_seq = self._validate_wake(wake_id, wake_seq)
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
+        self._require_ai(actor)
+        if operation not in {"set", "clear", "rollback"}:
+            raise SelfGovernanceError("invalid_governance_operation")
+        if isinstance(expected_row_version, bool) or not isinstance(expected_row_version, int):
+            raise SelfGovernanceError("expected_row_version_required")
+        if reason is not None:
+            reason = _required_text("reason", reason, self.limits.reason_characters)
+            if _contains_secret(reason):
+                raise SelfGovernanceError("credential_or_secret_detected")
+        if operation == "set":
+            prepared_content = self._validate_content(content)
+            if target_revision_id is not None:
+                raise SelfGovernanceError("target_revision_not_allowed")
+        elif operation == "clear":
+            if content is not None or target_revision_id is not None:
+                raise SelfGovernanceError("clear_must_not_include_content_or_target")
+            prepared_content = None
+        else:
+            if content is not None:
+                raise SelfGovernanceError("rollback_content_is_server_derived")
+            target_revision_id = _required_text("target_revision_id", target_revision_id, 300)
+            prepared_content = None
+        with self._connect() as connection:
+            self._begin(connection)
+            state = self._ensure_state(connection, owner_id, model_id, scope)
+            if state["row_version"] != expected_row_version:
+                raise SelfGovernanceError("governance_version_conflict")
+            if state["active_revision_id"] != expected_active_revision:
+                raise SelfGovernanceError("active_governance_revision_conflict")
+            if operation == "rollback":
+                target = connection.execute(
+                    "SELECT content_json FROM self_governance_revisions WHERE revision_id=? "
+                    "AND owner_id=? AND model_id=? AND scope=?",
+                    (target_revision_id, owner_id, model_id, scope),
+                ).fetchone()
+                if target is None:
+                    raise SelfGovernanceError("rollback_target_not_found")
+                prepared_content = json.loads(target["content_json"]) if target["content_json"] is not None else None
+            revision_number = connection.execute(
+                "SELECT COALESCE(MAX(revision_number),0)+1 FROM self_governance_revisions "
+                "WHERE owner_id=? AND model_id=? AND scope=?",
+                (owner_id, model_id, scope),
+            ).fetchone()[0]
+            revision_id = _new_id("govrev")
+            # The legacy NOT NULL column holds a unique submission reference.
+            # This prefix is not a candidate: no candidate/review is fabricated.
+            submission_id = _new_id("govsubmit")
+            content_hash = _sha256(prepared_content)
+            connection.execute(
+                "INSERT INTO self_governance_revisions "
+                "(revision_id,owner_id,model_id,scope,revision_number,parent_revision_id,"
+                "operation,content_json,content_hash,candidate_id,rollback_of_revision_id,"
+                "author,activated_wake_id,activated_wake_seq,activated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,'ai',?,?,?)",
+                (revision_id, owner_id, model_id, scope, revision_number,
+                 state["active_revision_id"], operation,
+                 _canonical(prepared_content) if prepared_content is not None else None,
+                 content_hash, submission_id, target_revision_id, wake_id, wake_seq, _now()),
+            )
+            next_version = state["row_version"] + 1
+            updated = connection.execute(
+                "UPDATE self_governance_scope_state SET active_revision_id=?,row_version=?,updated_at=? "
+                "WHERE owner_id=? AND model_id=? AND scope=? AND row_version=? AND active_revision_id IS ?",
+                (revision_id, next_version, _now(), owner_id, model_id, scope,
+                 expected_row_version, expected_active_revision),
+            ).rowcount
+            if updated != 1:
+                raise SelfGovernanceError("governance_version_conflict")
+            event_id = self._insert_event(
+                connection, owner_id=owner_id, model_id=model_id, scope=scope,
+                candidate_id=None, revision_id=revision_id, event_type="direct_revision_committed",
+                wake_id=wake_id, actor="ai", decision="committed",
+                details={"operation": operation, "submission_id": submission_id,
+                         "content_hash": content_hash, "target_revision_id": target_revision_id,
+                         "reason_hash": _sha256(reason) if reason is not None else None,
+                         "review_performed": False, "external_permission_changed": False},
+            )
+            return {
+                "decision": "committed", "scope": scope, "operation": operation,
+                "revision_id": revision_id, "active_revision_id": revision_id,
+                "row_version": next_version, "event_id": event_id,
+                "state_changed": True, "active_changed": True,
+                "candidate_created": False, "review_performed": False,
+                "external_permission_changed": False,
+            }
+
     def withdraw_candidate(
         self,
         *,
@@ -520,6 +622,7 @@ class SelfGovernanceStore:
         owner_id, model_id = self._validate_identity(owner_id, model_id)
         scope = self._validate_scope(scope)
         wake_id, _ = self._validate_wake(wake_id, wake_seq)
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
         self._require_ai(actor)
         candidate_id = _required_text("candidate_id", candidate_id, 300)
         reason = _required_text("reason", reason, self.limits.reason_characters)
@@ -590,6 +693,7 @@ class SelfGovernanceStore:
         owner_id, model_id = self._validate_identity(owner_id, model_id)
         scope = self._validate_scope(scope)
         wake_id, wake_seq = self._validate_wake(wake_id, wake_seq)
+        expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
         self._require_ai(actor)
         if ai_confirmation is not True:
             raise SelfGovernanceError("ai_confirmation_required")
@@ -848,7 +952,7 @@ class SelfGovernanceStore:
         return {
             "contract": GOVERNANCE_CONTRACT_VERSION,
             "purpose": (
-                "可选、分范围保存由当前 AI 自己撰写的自我治理正文；"
+                "给自己写轻提醒、提示词与自定义安全阀：可选、分范围保存由当前 AI 自己撰写的自我治理正文；"
                 "宿主只维护作者、版本、候选、真实唤醒、CAS、展示与回滚。"
             ),
             "optional": True,
@@ -863,7 +967,20 @@ class SelfGovernanceStore:
             "blank_structure_is_submittable": False,
             "trigger_modes": {
                 "manual_only": "只在 AI 主动读取或明确选择本 scope 时展示。",
-                "scene_relevant": "仅在 AI 自写 scene_tags 与当前场景相关时进入正常注入。",
+                "scene_relevant": "普通 scene_tags 的完整短语出现在本轮场景 query 中时取得浮现候选资格，casefold 匹配，不区分英文大小写；还要满足自动注入开关和预算。",
+            },
+            "scene_tag_authoring": (
+                "治理轻提醒的普通标签用来匹配本轮人类说的话。优先写人类聊天自然会说的词句，"
+                "如“设个闹钟”“提醒我”“回家了”“还记得”，可由 AI 按实际表达自行增改，并非固定清单。"
+                "只写“动手之前”“想用工具”等 AI 内部动作描述时，人类话语中须出现相同完整词句才能命中。"
+                "当前是完整短语在本轮 query 中的子串匹配，不自动推断同义词；本项目网关取最新一条人类消息的文本。"
+                "修改后的标签由下一次生成前的新快照使用，一次未浮现还可能来自模式、注入开关或预算。"
+                "以下专用系统事件标记按真实运行时事件触发，人工写出标记不产生事件；这不影响普通中文词句匹配。"
+            ),
+            "scope_usage": {
+                "global": "跨模块范围，同样遵循 manual_only 或 scene_relevant，并非每轮常驻；规划场景的通用提示也可写在这里，用自己的场景标签选择。",
+                "per_record": "单条工具卡和单条计划另有 reminder，分别用于该条记录的一句提醒。",
+                "self_revision": "模块一冷静词和自我修订安全提示由 AI 在模块一独立流程中自写；治理提示不替换其授权、复核或既有正文。",
             },
             "optional_runtime_scene_signals": {
                 LEARNING_EPISODE_BOUNDARY_SIGNAL: {
@@ -891,6 +1008,21 @@ class SelfGovernanceStore:
                 "custom": "由 AI 自己改用普通 scene_tags 指定希望正文出现的自然场景。",
             },
             "mutation_action_contracts": {
+                "direct": {
+                    "actions": ["set", "clear", "rollback"],
+                    "scopes": list(GOVERNANCE_DIRECT_SCOPES),
+                    "notice": "修改前请核对本次范围与正文；原版本保留，可精确回滚。提醒不是额外确认步骤。",
+                    "reason_is_optional": True,
+                    "later_wake_or_confirmation_required": False,
+                    "set_fields": ["text", "trigger_mode", "scene_tags"],
+                    "rollback_fields": ["target_revision_id"],
+                    "binding": "当前已认证作者操作、owner/model/scope、版本与活动修订由宿主核对。AI 自选第一人称、第三人称或归属表达。",
+                    "simple_mode_internal_fields": (
+                        "set/clear/rollback 省略 expected_profile_version 和 expected_active_revision；"
+                        "宿主从同一份最新范围状态中自动补齐并发保护信息。"
+                        "真正的并发修改会提示重新读取后提交，不要求猜版本号。"
+                    ),
+                },
                 "activate": {
                     "required_arguments": [
                         "action",
@@ -924,8 +1056,9 @@ class SelfGovernanceStore:
             },
             "lifecycle": [
                 "AI 可保持空白或完全不使用。",
-                "set、clear 与 rollback 都先保存为候选，不在创建当轮生效。",
-                "候选只有在较晚真实外部唤醒中由同一 AI 确认后才激活。",
+                "全部治理 scope 的 set/clear/rollback 都是本次作者直接提交，追加可回滚版本。",
+                "治理 profile 是作者建议与边界；模块一自我定义正文仍沿用自身授权及修订流程。",
+                "显式 propose_*（包括历史 pending）仍是候选，只有在较晚真实外部唤醒中由同一 AI 确认后才激活；不自动迁移或激活。",
                 "AI 可在激活前撤回候选；历史版本保持可查询、可回滚。",
             ],
             "host_boundary": {
@@ -933,7 +1066,7 @@ class SelfGovernanceStore:
                     "owner/model/authorship",
                     "schema/length/credential rejection",
                     "candidate hash/version/CAS",
-                    "later real wake",
+                    "later real wake for explicitly proposed candidates",
                     "display/history/rollback",
                 ],
                 "does_not_decide": [
@@ -1100,6 +1233,7 @@ class SelfGovernanceStore:
 
 __all__ = [
     "GOVERNANCE_CONTRACT_VERSION",
+    "GOVERNANCE_DIRECT_SCOPES",
     "GOVERNANCE_SCOPES",
     "GOVERNANCE_TRIGGER_MODES",
     "LEARNING_EPISODE_BOUNDARY_SIGNAL",

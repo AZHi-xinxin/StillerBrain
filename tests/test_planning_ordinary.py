@@ -206,13 +206,13 @@ class OrdinaryPlanningTests(unittest.TestCase):
         self.assertEqual(len(self.rows("planning_items")), 1)
         self.assertEqual(self.rows("planning_change_candidates"), [])
 
-    def test_advanced_revision_cannot_change_write_mode_or_forge_adoption(self):
+    def test_advanced_revision_cannot_change_system_write_mode(self):
         ordinary = self.write()
         args = dict(owner_id=OWNER, model_id=MODEL, wake_id="advanced-wake", wake_seq=2,
                     expected_row_version=1, plan_id=ordinary["plan_id"], expected_plan_version=1,
                     intent="revise", reason="Synthetic request", calm_check=calm(),
                     ai_confirmation=True, idempotency_key="bad-mode")
-        for changes in ({"write_mode": "legacy"}, {"ai_adoption_statement": "I agree"}):
+        for changes in ({"write_mode": "legacy"}, {"write_mode": "adopted"}):
             with self.subTest(changes=changes):
                 with self.assertRaises(PlanningMemoryError):
                     self.store.propose_revision(**args, changes=changes)
@@ -232,7 +232,7 @@ class OrdinaryPlanningTests(unittest.TestCase):
         self.assertNotIn("Ordinary orchid watering plan", json.dumps(injected))
         self.assertEqual(before, self.rows("planning_events"))
 
-    def test_advanced_revision_of_ordinary_keeps_review_and_append_only_history(self):
+    def test_legacy_revision_of_ordinary_keeps_exact_confirmation_and_history(self):
         initial = self.write(kind="goal", content="Original verbatim text")
         pending = self.store.propose_revision(
             owner_id=OWNER, model_id=MODEL, wake_id="wake-synthetic-1", wake_seq=1,
@@ -249,11 +249,7 @@ class OrdinaryPlanningTests(unittest.TestCase):
                     expected_candidate_hash=candidate["candidate_hash"],
                     expected_base_version=1, decision="accept", correctness_assessment="Synthetic assessment",
                     calm_check=calm(), reason="Synthetic review", ai_confirmation=True)
-        with self.assertRaisesRegex(PlanningMemoryError, "later_real_wake_required"):
-            self.store.review_change(**args)
-        self.store.present_pending_candidates(owner_id=OWNER, model_id=MODEL,
-                                               wake_id="wake-synthetic-2", wake_seq=2)
-        reviewed = self.store.review_change(**{**args, "wake_id": "wake-synthetic-2", "wake_seq": 2})
+        reviewed = self.store.review_change(**{**args, "calm_check": None})
         latest = self.read(reviewed)
         self.assertEqual(len(latest["versions"]), 2)
         self.assertEqual(latest["content"]["summary"], "Revised display")

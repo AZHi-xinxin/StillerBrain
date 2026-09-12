@@ -196,6 +196,26 @@ class ControlServerTests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertTrue(health["ok"])
 
+    def test_facet_selection_preserves_absent_empty_and_explicit_names(self) -> None:
+        prepare = Mock(return_value={"decision": "context_prepared"})
+        self.onboarding.build_pre_generation_context = prepare
+        base = {"wake_id": "synthetic-wake", "wake_capability": "synthetic-capability",
+                "source_digest": "synthetic-source", "host_contract_digest": "synthetic-host"}
+        for extra, expected in (({}, None), ({"facet_names": []}, []),
+                                ({"facet_names": ["own_name_7"]}, ["own_name_7"])):
+            with self.subTest(extra=extra):
+                prepare.reset_mock()
+                status, _ = self.post("/v1/host/context/prepare", {**base, **extra}, self.host_token)
+                self.assertEqual(status, 200)
+                self.assertEqual(prepare.call_args.kwargs["facet_names"], expected)
+        for value in (None, "own_name_7", [1], {"name": "own_name_7"}):
+            with self.subTest(invalid=value):
+                prepare.reset_mock()
+                status, _ = self.post("/v1/host/context/prepare",
+                                      {**base, "facet_names": value}, self.host_token)
+                self.assertEqual(status, 400)
+                prepare.assert_not_called()
+
     def test_environment_factory_wires_every_automatic_injection_store(self) -> None:
         database = Path(self.temp.name) / "factory-main.db"
         learning_database = Path(self.temp.name) / "factory-learning.db"

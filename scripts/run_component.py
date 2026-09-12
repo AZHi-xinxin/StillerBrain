@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import re
@@ -13,6 +14,38 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPONENTS = {"mcp": "mcp_server.server", "control": "mcp_server.control_server", "gateway": "rikkahub_gateway.server"}
 SECRET_KEYS = ("STBRAIN_MCP_TOKEN", "STBRAIN_WAKE_SECRET", "STBRAIN_HOST_TOKEN", "STBRAIN_HUMAN_TOKEN", "STBRAIN_GATEWAY_TOKEN")
 DB_KEYS = ("STBRAIN_DB_PATH", "STBRAIN_LEARNING_IDEA_DB_PATH", "STBRAIN_HALLUCINATION_VAULT_DB_PATH")
+
+
+def validate_self_password_file(value: str, root: Path = ROOT) -> None:
+    """Check only an explicitly configured private hash; never disclose its data."""
+    if not value:
+        return
+    try:
+        path = Path(value)
+        if not path.is_absolute():
+            raise ValueError
+        if any(part.is_symlink() or getattr(part, "is_junction", lambda: False)()
+               for part in (path, *path.parents)):
+            raise ValueError
+        path = path.resolve(strict=True)
+        resolved_root = root.resolve()
+        if path == resolved_root or resolved_root in path.parents or not path.is_file():
+            raise ValueError
+        with path.open("rb") as handle:
+            raw = handle.read(1025)
+        if len(raw) > 1024:
+            raise ValueError
+        record = json.loads(raw)
+        if (not isinstance(record, dict)
+                or set(record) != {"format", "salt_hex", "digest_hex"}
+                or record["format"] != "st-self-password-scrypt/1"
+                or not isinstance(record["salt_hex"], str)
+                or not re.fullmatch(r"[0-9a-fA-F]{32}", record["salt_hex"])
+                or not isinstance(record["digest_hex"], str)
+                or not re.fullmatch(r"[0-9a-fA-F]{64}", record["digest_hex"])):
+            raise ValueError
+    except (OSError, ValueError, TypeError):
+        raise ValueError("Self-password hash must be a valid private file outside the source repository") from None
 
 
 def parse_config(text: str) -> dict[str, str]:
@@ -41,8 +74,13 @@ def validate(config: dict[str, str], component: str, root: Path = ROOT) -> None:
         raise ValueError("Local credentials must be distinct and at least 32 characters")
     if config.get("STBRAIN_REQUIRE_EXECUTION_BINDING") != "1":
         raise ValueError("Strict execution binding must be enabled for all components")
-    if config.get("STBRAIN_GATEWAY_CONTEXT_LAYOUT", "legacy") not in {"legacy", "anchored-v1"}:
-        raise ValueError("Context layout must be legacy or anchored-v1")
+    if config.get("STBRAIN_GATEWAY_CONTEXT_LAYOUT", "legacy") not in {"legacy", "anchored-v1", "tail-context-v2"}:
+        raise ValueError("Context layout must be legacy, anchored-v1 or tail-context-v2")
+    # Absent/empty/legacy preserves the previous access rules. New installations
+    # opt in explicitly through .env.example; a typo must not silently downgrade.
+    if config.get("STBRAIN_ACCESS_PROFILE", "") not in {"", "legacy", "simple-memory-v1"}:
+        raise ValueError("Access profile must be legacy or simple-memory-v1")
+    validate_self_password_file(config.get("STBRAIN_SELF_PASSWORD_HASH_FILE", ""), root)
     if not re.fullmatch(r"[A-Za-z0-9._-]{8,128}", config["STBRAIN_EXECUTION_EPOCH"]):
         raise ValueError("Invalid deployment epoch")
     root = root.resolve()

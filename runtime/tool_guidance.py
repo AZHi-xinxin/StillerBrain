@@ -21,6 +21,8 @@ from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping, Sequence
+from .credential_guard import contains_credential_or_secret
+from .lexical_retrieval import explicit_alias_match, prepare_explicit_alias_query
 
 from .authoring import (
     AuthoringError,
@@ -90,6 +92,7 @@ TOOL_REFERENT_FIELD_PATHS = frozenset(
         "/display_label",
         "/completion_rule",
         "/purpose",
+        "/reminder",
         "/call_notes",
         "/documentation_note",
         "/salience_reason",
@@ -97,12 +100,23 @@ TOOL_REFERENT_FIELD_PATHS = frozenset(
     }
 )
 
-_SOURCE_CONFIDENCE_CEILINGS = {
-    "ai_firsthand": 85,
-    "external_document": 75,
-    "human_reported": 70,
-    "ai_inferred": 50,
-}
+def reminder_recall_guidance() -> dict[str, Any]:
+    """Explain catalog diagnostics without granting recall or execution authority."""
+    return {
+        "catalog_diagnostic_scope": "exact_callable_name",
+        "catalog_match_required_for_scene_recall": False,
+        "automatic_injection_guaranteed": False,
+        "selection_factors": [
+            "active_card", "author_recall_settings", "scene_relevance", "shared_budget"
+        ],
+        "message": (
+            "我可以用工具名或 MCP 服务名保存提醒。not_advertised 表示此卡名称未与当前目录中的"
+            "具体工具名精确匹配；它本身不阻止场景提醒。是否浮现仍取决于场景、我的浮现设置和"
+            "容量；实际调用另按当前工具权限。"
+        ),
+    }
+
+
 _PROVENANCE_CLASSES = {
     "ai_firsthand": "firsthand",
     "external_document": "reported",
@@ -114,7 +128,7 @@ _RISK_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 
 _TOOL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _OPERATION_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-_SCENE_TAG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_SCENE_TAG = re.compile(r"^(?=.*\S)[^\u0000-\u001f\u007f-\u009f]{1,128}$")
 _TOOL_CARD_REF = re.compile(r"^tool-card://(toolcard_[0-9a-f]{32})@([1-9][0-9]*)$")
 _RELATED_REF = re.compile(
     r"^(?:tool-card://toolcard_[0-9a-f]{32}@[1-9][0-9]*|"
@@ -124,13 +138,6 @@ _RELATED_REF = re.compile(
 )
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
 
-_SECRET_PATTERNS = (
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----", re.I),
-    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{12,}", re.I),
-    re.compile(r"\b(?:sk|api)[-_][A-Za-z0-9_-]{16,}\b", re.I),
-    re.compile(r"\b(?:password|passwd|api[_ -]?key|secret|token|cookie)\s*[:=]", re.I),
-    re.compile(r"(?:密码|口令|私钥|令牌|密钥)\s*[:：=]", re.I),
-)
 _RAW_PAYLOAD_PATTERNS = (
     re.compile(r"Traceback \(most recent call last\):", re.I),
     re.compile(r"(?:^|[,{])\s*[\"']?(?:arguments|parameters|request_body|response_body|raw_result|raw_error|headers)[\"']?\s*:", re.I),
@@ -182,6 +189,11 @@ def _iso(value: datetime | None = None) -> str:
 
 def _parse_iso(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _card_expired(value: str | None) -> bool:
+    """A missing author-selected expiry does not make a card stale."""
+    return value is not None and _parse_iso(value) <= _now_dt()
 
 
 def _new_id(prefix: str) -> str:
@@ -262,9 +274,9 @@ def _all_strings(value: Any) -> Iterable[str]:
 
 
 def _forbidden_content(*values: Any) -> str | None:
+    if contains_credential_or_secret(values):
+        return "credential_or_secret_detected"
     for text in _all_strings(values):
-        if any(pattern.search(text) for pattern in _SECRET_PATTERNS):
-            return "credential_or_secret_detected"
         if any(pattern.search(text) for pattern in _RAW_PAYLOAD_PATTERNS):
             return "raw_payload_forbidden"
     return None
@@ -290,11 +302,62 @@ def _semantic_similarity(query: str, fields: Sequence[str]) -> float:
         if q == candidate:
             best = max(best, 1.0)
         elif q in candidate or candidate in q:
+            short, long = (query, field) if len(q) <= len(candidate) else (field, query)
+            short = unicodedata.normalize("NFKC", short).casefold().strip()
+            long = unicodedata.normalize("NFKC", long).casefold()
+            if re.fullmatch(r"[a-z0-9._\- ]+", short):
+                phrase = r"\s+".join(re.escape(part) for part in short.split())
+                if re.search(r"(?<![a-z0-9_])" + phrase + r"(?![a-z0-9_])", long) is None:
+                    continue
             ratio = min(len(q), len(candidate)) / max(len(q), len(candidate))
             best = max(best, 0.72 + 0.22 * ratio)
         else:
             best = max(best, SequenceMatcher(None, q, candidate).ratio() * 0.72)
     return min(0.99, best)
+
+
+def _checked_version_content(version: Mapping[str, Any]) -> dict[str, Any]:
+    raw = version["content_json"]
+    if not isinstance(raw, str) or _sha256(raw) != version["content_hash"]:
+        raise ToolGuidanceError("tool_card_content_hash_mismatch")
+    content = _json(raw, None)
+    if not isinstance(content, dict):
+        raise ToolGuidanceError("invalid_tool_card_content")
+    return content
+
+
+def _scene_score(query: str, content: Mapping[str, Any]) -> float:
+    """Local phrase/lexical matching; no embedding or model request is implied."""
+    fields = [content["purpose"], content.get("reminder", ""),
+              *content["scenario_tags"], *content["scenario_examples"],
+              *content["keywords"], *content["aliases"], *content["use_when"]]
+    score = _semantic_similarity(query, fields)
+    q = _normalized(query)
+    # A short author-supplied keyword within a longer user request is a direct
+    # scenario hit. Latin words must have word boundaries (fan != infant).
+    for phrase in [*content["keywords"], *content["aliases"], *content["scenario_tags"]]:
+        term = _normalized(phrase)
+        if len(term) < 2:
+            continue
+        if re.fullmatch(r"[a-z0-9._-]+", term):
+            hit = re.search(r"(?<![a-z0-9_])" + re.escape(term) + r"(?![a-z0-9_])",
+                            unicodedata.normalize("NFKC", query).casefold()) is not None
+        else:
+            hit = term in q
+        if hit:
+            score = max(score, 0.95)
+    return score
+
+
+def _reminder_text(content: Mapping[str, Any], maximum: int) -> str:
+    if content.get("reminder"):
+        return str(content["reminder"])[:maximum]
+    # Compatibility projection only: quote an existing authored purpose,
+    # without changing any stored version or inventing a replacement sentence.
+    from .reminder_excerpt import reminder_excerpt
+
+    first_paragraph = re.split(r"[\r\n]+", str(content["purpose"]), maxsplit=1)[0]
+    return reminder_excerpt(first_paragraph, maximum)
 
 
 def estimate_tokens(value: Any) -> int:
@@ -391,9 +454,87 @@ class ToolGuidanceStore:
     def _begin(connection: sqlite3.Connection) -> None:
         connection.execute("BEGIN IMMEDIATE")
 
+    @staticmethod
+    def _migrate_experience_confidence(connection: sqlite3.Connection) -> None:
+        """Widen the legacy experience CHECK without rewriting any saved value.
+
+        SQLite cannot alter a CHECK in place. Rebuild only this table under one
+        write transaction; keep its rowids, columns, constraints, indexes and
+        triggers. Foreign-key actions stay disabled on this connection during
+        replacement, and are checked before commit. No business/audit row is
+        synthesized by the migration.
+        """
+        legacy_check = re.compile(
+            r"CHECK\s*\(\s*confidence\s+BETWEEN\s+0\s+AND\s+80\s*\)", re.I
+        )
+        table_prefix = re.compile(
+            r'\ACREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?'
+            r'(?:"tool_experiences"|`tool_experiences`|\[tool_experiences\]|tool_experiences)'
+            r'(?=\s*\()', re.I,
+        )
+        table_query = "SELECT sql FROM sqlite_master WHERE type='table' AND name='tool_experiences'"
+        row = connection.execute(table_query).fetchone()
+        if row is None or not legacy_check.search(row[0] or ""):
+            return
+        if connection.in_transaction:
+            raise ToolGuidanceError("experience_confidence_migration_requires_idle_connection")
+        foreign_keys = connection.execute("PRAGMA foreign_keys").fetchone()[0]
+        legacy_alter = connection.execute("PRAGMA legacy_alter_table").fetchone()[0]
+        connection.execute("PRAGMA foreign_keys = OFF")
+        connection.execute("PRAGMA legacy_alter_table = ON")
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            # Another process may have completed the upgrade while we waited.
+            row = connection.execute(table_query).fetchone()
+            if row is None or not legacy_check.search(row[0] or ""):
+                connection.commit()
+                return
+            ddl, replacements = legacy_check.subn("CHECK(confidence BETWEEN 0 AND 100)", row[0])
+            ddl, table_replacements = table_prefix.subn(
+                'CREATE TABLE "tool_experiences_confidence_100_migration"', ddl
+            )
+            if replacements != 1 or table_replacements != 1:
+                raise ToolGuidanceError("unsupported_experience_confidence_schema")
+            objects = connection.execute(
+                "SELECT sql FROM sqlite_master WHERE tbl_name='tool_experiences' "
+                "AND type IN ('index','trigger') AND sql IS NOT NULL ORDER BY type,name"
+            ).fetchall()
+            columns = [item[1] for item in connection.execute("PRAGMA table_xinfo(tool_experiences)")
+                       if item[6] == 0]
+            # The historical table is a rowid table with a text primary key.
+            # Quoting schema-derived names also preserves any additive columns.
+            selected = "rowid," + ",".join('"' + name.replace('"', '""') + '"' for name in columns)
+            connection.execute(ddl)
+            connection.execute(
+                f"INSERT INTO tool_experiences_confidence_100_migration ({selected}) "
+                f"SELECT {selected} FROM tool_experiences"
+            )
+            for old, new in (("tool_experiences", "tool_experiences_confidence_100_migration"),
+                             ("tool_experiences_confidence_100_migration", "tool_experiences")):
+                if connection.execute(
+                    f"SELECT {selected} FROM {old} EXCEPT SELECT {selected} FROM {new} LIMIT 1"
+                ).fetchone() is not None:
+                    raise ToolGuidanceError("experience_confidence_migration_row_mismatch")
+            connection.execute("DROP TABLE tool_experiences")
+            connection.execute(
+                "ALTER TABLE tool_experiences_confidence_100_migration RENAME TO tool_experiences"
+            )
+            for item in objects:
+                connection.execute(item[0])
+            if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                raise ToolGuidanceError("experience_confidence_migration_foreign_key_failure")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.execute(f"PRAGMA legacy_alter_table = {int(legacy_alter)}")
+            connection.execute(f"PRAGMA foreign_keys = {int(foreign_keys)}")
+
     def _initialize(self) -> None:
         with self._connect() as connection:
             connection.execute("PRAGMA journal_mode = WAL")
+            self._migrate_experience_confidence(connection)
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS tool_module_state (
@@ -533,7 +674,7 @@ class ToolGuidanceStore:
                     created_at TEXT NOT NULL,
                     CHECK(provenance = 'ai_reported'),
                     CHECK(evidence_ref IS NULL),
-                    CHECK(confidence BETWEEN 0 AND 80)
+                    CHECK(confidence BETWEEN 0 AND 100)
                 );
 
                 CREATE TABLE IF NOT EXISTS tool_audit_events (
@@ -728,21 +869,22 @@ class ToolGuidanceStore:
         *,
         catalog: Mapping[str, Any] | None,
         tool_name: Any,
-        operation_key: Any,
-        display_label: Any,
-        capability_class: Any,
-        risk_level: Any,
-        confirmation_policy: Any,
-        completion_rule: Any,
-        critical_preconditions: Any,
         purpose: Any,
-        use_when: Any,
-        avoid_when: Any,
-        scenario_tags: Any,
-        scenario_examples: Any,
-        call_notes: Any,
-        keywords: Any,
-        aliases: Any,
+        operation_key: Any = "general",
+        display_label: Any = None,
+        capability_class: Any = "real_world_action",
+        risk_level: Any = "high",
+        confirmation_policy: Any = "explicit_each_time",
+        completion_rule: Any = "",
+        critical_preconditions: Any = None,
+        use_when: Any = None,
+        avoid_when: Any = None,
+        scenario_tags: Any = None,
+        scenario_examples: Any = None,
+        call_notes: Any = "",
+        keywords: Any = None,
+        aliases: Any = None,
+        reminder: Any = None,
         salience: Any = 50,
         auto_recall_mode: Any = "normal",
         salience_reason: Any = "",
@@ -760,7 +902,9 @@ class ToolGuidanceStore:
         lifecycle: Any = "active",
     ) -> dict[str, Any]:
         canonical_name = _text("tool_name", tool_name, 128)
-        if not _TOOL_NAME.fullmatch(canonical_name):
+        # Service labels are advice identifiers, not necessarily callable names.
+        # The transport catalog keeps its separate strict callable-name check.
+        if any(unicodedata.category(c).startswith("C") for c in canonical_name):
             raise ToolGuidanceError("invalid_tool_name")
         tool_basename = canonical_name.rsplit("__", 1)[-1].casefold()
         if tool_basename in _SELF_TOOL_NAMES or tool_basename.startswith("stbrain_"):
@@ -776,9 +920,6 @@ class ToolGuidanceStore:
         recall_mode = _enum("auto_recall_mode", auto_recall_mode, AUTO_RECALL_MODES)
         source = _enum("source_type", source_type, SOURCE_TYPES)
         claimed = _integer("confidence", confidence, 0, 100)
-        ceiling = _SOURCE_CONFIDENCE_CEILINGS[source]
-        if claimed > ceiling:
-            raise ToolGuidanceError("source_confidence_exceeds_ceiling")
         source_value = None if source_ref is None else _text("source_ref", source_ref, 2000)
         if source in {"external_document", "human_reported"} and not source_value:
             raise ToolGuidanceError("source_ref_required")
@@ -791,12 +932,12 @@ class ToolGuidanceStore:
             "canonical_tool_name": canonical_name,
             "operation_key": operation,
             "display_label": _text(
-                "display_label", display_label, self.limits.display_label_chars
+                "display_label", canonical_name if display_label is None else display_label, self.limits.display_label_chars
             ),
             "capability_class": cap_class,
             "risk_level": risk,
             "confirmation_policy": confirmation,
-            "completion_rule": _text("completion_rule", completion_rule, 300),
+            "completion_rule": _text("completion_rule", completion_rule, 300, allow_empty=True),
             "critical_preconditions": _strings(
                 "critical_preconditions",
                 critical_preconditions,
@@ -857,12 +998,16 @@ class ToolGuidanceStore:
             "source_ref": source_value,
             "additional_source_refs": extra_sources,
             "claimed_confidence": claimed,
-            "effective_confidence": min(claimed, ceiling),
+            "effective_confidence": claimed,
             "valid_from": _iso(),
-            "expires_at": "",
+            "expires_at": None,
             "observed_schema_hash": None,
             "lifecycle": _enum("lifecycle", lifecycle, CARD_LIFECYCLES),
         }
+        # Omission preserves the exact legacy content shape and its hashes.
+        # A supplied reminder is the author's text, never a host-written promise.
+        if reminder is not None:
+            content["reminder"] = _text("reminder", reminder, self.limits.summary_chars)
         try:
             content["referent_bindings"] = validate_referent_bindings(
                 referent_bindings, TOOL_REFERENT_FIELD_PATHS
@@ -877,16 +1022,6 @@ class ToolGuidanceStore:
                 raise ToolGuidanceError("invalid_related_ref")
         if recall_mode != "normal" and not content["salience_reason"]:
             raise ToolGuidanceError("salience_reason_required")
-        if (
-            not content["use_when"]
-            or not content["avoid_when"]
-            or not content["scenario_tags"]
-            or not content["scenario_examples"]
-            or not content["call_notes"]
-        ):
-            raise ToolGuidanceError("tool_card_detail_required")
-        if cap_class == "real_world_action" and not content["critical_preconditions"]:
-            raise ToolGuidanceError("tool_card_detail_required")
         if cap_class == "real_world_action":
             high_signal = _HIGH_RISK_ACTION.search(
                 " ".join(
@@ -900,18 +1035,15 @@ class ToolGuidanceStore:
                     raise ToolGuidanceError("risk_below_runtime_floor")
         if risk in {"high", "critical"} and confirmation != "explicit_each_time":
             raise ToolGuidanceError("risk_below_runtime_floor")
-        now = _now_dt()
-        if expires_at is None:
-            expiry = now + timedelta(days=30)
-        else:
+        if expires_at is not None:
             expiry_text = _text("expires_at", expires_at, 64)
             try:
                 expiry = _parse_iso(expiry_text)
-            except ValueError as exc:
+            except (ValueError, OverflowError) as exc:
                 raise ToolGuidanceError("invalid_expires_at") from exc
-            if not now < expiry <= now + timedelta(days=180):
+            if expiry.tzinfo is None or expiry.utcoffset() is None:
                 raise ToolGuidanceError("invalid_expires_at")
-        content["expires_at"] = _iso(expiry)
+            content["expires_at"] = _iso(expiry)
         catalog_state = normalize_catalog(catalog)
         content["observed_schema_hash"] = (
             catalog_state["entries"].get(canonical_name)
@@ -1012,7 +1144,10 @@ class ToolGuidanceStore:
                 content["effective_confidence"],
                 content["observed_schema_hash"],
                 content["valid_from"],
-                content["expires_at"],
+                # Compatibility encoding for the historical NOT NULL mirror.
+                # content_json remains authoritative and stores JSON null;
+                # readers and expiry gates consume that content, not this column.
+                content["expires_at"] if content["expires_at"] is not None else "",
                 reason,
                 wake_id,
                 content_json,
@@ -1050,7 +1185,7 @@ class ToolGuidanceStore:
             availability, schema_status = "advertised", "stale_schema"
         else:
             availability, schema_status = "advertised", "matched"
-        expired = _parse_iso(content["expires_at"]) <= _now_dt()
+        expired = _card_expired(content["expires_at"])
         if card["lifecycle"] == "retired" or content["lifecycle"] == "retired":
             effective_status = "retired"
         elif expired:
@@ -1073,9 +1208,8 @@ class ToolGuidanceStore:
             reason_codes.append("tool_guidance_expired")
         if content["auto_recall_mode"] != "normal":
             reason_codes.append("salience_downweighted")
-        if not call_notes_available:
-            content = dict(content)
-            content["call_notes"] = ""
+        # Manual details return the original authored notes even when transport
+        # diagnostics are stale. Their presence grants no replay/execute authority.
         return {
             "card_id": card["card_id"],
             "version": version["version"],
@@ -1089,7 +1223,11 @@ class ToolGuidanceStore:
             "reason_codes": reason_codes,
             "guidance_authority": "historical_advice_only",
             "permission_authority": "none",
-            "call_notes_available": call_notes_available,
+            "call_notes_available": True,
+            "call_notes_current": bool(call_notes_available and schema_status == "matched"
+                                       and not expired and card["lifecycle"] == "active"),
+            "reminder_source": "authored_reminder" if content.get("reminder") else "legacy_purpose_excerpt",
+            "reminder_recall_guidance": reminder_recall_guidance(),
         }
 
     def remember(
@@ -1112,16 +1250,6 @@ class ToolGuidanceStore:
             content = self._normalize_card_content(catalog=catalog, **fields)
         except TypeError as exc:
             raise ToolGuidanceError("invalid_tool_card_fields") from exc
-        # A brand-new cross-tool chain has no independently reviewed base card.
-        # Store the concrete operation first, then add linkage through the major
-        # revision path so another real wake can inspect every hop.  Otherwise a
-        # caller could make an unreviewed execution graph active at creation.
-        if (
-            content["linked_tool_refs"]
-            or content["chain_role"] != "standalone"
-            or content["handoff_condition"]
-        ):
-            raise ToolGuidanceError("tool_chain_requires_major_revision")
         # Validate all AI-authored text before even creating the owner/model
         # state row.  A credential/raw-payload rejection is therefore truly
         # zero-side-effect and cannot leave a misleading initialized module.
@@ -1130,6 +1258,8 @@ class ToolGuidanceStore:
         now = _iso()
         with self._connect() as connection:
             self._begin(connection)
+            self._validate_linked_refs(connection, owner_id=owner_id, model_id=model_id,
+                                       refs=content["linked_tool_refs"])
             try:
                 receipt_request_content = {
                     key: value
@@ -1150,6 +1280,7 @@ class ToolGuidanceStore:
                         "/display_label": content["display_label"],
                         "/completion_rule": content["completion_rule"],
                         "/purpose": content["purpose"],
+                        **({"/reminder": content["reminder"]} if "reminder" in content else {}),
                         "/call_notes": content["call_notes"],
                         "/documentation_note": content["documentation_note"],
                         "/salience_reason": content["salience_reason"],
@@ -1282,6 +1413,7 @@ class ToolGuidanceStore:
             "completion_rule": content["completion_rule"],
             "critical_preconditions": content["critical_preconditions"],
             "purpose": content["purpose"],
+            **({"reminder": content["reminder"]} if "reminder" in content else {}),
             "use_when": content["use_when"],
             "avoid_when": content["avoid_when"],
             "scenario_tags": content["scenario_tags"],
@@ -1350,6 +1482,150 @@ class ToolGuidanceStore:
         }
 
     def revise(
+        self, *, owner_id: str, model_id: str, wake_id: str, wake_seq: int,
+        expected_row_version: int, card_id: str, expected_card_version: int,
+        reason: str, intent: str = "revise", edit_class: str = "major",
+        catalog: Mapping[str, Any] | None = None, target_version: int | None = None,
+        correctness_assessment: str | None = None,
+        calm_check_stability: str | None = None, calm_check_necessity: str | None = None,
+        calm_check_consequences: str | None = None, calm_check_alternatives: str | None = None,
+        **changes: Any,
+    ) -> dict[str, Any]:
+        """Commit the author's exact change once; no fabricated review or wake.
+
+        Legacy classification/calm arguments remain readable by old clients but
+        do not grant permissions or serve as evidence of independent validation.
+        """
+        card_id = _text("card_id", card_id, 200)
+        reason = _text("reason", reason, 2000)
+        intent = _enum("revision_intent", intent, REVISION_INTENTS)
+        requested = _enum("edit_class", edit_class, EDIT_CLASSES)
+        forbidden = _forbidden_content(changes, reason, correctness_assessment,
+                                       calm_check_stability, calm_check_necessity,
+                                       calm_check_consequences, calm_check_alternatives)
+        if forbidden:
+            raise ToolGuidanceError(forbidden)
+        self.ensure_state(owner_id=owner_id, model_id=model_id)
+        with self._connect() as connection:
+            self._begin(connection)
+            state = self._state_row(connection, owner_id, model_id)
+            if type(expected_row_version) is not int or expected_row_version < 0:
+                raise ToolGuidanceError("invalid_expected_tool_row_version")
+            if state["row_version"] != expected_row_version:
+                raise ToolGuidanceError("tool_row_version_conflict")
+            card, version = self._current_version_row(connection, owner_id, model_id, card_id)
+            if type(expected_card_version) is not int or version["version"] != expected_card_version:
+                raise ToolGuidanceError("tool_card_version_conflict")
+            before = _checked_version_content(version)
+            basis = before
+            if intent == "restore":
+                if type(target_version) is not int or target_version < 1:
+                    raise ToolGuidanceError("target_version_required")
+                basis = _checked_version_content(self._version_row(connection, card_id, target_version))
+            elif target_version is not None:
+                raise ToolGuidanceError("target_version_requires_restore")
+            proposed_input = self._content_as_input(basis)
+            change_values = dict(changes)
+            if requested == "typo":
+                if set(change_values) != {"field_name", "before_text", "after_text"}:
+                    raise ToolGuidanceError("invalid_revision_fields")
+                field = change_values["field_name"]
+                old = _text("before_text", change_values["before_text"], 1000)
+                new = _text("after_text", change_values["after_text"], 1000, allow_empty=True)
+                if field not in proposed_input or not isinstance(proposed_input[field], str):
+                    raise ToolGuidanceError("invalid_revision_fields")
+                if proposed_input[field].count(old) != 1:
+                    raise ToolGuidanceError("typo_source_mismatch")
+                change_values = {field: proposed_input[field].replace(old, new, 1)}
+            elif requested == "source_addition":
+                if set(change_values) != {"source_ref"}:
+                    raise ToolGuidanceError("invalid_revision_fields")
+                added = _text("source_ref", change_values["source_ref"], 2000)
+                if added == basis.get("source_ref") or added in basis["additional_source_refs"]:
+                    raise ToolGuidanceError("no_effective_change")
+                change_values = {"additional_source_refs": [*basis["additional_source_refs"], added]}
+            # Never accept internal provenance/hash/lifecycle fields through a
+            # catch-all dictionary. Retirement/restoration has an explicit intent.
+            allowed = (set(proposed_input) | {"reminder"}) - {"lifecycle"}
+            if requested == "source_addition":
+                allowed.add("additional_source_refs")
+            if set(change_values) - allowed:
+                raise ToolGuidanceError("invalid_revision_fields")
+            if intent == "revise" and before["lifecycle"] == "retired":
+                raise ToolGuidanceError("card_retired_use_restore")
+            if intent == "revise" and not change_values:
+                raise ToolGuidanceError("no_effective_change")
+            if requested == "salience_downweight":
+                if set(change_values) - {"salience", "auto_recall_mode", "salience_reason"}:
+                    raise ToolGuidanceError("invalid_revision_fields")
+                level = _integer("salience", change_values.get("salience", basis["salience"]), 0, 100)
+                mode = _enum("auto_recall_mode", change_values.get("auto_recall_mode", basis["auto_recall_mode"]), AUTO_RECALL_MODES)
+                if level > basis["salience"] or _AUTO_MODE_ORDER[mode] > _AUTO_MODE_ORDER[basis["auto_recall_mode"]]:
+                    raise ToolGuidanceError("not_a_downweight")
+            proposed_input.update(change_values)
+            if intent in {"retire", "restore"}:
+                proposed_input["lifecycle"] = "retired" if intent == "retire" else "active"
+            # Editing old advice must not silently renew its expiry or claim a
+            # fresh schema observation. Explicit tool/schema changes remain stale
+            # unless the host really supplied that exact target in this catalog.
+            preserve_expiry = "expires_at" not in change_values
+            if preserve_expiry:
+                proposed_input["expires_at"] = None
+            proposed = self._normalize_card_content(catalog=catalog, **proposed_input)
+            if preserve_expiry:
+                proposed["expires_at"] = basis["expires_at"]
+            if "tool_name" not in change_values:
+                proposed["observed_schema_hash"] = basis["observed_schema_hash"]
+            # Time is version metadata, not an author-written modification.
+            proposed["valid_from"] = before["valid_from"]
+            if not self._diff(before, proposed):
+                raise ToolGuidanceError("no_effective_change")
+            proposed["valid_from"] = _iso()
+            self._validate_linked_refs(connection, owner_id=owner_id, model_id=model_id,
+                                       refs=proposed["linked_tool_refs"])
+            duplicate = connection.execute(
+                "SELECT card_id FROM tool_cards WHERE owner_id = ? AND model_id = ? "
+                "AND canonical_tool_name = ? AND operation_key = ? AND card_id != ?",
+                (owner_id, model_id, proposed["canonical_tool_name"], proposed["operation_key"], card_id),
+            ).fetchone()
+            if duplicate is not None:
+                raise ToolGuidanceError("tool_card_exists")
+            diff = self._diff(before, proposed)
+            new_version = expected_card_version + 1
+            now = _iso()
+            connection.execute(
+                "UPDATE tool_cards SET canonical_tool_name = ?, operation_key = ?, current_version = ?, "
+                "lifecycle = ?, updated_at = ? WHERE card_id = ? AND current_version = ?",
+                (proposed["canonical_tool_name"], proposed["operation_key"], new_version,
+                 proposed["lifecycle"], now, card_id, expected_card_version),
+            )
+            reasons = ["author_revision_committed", "guidance_not_permission"]
+            inserted = self._insert_version(
+                connection, card_id=card_id, version=new_version, previous_version=expected_card_version,
+                content=proposed, diff=diff, reason=reason, wake_id=wake_id,
+                requested_edit_class=requested, effective_edit_class="direct_revision",
+                classification_reason_codes=reasons,
+                classification_subject={"card_id": card_id, "fields": [d["path"][1:] for d in diff],
+                                        "direction": intent, "independent_review_performed": False},
+            )
+            row_version = self._advance_state(connection, owner_id=owner_id, model_id=model_id,
+                                              expected_row_version=expected_row_version)
+            event_id = self._insert_audit(
+                connection, owner_id=owner_id, model_id=model_id, action="revise_tool_guidance",
+                actor="ai", wake_id=wake_id, card_id=card_id, decision="version_appended",
+                reason_codes=reasons, details={"version": new_version, "diff": diff,
+                                              "submission_mode": "direct_revision"},
+            )
+            updated = self._card_row(connection, owner_id, model_id, card_id)
+            return {"decision": "version_appended", "submission_mode": "direct_revision",
+                    "card": self._public_card(updated, inserted, catalog=catalog), "diff": diff,
+                    "rollback_ref": f"tool-card://{card_id}@{expected_card_version}",
+                    "tool_row_version": row_version, "event_id": event_id,
+                    "state_changed": True, "active_version_changed": True,
+                    "review_requires_later_wake": False, "execution_performed": False}
+
+
+    def propose_revision(
         self,
         *,
         owner_id: str,
@@ -1684,7 +1960,6 @@ class ToolGuidanceStore:
                 target = self._version_row(connection, card_id, target_version)
                 proposed_input = self._content_as_input(_json(target["content_json"], {}))
                 proposed_input["lifecycle"] = "active"
-                proposed_input["expires_at"] = None
                 proposed_input.update(changes)
             else:
                 proposed_input = self._content_as_input(before)
@@ -1818,8 +2093,14 @@ class ToolGuidanceStore:
         wake_id: str,
         wake_seq: int,
         catalog: Mapping[str, Any] | None,
+        ordinary_author: bool = False,
     ) -> list[dict[str, Any]]:
-        """Return complete pending candidates and bind presentation to this wake."""
+        """Read candidates; only the legacy route binds a real-wake presentation.
+
+        ordinary_author is supplied by the trusted service binding, never by an
+        AI-facing tool parameter. An ordinary read does not expire old proposals
+        or manufacture real-wake presentation evidence.
+        """
 
         self.ensure_state(owner_id=owner_id, model_id=model_id)
         catalog_state = normalize_catalog(catalog)
@@ -1833,7 +2114,7 @@ class ToolGuidanceStore:
             result: list[dict[str, Any]] = []
             for row in rows:
                 expired = _parse_iso(row["expires_at"]) <= _now_dt()
-                if expired:
+                if expired and ordinary_author is not True:
                     connection.execute(
                         "UPDATE tool_guidance_candidates SET status = 'expired', updated_at = ? "
                         "WHERE candidate_id = ? AND status = 'pending'",
@@ -1853,11 +2134,12 @@ class ToolGuidanceStore:
                     if current_schema == row["observed_schema_hash"]
                     else "stale_schema"
                 )
-                connection.execute(
-                    "UPDATE tool_guidance_candidates SET presented_wake_id = ?, "
-                    "presented_wake_seq = ?, updated_at = ? WHERE candidate_id = ?",
-                    (wake_id, wake_seq, _iso(), row["candidate_id"]),
-                )
+                if ordinary_author is not True:
+                    connection.execute(
+                        "UPDATE tool_guidance_candidates SET presented_wake_id = ?, "
+                        "presented_wake_seq = ?, updated_at = ? WHERE candidate_id = ?",
+                        (wake_id, wake_seq, _iso(), row["candidate_id"]),
+                    )
                 result.append(
                     {
                         "candidate_id": row["candidate_id"],
@@ -1875,10 +2157,64 @@ class ToolGuidanceStore:
                         "catalog_hash_at_submit": row["catalog_hash"],
                         "current_catalog_hash": catalog_state["catalog_hash"],
                         "schema_status": schema_status,
-                        "review_requires_later_wake": wake_seq <= row["submitted_wake_seq"],
+                        "review_requires_later_wake": (
+                            ordinary_author is not True and wake_seq <= row["submitted_wake_seq"]
+                        ),
+                        **({"review_mode": "author_confirmation",
+                            "presentation_binding_required": False,
+                            "time_limit_elapsed": expired} if ordinary_author is True else {}),
                     }
                 )
             return result
+
+    def withdraw_candidate(
+        self, *, owner_id: str, model_id: str, wake_id: str,
+        expected_row_version: int, candidate_id: str, candidate_hash: str,
+        expected_base_version: int, reason: str,
+    ) -> dict[str, Any]:
+        """Exit an old pending proposal, including a stale/offline one."""
+        candidate_id = _text("candidate_id", candidate_id, 200)
+        reason = _text("reason", reason, 2000)
+        if not isinstance(candidate_hash, str) or not _SHA256.fullmatch(candidate_hash):
+            raise ToolGuidanceError("candidate_hash_mismatch")
+        _integer("expected_base_version", expected_base_version, 1, 2**63 - 1)
+        forbidden = _forbidden_content(reason)
+        if forbidden:
+            raise ToolGuidanceError(forbidden)
+        with self._connect() as connection:
+            self._begin(connection)
+            candidate = connection.execute(
+                "SELECT * FROM tool_guidance_candidates WHERE owner_id = ? AND model_id = ? AND candidate_id = ?",
+                (owner_id, model_id, candidate_id),
+            ).fetchone()
+            if candidate is None:
+                raise ToolGuidanceError("candidate_not_found")
+            if candidate["candidate_hash"] != candidate_hash:
+                raise ToolGuidanceError("candidate_hash_mismatch")
+            if candidate["base_version"] != expected_base_version:
+                raise ToolGuidanceError("candidate_base_changed")
+            if candidate["status"] != "pending":
+                raise ToolGuidanceError("candidate_not_pending")
+            # CAS and namespace checks remain. No current-card equality, catalog,
+            # presentation, expiry or later wake is needed to decline a proposal.
+            row_version = self._advance_state(connection, owner_id=owner_id, model_id=model_id,
+                                              expected_row_version=expected_row_version)
+            connection.execute(
+                "UPDATE tool_guidance_candidates SET status = 'withdrawn', updated_at = ? WHERE candidate_id = ?",
+                (_iso(), candidate_id),
+            )
+            event_id = self._insert_audit(
+                connection, owner_id=owner_id, model_id=model_id,
+                action="review_tool_guidance_candidate", actor="ai", wake_id=wake_id,
+                card_id=candidate["card_id"], candidate_id=candidate_id, decision="withdraw",
+                reason_codes=["author_withdrew_legacy_candidate"],
+                details={"reason_hash": _sha256(reason), "independent_review_performed": False},
+            )
+            return {"decision": "withdraw", "candidate_id": candidate_id,
+                    "reason_codes": ["author_withdrew_legacy_candidate"],
+                    "tool_row_version": row_version, "event_id": event_id,
+                    "state_changed": True, "active_version_changed": False,
+                    "execution_performed": False}
 
     def review_candidate(
         self,
@@ -1891,24 +2227,41 @@ class ToolGuidanceStore:
         candidate_id: str,
         candidate_hash: str,
         decision: str,
-        correctness_decision: str,
-        correctness_assessment: str,
         reason: str,
-        ai_confirmation: bool,
         expected_base_version: int,
-        catalog: Mapping[str, Any] | None,
+        correctness_decision: str | None = None,
+        correctness_assessment: str | None = None,
+        ai_confirmation: bool = False,
+        catalog: Mapping[str, Any] | None = None,
+        ordinary_author: bool = False,
     ) -> dict[str, Any]:
+        if decision == "withdraw":
+            return self.withdraw_candidate(
+                owner_id=owner_id, model_id=model_id, wake_id=wake_id,
+                expected_row_version=expected_row_version, candidate_id=candidate_id,
+                candidate_hash=candidate_hash, expected_base_version=expected_base_version, reason=reason,
+            )
         self.ensure_state(owner_id=owner_id, model_id=model_id)
         candidate_id = _text("candidate_id", candidate_id, 200)
         if not isinstance(candidate_hash, str) or not _SHA256.fullmatch(candidate_hash):
             raise ToolGuidanceError("candidate_hash_mismatch")
         decision = _enum("candidate_decision", decision, CANDIDATE_DECISIONS)
-        correctness_decision = _enum(
-            "correctness_decision", correctness_decision, CORRECTNESS_DECISIONS
-        )
-        assessment = _text("correctness_assessment", correctness_assessment, 2000)
+        ordinary_author = ordinary_author is True
+        if ordinary_author:
+            # accept / keep_pending is the authenticated author's explicit choice.
+            # The old correctness fields may be retained as authored commentary,
+            # but neither a separate essay nor a synthetic later wake grants it.
+            _integer("expected_base_version", expected_base_version, 1, 2**63 - 1)
+            assessment = "" if correctness_assessment is None else _text(
+                "correctness_assessment", correctness_assessment, 2000, allow_empty=True
+            )
+        else:
+            correctness_decision = _enum(
+                "correctness_decision", correctness_decision, CORRECTNESS_DECISIONS
+            )
+            assessment = _text("correctness_assessment", correctness_assessment, 2000)
         reason = _text("reason", reason, 2000)
-        if len(assessment) < 20:
+        if not ordinary_author and len(assessment) < 20:
             raise ToolGuidanceError("correctness_assessment_required")
         forbidden = _forbidden_content(assessment, reason)
         if forbidden:
@@ -1918,9 +2271,9 @@ class ToolGuidanceStore:
             or (correctness_decision == "uncertain" and decision == "keep_pending")
             or (correctness_decision == "incorrect" and decision == "withdraw")
         )
-        if not mapping_valid:
+        if not ordinary_author and not mapping_valid:
             raise ToolGuidanceError("correctness_decision_mismatch")
-        if decision == "accept" and ai_confirmation is not True:
+        if not ordinary_author and decision == "accept" and ai_confirmation is not True:
             raise ToolGuidanceError("ai_confirmation_required")
 
         with self._connect() as connection:
@@ -1934,7 +2287,7 @@ class ToolGuidanceStore:
                 raise ToolGuidanceError("candidate_not_found")
             if candidate["status"] != "pending":
                 raise ToolGuidanceError("candidate_not_pending")
-            if _parse_iso(candidate["expires_at"]) <= _now_dt():
+            if not ordinary_author and _parse_iso(candidate["expires_at"]) <= _now_dt():
                 connection.execute(
                     "UPDATE tool_guidance_candidates SET status = 'expired', updated_at = ? "
                     "WHERE candidate_id = ?",
@@ -1955,9 +2308,9 @@ class ToolGuidanceStore:
                 or current["version"] != expected_base_version
             ):
                 raise ToolGuidanceError("candidate_base_changed")
-            if wake_seq <= candidate["submitted_wake_seq"]:
+            if not ordinary_author and wake_seq <= candidate["submitted_wake_seq"]:
                 raise ToolGuidanceError("later_real_wake_required")
-            if (
+            if not ordinary_author and (
                 candidate["presented_wake_id"] != wake_id
                 or candidate["presented_wake_seq"] != wake_seq
             ):
@@ -1967,13 +2320,13 @@ class ToolGuidanceStore:
             current_schema = catalog_state["entries"].get(
                 proposed["canonical_tool_name"]
             )
-            if not catalog_state["catalog_complete"]:
+            if not ordinary_author and not catalog_state["catalog_complete"]:
                 raise ToolGuidanceError("live_catalog_unavailable")
-            if current_schema is None:
+            if not ordinary_author and current_schema is None:
                 raise ToolGuidanceError("tool_not_advertised")
-            if current_schema != candidate["observed_schema_hash"]:
+            if not ordinary_author and current_schema != candidate["observed_schema_hash"]:
                 raise ToolGuidanceError("schema_hash_mismatch")
-            if candidate["catalog_hash"] != catalog_state["catalog_hash"]:
+            if not ordinary_author and candidate["catalog_hash"] != catalog_state["catalog_hash"]:
                 raise ToolGuidanceError("catalog_hash_mismatch")
 
             row_version = self._advance_state(
@@ -1983,11 +2336,17 @@ class ToolGuidanceStore:
                 expected_row_version=expected_row_version,
             )
             if decision == "keep_pending":
-                connection.execute(
-                    "UPDATE tool_guidance_candidates SET reviewed_wake_id = ?, reviewed_wake_seq = ?, "
-                    "presented_wake_id = NULL, presented_wake_seq = NULL, updated_at = ? WHERE candidate_id = ?",
-                    (wake_id, wake_seq, _iso(), candidate_id),
-                )
+                if ordinary_author:
+                    connection.execute(
+                        "UPDATE tool_guidance_candidates SET updated_at = ? WHERE candidate_id = ?",
+                        (_iso(), candidate_id),
+                    )
+                else:
+                    connection.execute(
+                        "UPDATE tool_guidance_candidates SET reviewed_wake_id = ?, reviewed_wake_seq = ?, "
+                        "presented_wake_id = NULL, presented_wake_seq = NULL, updated_at = ? WHERE candidate_id = ?",
+                        (wake_id, wake_seq, _iso(), candidate_id),
+                    )
                 event_id = self._insert_audit(
                     connection,
                     owner_id=owner_id,
@@ -1998,16 +2357,20 @@ class ToolGuidanceStore:
                     card_id=card["card_id"],
                     candidate_id=candidate_id,
                     decision="keep_pending",
-                    reason_codes=["correctness_uncertain"],
-                    details={"assessment_hash": _sha256(assessment)},
+                    reason_codes=(["author_kept_pending"] if ordinary_author else ["correctness_uncertain"]),
+                    details={"assessment_hash": _sha256(assessment),
+                             **({"independent_review_performed": False,
+                                 "authorization_basis": "ordinary_authenticated"} if ordinary_author else {})},
                 )
                 return {
                     "decision": "keep_pending",
-                    "reason_codes": ["correctness_uncertain"],
+                    "reason_codes": (["author_kept_pending"] if ordinary_author else ["correctness_uncertain"]),
                     "tool_row_version": row_version,
                     "event_id": event_id,
                     "state_changed": True,
                     "active_version_changed": False,
+                    **({"submission_mode": "ordinary_candidate_decision",
+                        "independent_review_performed": False} if ordinary_author else {}),
                 }
             if decision == "withdraw":
                 connection.execute(
@@ -2064,16 +2427,24 @@ class ToolGuidanceStore:
                 wake_id=wake_id,
                 requested_edit_class=candidate["requested_edit_class"],
                 effective_edit_class="major",
-                classification_reason_codes=["cross_wake_review_accepted"],
+                classification_reason_codes=([
+                    "ordinary_candidate_accepted"
+                ] if ordinary_author else ["cross_wake_review_accepted"]),
                 classification_subject=_json(
                     candidate["classification_subject_json"], {}
                 ),
             )
-            connection.execute(
-                "UPDATE tool_guidance_candidates SET status = 'accepted', reviewed_wake_id = ?, "
-                "reviewed_wake_seq = ?, updated_at = ? WHERE candidate_id = ?",
-                (wake_id, wake_seq, now, candidate_id),
-            )
+            if ordinary_author:
+                connection.execute(
+                    "UPDATE tool_guidance_candidates SET status = 'accepted', updated_at = ? WHERE candidate_id = ?",
+                    (now, candidate_id),
+                )
+            else:
+                connection.execute(
+                    "UPDATE tool_guidance_candidates SET status = 'accepted', reviewed_wake_id = ?, "
+                    "reviewed_wake_seq = ?, updated_at = ? WHERE candidate_id = ?",
+                    (wake_id, wake_seq, now, candidate_id),
+                )
             event_id = self._insert_audit(
                 connection,
                 owner_id=owner_id,
@@ -2084,11 +2455,14 @@ class ToolGuidanceStore:
                 card_id=card["card_id"],
                 candidate_id=candidate_id,
                 decision="accepted",
-                reason_codes=["correctness_confirmed", "version_appended"],
+                reason_codes=(["author_confirmed", "ordinary_candidate_accepted", "version_appended"]
+                              if ordinary_author else ["correctness_confirmed", "version_appended"]),
                 details={
                     "version": new_version,
                     "candidate_hash": candidate_hash,
                     "assessment_hash": _sha256(assessment),
+                    **({"independent_review_performed": False,
+                        "authorization_basis": "ordinary_authenticated"} if ordinary_author else {}),
                 },
             )
             updated_card = self._card_row(
@@ -2103,6 +2477,8 @@ class ToolGuidanceStore:
                 "state_changed": True,
                 "active_version_changed": True,
                 "execution_performed": False,
+                **({"submission_mode": "ordinary_candidate_acceptance", "author_confirmed": True,
+                    "independent_review_performed": False} if ordinary_author else {}),
             }
 
     def record_experience(
@@ -2126,7 +2502,7 @@ class ToolGuidanceStore:
         reason_code = _text("reason_code", reason_code, 160)
         attempt = _text("attempt_summary", attempt_summary, 500)
         lesson_value = "" if lesson is None else _text("lesson", lesson, 500, allow_empty=True)
-        confidence = _integer("confidence", confidence, 0, 80)
+        confidence = _integer("confidence", confidence, 0, 100)
         forbidden = _forbidden_content(reason_code, attempt, lesson_value)
         if forbidden:
             raise ToolGuidanceError(forbidden)
@@ -2318,13 +2694,62 @@ class ToolGuidanceStore:
         catalog: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         self.ensure_state(owner_id=owner_id, model_id=model_id)
-        if view not in {"suggestions", "card", "history", "failures"}:
+        if view not in {"suggestions", "directory", "card", "history", "failures"}:
             raise ToolGuidanceError("invalid_recall_view")
         limit = _integer("limit", limit, 1, 5)
         query = _text("query", query, 4000, allow_empty=True)
         exact_card = card_id.strip() if isinstance(card_id, str) and card_id.strip() else None
         exact_tool = tool_name.strip() if isinstance(tool_name, str) and tool_name.strip() else None
+        exact_version: int | None = None
+        alias_query = prepare_explicit_alias_query(query) if not (exact_card or exact_tool) else None
+
+        def alias_evidence(content: Mapping[str, Any]) -> dict[str, Any] | None:
+            if alias_query is None:
+                return None
+            match = explicit_alias_match(alias_query, [
+                content.get("purpose", ""), content.get("reminder", ""),
+                *content.get("scenario_tags", []), *content.get("scenario_examples", []),
+                *content.get("keywords", []), *content.get("aliases", []), *content.get("use_when", []),
+            ])
+            return ({"retrieval_evidence": match, "retrieval_match": "lexical_alias_candidate",
+                     "candidate_only": True, "candidate_score": match["score"]} if match else None)
+
         with self._connect() as connection:
+            if exact_card:
+                match = _TOOL_CARD_REF.fullmatch(exact_card)
+                if match:
+                    exact_card = match.group(1)
+                    exact_version = int(match.group(2))
+            if view == "directory" or (view == "suggestions" and not query and not exact_card and not exact_tool):
+                rows = self._candidate_rows(connection, owner_id=owner_id, model_id=model_id)
+                results = []
+                alias_results = []
+                for card, version in rows:
+                    content = _checked_version_content(version)
+                    if exact_card and card["card_id"] != exact_card:
+                        continue
+                    if exact_tool and content["canonical_tool_name"] != exact_tool:
+                        continue
+                    evidence = None
+                    if query and _scene_score(query, content) < 0.5:
+                        evidence = alias_evidence(content)
+                        if evidence is None:
+                            continue
+                    item = {"card_id": card["card_id"], "version": version["version"],
+                            "ref": f"tool-card://{card['card_id']}@{version['version']}",
+                            "display_label": content["display_label"], "lifecycle": card["lifecycle"],
+                            "reminder": _reminder_text(content, self.limits.summary_chars)}
+                    if evidence:
+                        alias_results.append({**item, **evidence})
+                    else:
+                        results.append(item)
+                alias_results.sort(key=lambda item: (-float(item["candidate_score"]), item["card_id"]))
+                results.extend(alias_results)
+                return {"decision": "directory", "view": "directory", "results": results[:limit],
+                        "total": len(results), "truncated": len(results) > limit,
+                        "tool_row_version": self._state_row(connection, owner_id, model_id)["row_version"],
+                        "next_step": "Use card_id with view=card for original details; narrow query for more cards.",
+                        "execution_performed": False}
             if view == "history":
                 if not exact_card:
                     raise ToolGuidanceError("card_id_required")
@@ -2384,6 +2809,7 @@ class ToolGuidanceStore:
 
             catalog_state = normalize_catalog(catalog)
             candidates: list[tuple[float, sqlite3.Row, sqlite3.Row, dict[str, Any]]] = []
+            alias_candidates: list[tuple[float, sqlite3.Row, sqlite3.Row, dict[str, Any]]] = []
             for card, version in self._candidate_rows(
                 connection, owner_id=owner_id, model_id=model_id
             ):
@@ -2392,20 +2818,15 @@ class ToolGuidanceStore:
                     continue
                 if exact_tool and card["canonical_tool_name"] != exact_tool:
                     continue
-                score = 1.0 if exact_card or exact_tool else _semantic_similarity(
-                    query,
-                    [
-                        content["display_label"],
-                        content["purpose"],
-                        *content["scenario_tags"],
-                        *content["scenario_examples"],
-                        *content["keywords"],
-                        *content["aliases"],
-                        *content["use_when"],
-                    ],
-                )
+                if exact_card and exact_version is not None:
+                    version = self._version_row(connection, exact_card, exact_version)
+                    content = _checked_version_content(version)
+                score = 1.0 if exact_card or exact_tool else _scene_score(query, content)
+                evidence = None
                 if not (exact_card or exact_tool) and score <= 0:
-                    continue
+                    evidence = alias_evidence(content)
+                    if evidence is None:
+                        continue
                 experience = self._latest_experience_state(
                     connection,
                     owner_id=owner_id,
@@ -2435,24 +2856,40 @@ class ToolGuidanceStore:
                 if (
                     not (exact_card or exact_tool)
                     and public["effective_status"]
-                    in {"retired", "expired", "stale_schema"}
+                    in {"retired"}
                     and not include_stale
                 ):
                     continue
-                candidates.append((score, card, version, public))
+                if evidence:
+                    alias_candidates.append((score, card, version, {**public, **evidence}))
+                else:
+                    candidates.append((score, card, version, public))
             candidates.sort(
                 key=lambda item: (-item[0], -item[3]["content"]["salience"], item[1]["card_id"])
             )
+            alias_candidates.sort(key=lambda item: (-float(item[3]["candidate_score"]), item[1]["card_id"]))
+            candidates.extend(alias_candidates)
             results = [
                 {"semantic_score": round(score, 4), **public}
                 for score, _card, _version, public in candidates[:limit]
             ]
-            while results and estimate_tokens(results) > self.limits.precise_query_tokens:
-                results.pop()
+            if view == "suggestions" and not (exact_card or exact_tool):
+                results = [{"card_id": item["card_id"], "version": item["version"],
+                            "ref": f"tool-card://{item['card_id']}@{item['version']}",
+                            "reminder": _reminder_text(item["content"], self.limits.summary_chars),
+                            **{key: item[key] for key in ("retrieval_evidence", "retrieval_match",
+                                                         "candidate_only", "candidate_score") if key in item}}
+                           for item in results]
+            # A precise card is an explicit request for the original. Never drop
+            # that one card silently merely because its complete notes are long.
+            if not (exact_card or exact_tool):
+                while results and estimate_tokens(results) > self.limits.precise_query_tokens:
+                    results.pop()
             return {
                 "decision": "precise_result" if exact_card or exact_tool or view == "card" else "suggestions",
                 "view": view,
                 "results": results,
+                "lookup_guidance": {"view": "directory", "query": "", "limit": 5} if not results else None,
                 "catalog_complete": catalog_state["catalog_complete"],
                 "catalog_hash": catalog_state["catalog_hash"],
                 "guidance_authority": "historical_advice_only",
@@ -2481,29 +2918,7 @@ class ToolGuidanceStore:
             )
         query = _text("query", query, 4000, allow_empty=True)
         catalog_state = normalize_catalog(catalog)
-        if not catalog_state["catalog_complete"]:
-            connection_scope = (
-                self._connect()
-                if external_connection is None
-                else nullcontext(external_connection)
-            )
-            with connection_scope as connection:
-                self._insert_audit(
-                    connection,
-                    owner_id=owner_id,
-                    model_id=model_id,
-                    action="tool_guidance_recall_gate",
-                    actor="runtime_gate",
-                    decision="defer",
-                    reason_codes=["live_catalog_unavailable", "no_candidate"],
-                    details={"query_hash": _sha256(query), "catalog_hash": None},
-                )
-            return {
-                "decision": "defer",
-                "reason_codes": ["live_catalog_unavailable", "no_candidate"],
-                "envelopes": [],
-                "execution_performed": False,
-            }
+        limit = _integer("limit", limit, 1, 5)
         connection_scope = (
             self._connect()
             if external_connection is None
@@ -2516,45 +2931,13 @@ class ToolGuidanceStore:
                 connection, owner_id=owner_id, model_id=model_id
             ):
                 content = _json(version["content_json"], {})
-                current_schema = catalog_state["entries"].get(
-                    content["canonical_tool_name"]
-                )
-                if (
-                    card["lifecycle"] != "active"
-                    or content["lifecycle"] != "active"
-                    or _parse_iso(content["expires_at"]) <= now
-                    or current_schema is None
-                    or content["observed_schema_hash"] is None
-                    or current_schema != content["observed_schema_hash"]
-                    or content["effective_confidence"] < 60
-                    or content["auto_recall_mode"] == "never_auto"
-                ):
+                if (card["lifecycle"] != "active" or content["lifecycle"] != "active"
+                        or content["auto_recall_mode"] == "never_auto"):
                     continue
-                experience = self._latest_experience_state(
-                    connection,
-                    owner_id=owner_id,
-                    model_id=model_id,
-                    card_id=card["card_id"],
-                    card_version=version["version"],
-                    catalog_hash=catalog_state["catalog_hash"],
-                )
-                if experience["suppressed"]:
-                    continue
-                semantic = _semantic_similarity(
-                    query,
-                    [
-                        content["purpose"],
-                        *content["scenario_tags"],
-                        *content["scenario_examples"],
-                        *content["keywords"],
-                        *content["aliases"],
-                        *content["use_when"],
-                    ],
-                )
+                semantic = _scene_score(query, content)
                 salience = content["salience"] / 100
                 if content["auto_recall_mode"] == "downweighted":
                     salience *= 0.55
-                salience *= experience["failure_factor"]
                 eligible.append((semantic, salience, card, version, content))
             eligible.sort(key=lambda item: (-item[0], -item[1], item[2]["card_id"]))
             selected: list[tuple[float, float, sqlite3.Row, sqlite3.Row, dict[str, Any]]] = []
@@ -2571,51 +2954,15 @@ class ToolGuidanceStore:
                 if len(selected) >= min(limit, 2):
                     break
             envelopes: list[dict[str, Any]] = []
-            detail_schema = catalog_state["entries"].get("recall_tool_guidance")
-            detail_lookup_available = (
-                self.detail_lookup_schema_hash is not None
-                and detail_schema == self.detail_lookup_schema_hash
-            )
             for semantic, salience, card, version, content in selected:
-                label = content["display_label"] or content["canonical_tool_name"]
-                precondition = ""
-                if content["capability_class"] == "real_world_action":
-                    precondition = "执行前仍须核对本轮请求、权限与确认。"
-                elif content["critical_preconditions"]:
-                    precondition = content["critical_preconditions"][0]
-                summary = f"在相关场景，我可以考虑 {label}。"
-                if precondition:
-                    summary += f"关键前提：{precondition}"
-                summary = summary[: self.limits.summary_chars]
                 envelope = {
                     "module": "tool_guidance_module",
                     "item_ref": f"tool-card://{card['card_id']}@{version['version']}",
                     "kind": "tool_card_summary",
-                    "scene_cues": list(content["scenario_tags"]),
                     "semantic_score": round(semantic, 4),
                     "salience_score": round(salience, 4),
-                    "confidence": content["effective_confidence"],
-                    "freshness": "current",
-                    "provenance_class": _PROVENANCE_CLASSES[content["source_type"]],
-                    "gate_decision": "background_reference",
-                    "presentation": "short_summary",
-                    "reason_codes": ["recall_gate_passed", "live_catalog_match"],
-                    "content": {"scene_summary": summary},
-                    "detail_lookup": {
-                        "available": detail_lookup_available,
-                        "tool": "recall_tool_guidance" if detail_lookup_available else None,
-                        "ref": f"tool-card://{card['card_id']}@{version['version']}",
-                    },
-                    "module_extension": {
-                        "tool_guidance": {
-                            "tool_name": content["canonical_tool_name"],
-                            "operation_key": content["operation_key"],
-                            "capability_class": content["capability_class"],
-                            "risk_level": content["risk_level"],
-                            "critical_precondition_applied": bool(precondition),
-                            "recall_gate": "passed",
-                        }
-                    },
+                    "content": {"scene_summary": _reminder_text(content, self.limits.summary_chars)},
+                    "summary_source": "authored_reminder" if content.get("reminder") else "legacy_purpose_excerpt",
                 }
                 envelope["token_cost"] = estimate_tokens(envelope)
                 envelopes.append(envelope)
@@ -2688,7 +3035,7 @@ class ToolGuidanceStore:
                 or current_schema is None
                 or current_schema != content["observed_schema_hash"]
                 or card["lifecycle"] != "active"
-                or _parse_iso(content["expires_at"]) <= _now_dt()
+                or _card_expired(content["expires_at"])
             ):
                 return {
                     "decision": "denied",

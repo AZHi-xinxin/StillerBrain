@@ -41,7 +41,7 @@ class LexicalQuery:
 
 
 # A small, reviewable vocabulary of lexical alternatives, not semantic inference.
-# Matching is confined to saved keywords and explicit searches. Adding a family
+# Matching is confined to saved retrieval fields and explicit searches. Adding a family
 # changes candidate recall only, and must have both retrieval and privacy tests.
 LEXICAL_ALIAS_FAMILIES: tuple[tuple[str, ...], ...] = (
     ("合照", "合影"),
@@ -53,6 +53,76 @@ LEXICAL_ALIAS_FAMILIES: tuple[tuple[str, ...], ...] = (
     ("报错", "错误提示"),
     ("停电", "断电"),
 )
+
+# Complete, common expressions only: a bare "回家" can describe a future plan.
+# These are retrieval alternatives, never claims about the present situation.
+EXPLICIT_EXPRESSION_FAMILIES: tuple[tuple[str, ...], ...] = (
+    ("回家了", "到家了", "刚到家", "刚回家", "已经到家", "刚进家门", "已经回到家"),
+    ("准备睡觉", "准备睡了", "要睡了", "准备上床睡觉"),
+    ("出门了", "刚出门", "已经出门"),
+)
+_CLAUSE_BOUNDARY = re.compile(r"[，,。.!！?？;；\n\r]")
+_NONCURRENT_CUE = re.compile(
+    r"没|不|未|明天|后天|昨天|前天|上周|下周|上次|下次|曾经|以前|"
+    r"如果|假如|要是|打算|计划|将要|之后|以后|等到|可能|也许"
+)
+
+
+def _expression_occurs(text: str, family: Sequence[str]) -> bool:
+    # Intentionally conservative and clause-local, not a temporal NLP model.
+    # Reject only the added expression hint; ordinary literal search is intact.
+    return any(
+        not _NONCURRENT_CUE.search(clause)
+        and any(_alias_occurs(clause, alias) for alias in family)
+        for clause in _CLAUSE_BOUNDARY.split(text)
+    )
+
+
+@dataclass(frozen=True)
+class ExplicitAliasQuery:
+    lexical_families: tuple[tuple[str, ...], ...]
+    expression_families: tuple[tuple[str, ...], ...]
+
+
+def prepare_explicit_alias_query(query: str) -> ExplicitAliasQuery:
+    """Prepare a small lexical vocabulary for a deliberate read-only search."""
+    folded = unicodedata.normalize("NFKC", query).casefold()
+    return ExplicitAliasQuery(
+        alias_query_families(query),
+        tuple(family for family in EXPLICIT_EXPRESSION_FAMILIES if _expression_occurs(folded, family)),
+    )
+
+
+def explicit_alias_match(
+    query: str | ExplicitAliasQuery, saved_fields: Iterable[str],
+) -> dict[str, object] | None:
+    """A miss-only candidate hint; no text rewrite, inference or disclosure grant.
+
+    Callers keep normal/exact results first and enforce their existing scope,
+    lifecycle and disclosure rules. Automatic recall must not call this helper.
+    Only fixed explanation fields are returned; saved text is never copied out.
+    """
+    prepared = prepare_explicit_alias_query(query) if isinstance(query, str) else query
+    if not prepared.lexical_families and not prepared.expression_families:
+        return None
+    fields = [unicodedata.normalize("NFKC", value).casefold()
+              for value in saved_fields if isinstance(value, str) and value]
+    matches = sum(
+        any(_alias_occurs(field, alias) for field in fields for alias in family)
+        for family in prepared.lexical_families
+    ) + sum(
+        any(_expression_occurs(field, family) for field in fields)
+        for family in prepared.expression_families
+    )
+    if not matches:
+        return None
+    return {
+        "score": round(min(0.45, 0.28 + 0.04 * (matches - 1)), 4),
+        "match_kind": "lexical_alias_candidate",
+        "candidate_only": True,
+        "matched_family_count": matches,
+        "interpretation": "按常见词句找到的相关候选，保留原记录的时间与语境。",
+    }
 
 
 def _alias_occurs(text: str, alias: str) -> bool:

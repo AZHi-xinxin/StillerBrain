@@ -1,7 +1,7 @@
 """Owner-scoped facade for the module-four tool-guidance runtime.
 
-The facade binds every mutation to an open write context from module one and
-to a host-derived live tool catalog.  It intentionally exposes advice and
+The facade binds mutations to their owner/model context. A host-derived tool
+catalog is diagnostic for advice, not a prerequisite for reminders. It exposes advice and
 attempt-gate decisions only; it cannot invoke, proxy, or grant access to any
 target tool.
 """
@@ -16,6 +16,7 @@ from runtime.tool_guidance import (
     ToolGuidanceError,
     ToolGuidanceStore,
     normalize_catalog,
+    reminder_recall_guidance,
 )
 
 
@@ -47,7 +48,9 @@ class ToolGuidanceAccessService:
         return self.store.status(owner_id=self.owner_id, model_id=self.model_id)
 
     @staticmethod
-    def _reject(reason: str, *, status: dict[str, Any]) -> dict[str, Any]:
+    def _reject(
+        reason: str, *, status: dict[str, Any], confidence_authoring: bool = False
+    ) -> dict[str, Any]:
         result: dict[str, Any] = {
             "module": "tool_guidance_module",
             "contract_version": TOOL_GUIDANCE_CONTRACT_VERSION,
@@ -58,7 +61,15 @@ class ToolGuidanceAccessService:
             "active_version_changed": False,
             "execution_performed": False,
         }
-        if reason == "risk_below_runtime_floor":
+        if reason == "invalid_confidence" and confidence_authoring:
+            result["repair_guidance"] = {
+                "field": "confidence",
+                "expected_type": "integer",
+                "minimum": 0,
+                "maximum": 100,
+                "message": "工具卡与工具经验的 confidence 由我填写 0–100 的整数，包含 0 和 100；经验保持 AI 自报，不因分数升为独立核验。",
+            }
+        elif reason == "risk_below_runtime_floor":
             result["repair_guidance"] = {
                 "real_world_action_minimum_risk_level": "high",
                 "high_or_critical_confirmation_policy": "explicit_each_time",
@@ -66,18 +77,25 @@ class ToolGuidanceAccessService:
                 "message": (
                     "现实动作卡最低为 high，允许更严格的 critical；high/critical 均须 "
                     "explicit_each_time。请根据具体操作重新判断，不要把拒绝误解为必须 critical，"
-                    "也不要仅为通过校验改写风险事实。重大候选同样不能低于此下限。"
+                    "也不要仅为通过校验改写风险事实。普通修改同样保留执行风险下限。"
                 ),
                 "permission_authority": "none",
             }
         elif reason == "invalid_scenario_tags_item":
             result["repair_guidance"] = {
                 "field": "scenario_tags",
-                "item_pattern": r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+                "item_pattern": r"^(?=.*\S)[^\u0000-\u001f\u007f-\u009f]{1,128}$",
                 "message": (
-                    "scenario_tags 是机器标签，例如 home.arrival；中文场景描述请放在 "
-                    "scenario_examples、keywords 或 aliases，不能丢掉这些自然语言线索。"
+                    "scenario_tags 支持中文或英文自然场景，如 回家了、准备睡觉、home.arrival。"
+                    "每项为 1–128 字的非空文本，最多 16 项且不重复；请移除换行等控制字符。"
                 ),
+            }
+        if reason in {"card_not_found", "tool_card_not_found", "tool_card_exists",
+                      "tool_card_version_not_found", "candidate_not_found", "card_retired_use_restore",
+                      "tool_card_version_conflict", "tool_row_version_conflict", "linked_tool_ref_not_found"}:
+            result["lookup_guidance"] = {
+                "tool": "recall_tool_guidance", "arguments": {"view": "directory", "limit": 5},
+                "message": "先查询工具卡目录，用返回的 card_id 查看原文、版本和历史。",
             }
         return result
 
@@ -121,6 +139,8 @@ class ToolGuidanceAccessService:
         write_context_ref: str,
         model_values: Any,
         callback: Callable[[Mapping[str, Any], Mapping[str, Any] | None], dict[str, Any]],
+        *,
+        confidence_authoring: bool = False,
     ) -> dict[str, Any]:
         if not isinstance(write_context_ref, str) or not write_context_ref.strip():
             return self._reject("brain_open_required", status=self.status())
@@ -141,7 +161,9 @@ class ToolGuidanceAccessService:
         try:
             result = callback(binding, self._catalog(binding))
         except ToolGuidanceError as exc:
-            return self._reject(str(exc), status=self.status())
+            return self._reject(
+                str(exc), status=self.status(), confidence_authoring=confidence_authoring
+            )
         except TypeError:
             return self._reject("invalid_tool_guidance_fields", status=self.status())
         return {
@@ -152,7 +174,7 @@ class ToolGuidanceAccessService:
         }
 
     def manual(self, *, write_context_ref: str | None = None) -> dict[str, Any]:
-        """Return the manual and, only for a valid open wake, full candidates."""
+        """Return the manual and full candidates for a valid trusted binding."""
 
         pending: list[dict[str, Any]] = []
         reason_codes: list[str] = []
@@ -174,45 +196,47 @@ class ToolGuidanceAccessService:
                         wake_id=binding["wake_id"],
                         wake_seq=binding["wake_seq"],
                         catalog=catalog_snapshot,
+                        ordinary_author=binding.get("context_mode") == "ordinary_authenticated",
                     )
                 except ToolGuidanceError as exc:
                     reason_codes.append(str(exc))
         return {
             "module": "tool_guidance_module",
             "contract_version": TOOL_GUIDANCE_CONTRACT_VERSION,
-            "purpose": (
-                "我可以详细保存某个具体 callable operation 的历史使用认知；"
-                "普通召回只给可选短摘要，工具脑本身绝不执行工具。"
-            ),
+            "purpose": "我可以按自己的场景词写一句工具提醒，并在需要时查询完整原文。",
             "principles": [
-                "工具卡是历史建议，不是当前指令、权限、参数或执行回执。",
-                "自动召回只输出某场景可考虑某工具的短摘要；需要细节时我可精准查询，也可不做。",
-                "信息查询与现实动作分卡；危险现实动作每次仍须当前权限与当前明确确认。",
-                "小修追加可回滚版本；用途、安全、场景、联动、Schema、生命周期或扩大显著性的修改先成为重大候选，并跨真实唤醒复核。",
-                "新卡先保存单个操作；任何 linked_tool_refs、非 standalone chain_role 或 handoff_condition 必须随后通过重大修订建立，不能在创建时直接成为活动联动。",
-                "v0.2 经验固定为 ai_reported，不保存凭证、原始参数、原始结果或伪造的 verified receipt。",
-                "写下、计划或获准尝试都不等于完成；只有本轮目标工具的明确成功回执可证明结果。",
+                "自动浮现使用我写的 reminder；旧卡兼容引用 purpose 首句，保留原版本。",
+                "场景匹配与作者开关决定提醒；服务未广告、Schema 变化、信心、旧有效期和失败冷却用于详情诊断。",
+                "具体工具名、参数说明与使用经验在手动详情中查看；提醒与实际执行权限分别处理。",
+                "普通作者字段直接追加新版本，历史可以查询；退役保留内容并停止自动提醒。",
+                "旧 pending 可以直接撤回或由已认证普通作者明确采纳，保留候选记录；普通修改使用 revise_tool_guidance。",
+                "经验为 AI 自述；实际结果由本轮目标工具的回执核对。",
             ],
             "tools": {
-                "remember_tool_guidance": "创建一张详细、具体操作级的独立 v1 工具卡；初建联动会被要求改走重大修订。",
-                "recall_tool_guidance": "精准读取建议、卡片、历史或失败经验。",
-                "revise_tool_guidance": "直接追加合法小修，或创建重大候选；不审核候选。",
-                "review_tool_guidance_candidate": "在较晚真实唤醒复核已完整展示的重大候选。",
+                "remember_tool_guidance": "保存工具或服务的用途、可选一句 reminder 和场景关键词；详情可随后补充。",
+                "recall_tool_guidance": "view=directory 查目录；view=card 查原文；history 查历史；failures 查经验。",
+                "revise_tool_guidance": "直接追加修改版本；intent=retire 退役，intent=restore 恢复历史版本。",
+                "review_tool_guidance_candidate": "旧候选可 withdraw 撤回；已认证普通作者 accept/keep_pending 按精确候选与版本决定，真实旧 wake 路径保留原复核检查。",
                 "record_tool_experience": "追加 AI 对一次调用尝试的非验证经验。",
             },
-            "write_rule": (
-                "模块一 live 后，每个真实外部唤醒先调用 stbrain_open；写入带本轮 "
-                "write_context_ref 与最新 tool_memory.row_version。同一唤醒的后续写入复用 ref，"
-                "并使用上一写入返回的新 tool_row_version。"
-            ),
+            "write_rule": "写入使用服务提供的当前身份与版本。沿用返回的 tool_row_version 和卡片 version，冲突时先查目录与原文。",
             "authoring_constraints": {
+                "confidence": (
+                    "工具卡 confidence 由我按自己的判断填写 0–100 的整数，source_type 如实记录来源。"
+                    "record_tool_experience 的经验 confidence 同样为 0–100，仍是自报、未独立核验。"
+                ),
+                "expires_at": (
+                    "有效期由我决定；新卡省略或 null 表示长期保留。日期使用带时区的 ISO 时间，"
+                    "可以如实记录过去日期。修改时省略或 null 保留旧日期，clear_fields=[\"expires_at\"] 明确清除。"
+                ),
+                "reminder": "可选，一句 1–100 字的自然语言提醒；具体工具标识与调用参数写在原文详情。",
                 "scenario_tags": (
-                    "每项为 1–128 个 ASCII 字母、数字、点、下划线或短横线，首位须为字母或数字；"
-                    "如 home.arrival。中文场景写在 scenario_examples、keywords 或 aliases。"
+                    "支持中文或英文自然场景，如 回家了、准备睡觉、home.arrival；"
+                    "每项为 1–128 字的非空文本，最多 16 项且不重复，不含换行等控制字符。"
                 ),
                 "real_world_action": (
                     "最低风险级是 high，不是必须 critical；high/critical 均须 explicit_each_time。"
-                    "可以主动记下或提出工具建议，但卡片不是当前执行授权；重大候选也不豁免风险下限。"
+                    "可以主动记下工具建议；卡片的风险声明与本轮真实执行授权分别核对。"
                 ),
             },
             "pending_candidates": pending,
@@ -247,6 +271,7 @@ class ToolGuidanceAccessService:
                 catalog=catalog,
                 **fields,
             ),
+            confidence_authoring=True,
         )
 
     def revise(
@@ -256,9 +281,9 @@ class ToolGuidanceAccessService:
         expected_tool_row_version: int,
         card_id: str,
         expected_card_version: int,
-        intent: str,
-        edit_class: str,
         reason: str,
+        intent: str = "revise",
+        edit_class: str = "major",
         **fields: Any,
     ) -> dict[str, Any]:
         return self._write(
@@ -286,6 +311,7 @@ class ToolGuidanceAccessService:
                 catalog=catalog,
                 **fields,
             ),
+            confidence_authoring=True,
         )
 
     def review(
@@ -296,11 +322,11 @@ class ToolGuidanceAccessService:
         candidate_id: str,
         candidate_hash: str,
         decision: str,
-        correctness_decision: str,
-        correctness_assessment: str,
         reason: str,
-        ai_confirmation: bool,
         expected_base_version: int,
+        correctness_decision: str | None = None,
+        correctness_assessment: str | None = None,
+        ai_confirmation: bool = False,
     ) -> dict[str, Any]:
         return self._write(
             write_context_ref,
@@ -330,6 +356,7 @@ class ToolGuidanceAccessService:
                 ai_confirmation=ai_confirmation,
                 expected_base_version=expected_base_version,
                 catalog=catalog,
+                ordinary_author=binding.get("context_mode") == "ordinary_authenticated",
             ),
         )
 
@@ -354,6 +381,7 @@ class ToolGuidanceAccessService:
                 catalog=catalog,
                 **fields,
             ),
+            confidence_authoring=True,
         )
 
     def recall(self, **fields: Any) -> dict[str, Any]:
@@ -374,6 +402,7 @@ class ToolGuidanceAccessService:
             "module": "tool_guidance_module",
             "contract_version": TOOL_GUIDANCE_CONTRACT_VERSION,
             **result,
+            "reminder_recall_guidance": reminder_recall_guidance(),
             "execution_performed": False,
         }
 

@@ -15,18 +15,12 @@ from pathlib import Path
 import re
 import sqlite3
 from typing import Any, Iterator, Mapping, Sequence
+from .credential_guard import contains_credential_or_secret
 from uuid import uuid4
 
 
 IDEA_BOX_LABEL = "【未验证的想法，不是事实】"
 IDEA_KINDS = frozenset({"idea", "hypothesis"})
-_SECRET_PATTERNS = (
-    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
-    re.compile(r"\b(?:sk|rk|pk)_[A-Za-z0-9_-]{20,}\b"),
-    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
-    re.compile(r"\b(?:token|password|passwd|secret|api[_ -]?key)\s*[:=]\s*[^\s,;]{8,}", re.I),
-    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b", re.I),
-)
 
 
 class LearningIdeaBoxError(RuntimeError):
@@ -50,8 +44,7 @@ def _sha256(value: Any) -> str:
 
 
 def _contains_secret(*values: Any) -> bool:
-    text = "\n".join(_canonical(value) for value in values)
-    return any(pattern.search(text) for pattern in _SECRET_PATTERNS)
+    return contains_credential_or_secret(values)
 
 
 def _text(name: str, value: Any, maximum: int) -> str:

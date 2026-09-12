@@ -1,10 +1,10 @@
 # 本地开发与全新安装验证
 
-此指南用于**全新的开发实例**。本候选已在全新虚拟环境完成合成回归和三服务启动验证，不代表所有机器或真实客户端通过；不要对照个人生产环境的端口和脚本照抄安装。
+此指南用于**全新的开发实例**。本版在已有的锁定依赖环境中完成合成回归和三服务启动验证；本次没有重新创建全新虚拟环境。具体结果见 [本版验证记录](UPDATE-VALIDATION.md)。请使用自己的新实例配置。
 
 ## 环境
 
-当前验证平台为 Windows x86_64、CPython 3.14.6 与 SQLite。其他版本、Linux/macOS 和不同客户端必须分别验收。30 个完整依赖的 Windows / CPython 3.14 wheel 哈希锁已生成，见 [依赖说明](DEPENDENCIES.md)。
+本版完成了 Windows x86_64 / CPython 3.14.6 与 Linux / CPython 3.12.3 的合成回归。不同环境和客户端仍需各自验收。30 个完整依赖的 Windows / CPython 3.14 wheel 哈希锁已生成，见 [依赖说明](DEPENDENCIES.md)；这份 wheel 锁文件仅适用于对应的 Windows 平台。
 
 ```sh
 python -B scripts/check_source_package.py
@@ -33,7 +33,9 @@ python -B -m unittest discover -s packaging_tests -q
 
 生成至少 32 字符的独立随机 Token 和 wake secret，不要复用上游 Key。三个服务共用一个私有配置文件及同一个新部署 UUID（`STBRAIN_EXECUTION_EPOCH`），且 `STBRAIN_REQUIRE_EXECUTION_BINDING=1`。不要只给 MCP 设置 epoch 而让控制面/网关使用不匹配的模式。
 
-`STBRAIN_GATEWAY_CONTEXT_LAYOUT` 保持默认 `legacy`；`anchored-v1` 仅在宿主确认同一次生成内历史冻结后启用。特别注意电量/时间占位符的续轮变化，见 [缓存说明](CACHE.md)。
+新版模板选择 `STBRAIN_ACCESS_PROFILE=simple-memory-v1` 与 `STBRAIN_GATEWAY_CONTEXT_LAYOUT=tail-context-v2`，对应简洁普通读写和缓存友好布局。旧配置省略这些变量时仍沿用兼容路径及 `legacy` 布局。`anchored-v1` 仅在宿主确认同一次生成内历史冻结后启用；各布局与工具续轮的区别见 [缓存说明](CACHE.md)。
+
+直连修改模块一时可用 `scripts/configure_self_password.py` 隐藏输入密码，生成源码外的私有哈希文件；具体步骤见 [GUIDE](GUIDE.md#配置直连模块一密码)。已验证网关调用使用服务端执行绑定；普通模块首次激活后的读写与此密码分别管理。
 
 示例端口为 `18794/18795/18796`，只用于开发。若端口被占用，先确认所属服务，再选择另一组空闲端口并同步 URL；不要关闭未知进程来抢端口。
 

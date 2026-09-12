@@ -20,7 +20,7 @@ from runtime.learning_memory import LEARNING_KINDS, SOURCE_BASES
 
 _KINDS = {"emotional_memory": MEMORY_TYPES, "learning_memory": LEARNING_KINDS,
           "planning_memory": PLAN_KINDS}
-_DEFAULT_KINDS = {"emotional_memory": "meaningful_dialogue", "learning_memory": "fact",
+_DEFAULT_KINDS = {"emotional_memory": "unclassified", "learning_memory": "fact",
                   "planning_memory": "task"}
 _NEUTRAL_REASON = "日常记忆直接存入；不代表独立核验、AI 采纳声明或自我修改审核。"
 _UNCHECKED_ASSESSMENT = "未执行独立核验；按调用者给出的来源类别保存，不因此标记为已验证。"
@@ -36,6 +36,9 @@ _SAFE_FAILURES = frozenset({
     "invalid_plan_ref", "plan_not_found", "stale_plan_ref", "quarantined_plan_ref",
     "invalid_plan_hierarchy", "planning_graph_cycle", "idempotency_key_reused",
     "due_before_start", "invalid_datetime", "invalid_direct_context",
+    "rewrite_receipt_required_for_exposed_suggestion", "rewrite_receipt_invalid",
+    "rewrite_receipt_binding_mismatch", "rewrite_receipt_final_mismatch",
+    "rewrite_receipt_replay_conflict", "rewrite_receipt_not_ready",
 })
 
 
@@ -65,6 +68,10 @@ class DailyMemoryAccessService:
                 guidance = "当前记忆模块尚未开通；请先恢复或完成已有模块开通，不要反复提交同一内容。"
             elif code in {"due_before_start", "invalid_datetime"}:
                 guidance = "将 due_at 改为明确的 ISO 日期时间；没有截止时间可省略。"
+            elif code == "rewrite_receipt_required_for_exposed_suggestion":
+                guidance = "这份内容来自已展示的人称预览；确认该预览后，将 rewrite_receipt 与完全相同的最终字段一起交给本入口。"
+            elif code.startswith("rewrite_receipt_"):
+                guidance = "使用当前作者、目标模块已确认预览返回的 rewrite_receipt，并提交完全相同的最终字段；内容改变时重新预览和确认。"
             else:
                 guidance = "本次未存入；请恢复准确绑定的当前对话后重新发起请求，不要复用旧回合参数。"
         return {"module": module, "decision": "reject", "stored": False, "count": 0,
@@ -82,15 +89,26 @@ class DailyMemoryAccessService:
     def remember(self, module: str, content: str, title: str | None = None,
                  summary: str | None = None, kind: str | None = None, track: str = "internal",
                  keywords: list[str] | None = None, importance: int = 50, emotion: str = "other",
-                 source_basis: str = "reported", confidence: int = 50, reason: str | None = None,
+                 source_basis: str = "unmarked", confidence: int | None = None, reason: str | None = None,
                  write_context_ref: str | None = None, parent_ref: str | None = None,
-                 due_at: str | None = None, timezone: str = "UTC") -> dict[str, Any]:
+                 due_at: str | None = None, timezone: str = "UTC",
+                 rewrite_receipt: str | None = None) -> dict[str, Any]:
         if not isinstance(module, str) or module not in self.services:
             return self._reject("unknown", "invalid_module", "选择一个支持的日常记忆模块。",
                                 allowed_values=sorted(self.services))
         component = self.services[module]
         if component is None:
             return self._reject(module, "module_unavailable", "此模块未配置；请先恢复该模块。")
+        if rewrite_receipt is not None:
+            if not isinstance(rewrite_receipt, str) or not rewrite_receipt.strip():
+                return self._reject(module, "rewrite_receipt_invalid", field="rewrite_receipt")
+            if module == "planning_memory":
+                return self._reject(
+                    module, "rewrite_receipt_module_unsupported",
+                    "本入口的人称预览回执适用于情感脑和学习脑；工具脑使用 remember_tool_guidance。"
+                    "规划脑暂未接入这套转换流程；AI 可自行确定计划正文后，省略 rewrite_receipt 直接保存。",
+                    field="rewrite_receipt", supported_modules=["emotional_memory", "learning_memory"],
+                )
         if not isinstance(content, str) or not content.strip() or len(content) > 2000:
             return self._reject(module, "invalid_content", "提供 1–2000 字的真实原文；服务不会截断原文。", field="content")
         for name, value, limit in (("title", title, 120), ("summary", summary, 200), ("reason", reason, 2000)):
@@ -102,6 +120,8 @@ class DailyMemoryAccessService:
             if not isinstance(value, str) or value not in allowed:
                 return self._reject(module, "invalid_" + name, f"将 {name} 改为列出的值。", field=name, allowed_values=sorted(allowed))
         for name, value in (("importance", importance), ("confidence", confidence)):
+            if name == "confidence" and value is None:
+                continue
             if type(value) is not int or not 0 <= value <= 100:
                 return self._reject(module, "invalid_" + name, f"将 {name} 设为 0–100 的整数。", field=name)
         if keywords is not None and (not isinstance(keywords, list) or len(keywords) > 16
@@ -113,6 +133,10 @@ class DailyMemoryAccessService:
             if (value is not None or name == "timezone") and (not isinstance(value, str) or not value.strip() or len(value) > limit):
                 return self._reject(module, "invalid_" + name, f"修正 {name} 为非空字符串；无父项或截止时间时省略该可选字段。", field=name)
         claim = current_execution_claim()
+        from runtime.ordinary_access import current_ordinary_access
+        ordinary = current_ordinary_access(owner_id=self.owner_id, model_id=self.model_id, scope=module)
+        if ordinary is not None and claim is None:
+            write_context_ref = ordinary['write_context_ref']
         if claim is not None:
             if (not isinstance(claim, ExecutionClaim) or claim.owner_id != self.owner_id
                     or claim.model_id != self.model_id or claim.tool_name != "remember_memory"):
@@ -130,7 +154,9 @@ class DailyMemoryAccessService:
                        emotion=emotion, source_basis=source_basis, confidence=confidence,
                        reason=reason, parent_ref=parent_ref, due_at=due_at, timezone=timezone)
         try:
-            if claim is not None:
+            if ordinary is not None:
+                ref = ordinary['write_context_ref']
+            elif claim is not None:
                 opened = self.onboarding.open_brain_context(
                     owner_id=self.owner_id, model_id=self.model_id, present_details=False,
                     expected_wake_id=claim.wake_id,
@@ -148,8 +174,8 @@ class DailyMemoryAccessService:
             )
             if binding.get("write_context_available") is not True:
                 return self._runtime_reject(module, binding)
-            if (claim is None and binding.get("context_mode") != "human_attested_direct") or (
-                claim is not None and (binding.get("context_mode") != "gateway_injected" or binding.get("wake_id") != claim.wake_id)
+            if (claim is None and binding.get("context_mode") not in {"human_attested_direct", "ordinary_authenticated"}) or (
+                claim is not None and (binding.get("context_mode") not in {"gateway_injected", "ordinary_authenticated"} or binding.get("wake_id") != claim.wake_id)
             ):
                 return self._reject(module, "invalid_direct_context" if claim is None else "execution_wake_mismatch")
             if not isinstance(binding.get("wake_id"), str) or type(binding.get("wake_seq")) is not int:
@@ -168,8 +194,10 @@ class DailyMemoryAccessService:
                     write_context_ref=ref, expected_emotion_version=version, memory_type=selected_kind,
                     original_text=content, summary=title if summary is None and title is not None else display_summary,
                     primary_emotion=emotion, keywords=keywords, importance=importance,
-                    origin={"observed": "firsthand", "reported": "reported", "inferred": "inferred"}[source_basis],
+                    origin={"observed": "firsthand", "reported": "reported", "inferred": "inferred",
+                            "unmarked": "unmarked"}[source_basis],
                     confidence=confidence, reason=audit_reason, preserve_original_text=True,
+                    rewrite_receipt=rewrite_receipt,
                 )
             elif module == "learning_memory":
                 result = component.remember(
@@ -179,6 +207,7 @@ class DailyMemoryAccessService:
                     claim_review={"status": "ordinary"}, confidence=confidence,
                     correctness_assessment=_UNCHECKED_ASSESSMENT, reason=audit_reason,
                     keywords=keywords, importance=importance, preserve_original_text=True,
+                    rewrite_receipt=rewrite_receipt,
                 )
             else:
                 identity = ([claim.deployment_epoch, claim.wake_id, claim.batch_id, claim.call_id]

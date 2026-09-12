@@ -25,7 +25,7 @@ async def probe():
         fixture.bootstrap_live()
         common = {"owner_id": server.OWNER_ID, "model_id": server.MODEL_ID}
         tools = server.mcp._tool_manager.list_tools()
-        assert len(tools) == 43
+        assert len(tools) == 44
         tool = server.mcp._tool_manager.get_tool("remember_memory")
         assert tool.parameters["required"] == ["module", "content"]
         assert "execution_ref" in tool.parameters["properties"]
@@ -92,8 +92,17 @@ async def probe():
                 "changes": {"summary": "Must not overwrite v2"}}, f"stale-revise-{i}")
             assert stale["decision"] == "reject" and stale["state_changed"] is False, stale
             forbidden = await bound_call("revise_memory", {"target_ref": revised["ref"],
-                "changes": {"confidence": 100}}, f"forbidden-revise-{i}")
+                "changes": {"owner_id": "synthetic-other-owner"}}, f"forbidden-revise-{i}")
             assert forbidden["decision"] == "reject" and forbidden["state_changed"] is False, forbidden
+            if module in {"emotional_memory", "learning_memory"}:
+                # Confidence is now an author-editable field, not a technical
+                # namespace/receipt override. It still has normal range checks.
+                invalid_confidence = await bound_call("revise_memory", {"target_ref": revised["ref"],
+                    "changes": {"confidence": 101}}, f"invalid-confidence-{i}")
+                assert invalid_confidence["decision"] == "reject" and invalid_confidence["state_changed"] is False, invalid_confidence
+                confidence = await bound_call("revise_memory", {"target_ref": revised["ref"],
+                    "changes": {"confidence": 100}}, f"author-confidence-{i}")
+                assert confidence["decision"] == "revised" and confidence["version"] == 3, confidence
             if module == "planning_memory":
                 read = await call("recall_planning_memory", {"plan_ref": revised["ref"]})
                 target = read["plans"][0]
@@ -105,7 +114,7 @@ async def probe():
                     "expected_event_seq": sequence, "event_type": "resume", "note": "Stale resume"}, "stale-event")
                 assert stale_event["decision"] == "reject" and stale_event["state_changed"] is False, stale_event
             results.append(module)
-        return {"decision": "PASS", "modules": results, "tool_count": 43,
+        return {"decision": "PASS", "modules": results, "tool_count": 44,
                 "single_native_call_per_memory": True, "replays_rejected": True,
                 "single_revision_per_module": True, "stale_targets_rejected": True,
                 "plan_event_cas_verified": True,

@@ -215,7 +215,9 @@ class EmotionalQuietProjectionTests(unittest.TestCase):
         before = f.store.status(owner_id=f.owner, model_id=f.model)
         payload = f.store.build_injection(owner_id=f.owner, model_id=f.model,
             query="zzzzzzz", budget_tokens=1200)["injection"]
-        self.assertEqual("有 1 条常驻申请等待跨唤醒复核。", payload["reminder"])
+        # The aggregate reminder can contain ordinary author-confirmed pins
+        # and legacy wake-bound pins; each record describes its own mode.
+        self.assertEqual("有 1 条常驻申请等待 AI 确认；具体确认方式见申请记录。", payload["reminder"])
         self.assertFalse(payload["memories"])
         result = select_mixed_recall(base={}, planning=None, learning=[], tool=[],
             emotional=payload, estimate_tokens=_estimate_tokens)

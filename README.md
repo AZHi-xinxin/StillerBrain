@@ -236,7 +236,9 @@ AI 可以管理自写提示、单条计划或工具卡的提醒、人称建议�
 
 ### 准备自己部署
 
-**第一次安装，从向导开始。** 下载源码 ZIP 并解压，在能看到 `README.md` 和 `scripts` 的文件夹中打开终端。Windows x64 / 标准 CPython 3.14 运行：
+**Windows 电脑、Linux 电脑或 Linux VPS，都可以作为 ST 的运行位置。** 按自己已有的设备选择；手机聊天客户端再连接这份 ST。具体系统与 Python 条件见下方命令及[安装说明](docs/INSTALL.md)。
+
+**第一次安装，从向导开始。** 在选定的设备上下载源码 ZIP 并解压，在能看到 `README.md` 和 `scripts` 的文件夹中打开终端。Windows x64 / 标准 CPython 3.14 运行：
 
 ```powershell
 python -B scripts/install_stiller.py
@@ -252,7 +254,7 @@ python3.12 -B scripts/install_stiller.py
 
 **安装检查只访问本机，不调用真实模型。软件装好后，再由 AI 完成自我定义的初始设置。** 当前网关适配 OpenAI 兼容 Chat Completions，客户端还需支持对应 MCP 连接与完整工具续轮。
 
-跟着 [新手安装说明](docs/INSTALL.md) 完成环境核对、安装、启动与连接。已有运行基线和新向导验收分别记录，Linux 新向导的全新环境验证仍在补齐。请保留源码目录；手机远程连接由部署者另行配置受控网络与访问权限。手工配置见 [GUIDE](docs/GUIDE.md#手工配置与已有实例)，备份与导出见 [OPERATIONS](docs/OPERATIONS.md)。
+跟着 [新手安装说明](docs/INSTALL.md) 完成环境核对、安装、启动与连接。请保留源码目录；手机远程连接由部署者为所选电脑或 VPS 配置受控网络与访问权限。手工配置见 [GUIDE](docs/GUIDE.md#手工配置与已有实例)，备份与导出见 [OPERATIONS](docs/OPERATIONS.md)。
 
 ### 正在开发宿主适配
 
@@ -262,7 +264,7 @@ python3.12 -B scripts/install_stiller.py
 
 `0.1.0-preview.3` · Python / SQLite · 44 项 MCP 工具 · 源码开发预览
 
-本版的 L25 记忆运行时已通过本机使用者验收，并完成私人 VPS 升级；既有 Windows 合成回归覆盖 1503 个用例，Linux 也已单独验证。本次另补安装向导：Windows 空白目录安装与重复运行通过，包装与运维套件 117 项中 116 项通过、1 项仅适用于 POSIX 的权限检查跳过。Linux 向导全流程另行验收，具体范围见 [本版验证记录](docs/UPDATE-VALIDATION.md)。
+**ST 服务在 Windows 和 Linux 均有实际验收。** 本版 L25 已通过 Windows 使用者验收；Linux 已在 Ubuntu 24.04 x64 / CPython 3.12.3 完成独立验证，并在私人阿里云 VPS 上运行。服务、合成回归与新增安装向导各自的验收范围见 [本版验证记录](docs/UPDATE-VALIDATION.md)。
 
 这一版也让日常使用更顺手：AI 自写提醒的入口更清楚，四个普通脑共用查询与修改入口，工具卡可以记一个 MCP 服务、使用中文场景标签，并由作者填写可信度和可选有效期。`tail-context-v2` 分开放置稳定内容和本轮记忆，已在长期自用中观察到缓存命中改善；详见 [缓存机制](docs/CACHE.md)。
 

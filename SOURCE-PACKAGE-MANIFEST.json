@@ -18,7 +18,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "111117ecde2e348dde2c12d4a1a63bec1229c56ea8f673a8a8d68790efb9e737"
+      "sha256": "903f6c08c25f6b069e7495d09faa67f9e55adce86a4c8aac164214bb5ea63cf8"
     },
     {
       "path": "COMMERCIAL-LICENSE.md",
@@ -42,7 +42,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "bb5a1d05cea9cd8bd638cf5525cc9d1c75c3bcc99f285f81142d54472a5fd3c5"
+      "sha256": "b0b8b37d283921f254ce5ccf3d8ba96d475b069523e9a6cd380c3aed6153d024"
     },
     {
       "path": "RELEASE-NOTES-preview.3.md",
@@ -70,15 +70,15 @@
     },
     {
       "path": "docs/DEPENDENCIES.md",
-      "sha256": "2f45c9602d42a751b072dd0983662cf50067fc6c349d23c4ab081c299a6cb78a"
+      "sha256": "329e78a554663483654ec1e43e01f0e5341886b10ddf0dcb680f6f896c7789df"
     },
     {
       "path": "docs/GUIDE.md",
-      "sha256": "947dfee8831c8e644152686beea8787fb1bb74cac60b795502e0132096e79ef6"
+      "sha256": "db2bb39d9e770148b7bd5743882966715a3cee7b0a882cb4d369e08ac81ad1e4"
     },
     {
       "path": "docs/INSTALL.md",
-      "sha256": "76db5b831e0a1f095932ac8b279737370639fb1e0d487ea89908022cdbe9076a"
+      "sha256": "605d2649726339a824f1cf860168cf26a56291e3aea60c27b0b1ff8fe32d8843"
     },
     {
       "path": "docs/LICENSING-DECISION.md",
@@ -118,7 +118,7 @@
     },
     {
       "path": "docs/UPDATE-VALIDATION.md",
-      "sha256": "d0da5f48136458257a50938ffb1da99444ce411e127d7652ecedb77b5546f308"
+      "sha256": "6f70259dd87640679b2a97ce615a54e2432c0f6a6ea36d96a936cc7d49ab8910"
     },
     {
       "path": "docs/assets/stiller-cover.svg",

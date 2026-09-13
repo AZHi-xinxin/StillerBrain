@@ -4,10 +4,12 @@
 
 ST 现在提供两份平台专用的完整哈希锁。安装使用对应的一份锁，包版本和下载文件的 SHA-256 一起核对。
 
+**ST 服务在 Windows 与 Linux 都已实际验收。** Linux 的已验环境是 Ubuntu 24.04 x64 / CPython 3.12.3，私人阿里云 VPS 上也已运行 ST。下表区分各平台的依赖条件；新增安装向导脚本的测试进度单独见 [UPDATE-VALIDATION](UPDATE-VALIDATION.md#安装向导补充验收2026-09-13)。
+
 | 平台与解释器 | 完整哈希锁 | 依赖数量与已验环境 |
 | --- | --- | --- |
 | Windows x86_64，常规 GIL 版 CPython 3.14 | [requirements-windows-py314.lock](../requirements-windows-py314.lock) | 30 包；基线为 CPython 3.14.6 的全新 venv |
-| Linux x86_64，CPython 3.12，glibc ≥ 2.34 | [requirements-linux-py312.lock](../requirements-linux-py312.lock) | 29 包；离线安装与 L25 合成回归环境为 Ubuntu 24.04 / CPython 3.12.3 |
+| Linux x86_64，常规 GIL 版 CPython 3.12，glibc ≥ 2.34 | [requirements-linux-py312.lock](../requirements-linux-py312.lock) | 29 包；Ubuntu 24.04 x64 / CPython 3.12.3 已完成依赖安装、L25 回归及私人 VPS 服务验收 |
 
 Linux 锁中的 `cryptography` 使用 `manylinux_2_34_x86_64` wheel，因此要求 glibc 至少 2.34。这个要求与 CPU 架构、Python 版本同样需要检查。Ubuntu 24.04 是已实际验证的发行版；满足 wheel 条件的其他发行版仍需完成自己的安装与运行检查。
 

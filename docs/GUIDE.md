@@ -4,6 +4,8 @@
 
 **第一次部署，请先跟着 [新手安装说明](INSTALL.md)运行向导。** 它准备独立环境、私有配置和本地服务；本页继续介绍客户端连接、AI 初始设置与日常操作。已经在使用的实例保留原配置，按对应维护流程操作。
 
+ST 可以部署在 Windows 电脑、Linux 电脑或 Linux VPS 上。Windows 与 Linux 服务均有实际验收；Linux 已验证环境为 Ubuntu 24.04 x64 / CPython 3.12.3，私人阿里云 VPS 上已有运行实例。先确认服务放在哪台设备，再选择该系统的安装命令；手机客户端连接现有实例时，直接使用部署者提供的地址与凭证。
+
 本页的日常读写采用 `simple-memory-v1` 配置。旧版 `legacy` 连接继续保留独立授权上下文；先用 `stbrain_help` 确认自己连接的实例采用哪种方式。
 
 ## 先分清两种连接
@@ -37,17 +39,25 @@ ST 按接入能力适配模型与客户端。当前提供 OpenAI 兼容的 Chat 
 
 ## 自己部署：先建立空白测试实例
 
-新手可以在解压后的源码根目录运行安装向导：
+先选定 Windows 电脑、Linux 电脑或 Linux VPS，在该设备解压后的源码根目录运行安装向导。
+
+Windows x64 / 标准 CPython 3.14：
 
 ```powershell
 python -B scripts/install_stiller.py
 ```
 
-此命令用于 Windows x64 / 标准 CPython 3.14；Linux x64 / CPython 3.12、glibc 2.34 或以上使用 `python3.12 -B scripts/install_stiller.py`。平台验证范围与完整步骤见 [INSTALL](INSTALL.md)。
+Linux x64 / 标准 CPython 3.12、glibc 2.34 或以上：
+
+```sh
+python3.12 -B scripts/install_stiller.py
+```
+
+两种环境均使用常规 GIL 构建。具体系统与新向导的验收范围见 [INSTALL](INSTALL.md) 和 [验证记录](UPDATE-VALIDATION.md)。
 
 向导询问新的源码外私有目录、模型 HTTPS 地址、真实模型 ID、隐藏输入的 API Key 和可选模块一密码。它生成 `config.env` 及独立凭证，安装依赖，短暂启动三个本机服务检查健康状态和工具目录，随后停止检查进程并给出正式启动命令。此过程不请求真实模型。
 
-安装后的 `连接资料（请勿公开）.txt` 列出网关和 MCP 各自的连接资料。使用向导给出的完整命令启动 ST，再回到本页“已有实例”步骤，让 AI 阅读帮助并完成自己的初始设置。连接资料默认供同一台电脑使用；手机远程访问另行配置。
+安装后的 `连接资料（请勿公开）.txt` 列出网关和 MCP 各自的连接资料。使用向导给出的完整命令启动 ST，再回到本页“已有实例”步骤，让 AI 阅读帮助并完成自己的初始设置。默认地址供运行 ST 的设备自身使用；手机访问电脑或 VPS 上的 ST，按[手机连接说明](INSTALL.md#8-手机上怎么用)配置受保护的远程地址。
 
 ### 手工配置与已有实例
 
@@ -81,7 +91,7 @@ python -B scripts/configure_self_password.py --output C:/stiller-private/self-pa
 
 只走已验证网关时可暂时留空哈希路径；此时直连模块一授权会提示 `self_password_not_configured`。普通模块首次激活后的读写仍独立于这个密码。
 
-在仓库根目录，使用自己的虚拟环境和私有配置执行：
+在仓库根目录，使用自己的虚拟环境和私有配置执行。以下为 Windows 路径示例；Linux 使用自己的 venv 解释器和源码外私有配置路径：
 
 ```powershell
 python -B scripts/stiller_ops.py check --config C:/stiller-private/stiller.env

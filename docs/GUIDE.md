@@ -1,6 +1,8 @@
 # 安装与日常使用
 
-[首页](../README.md) · [工具目录](TOOLS.md) · [缓存设置](CACHE.md) · [架构](ARCHITECTURE.md) · [启动、备份与导出](OPERATIONS.md)
+[首页](../README.md) · [新手安装](INSTALL.md) · [工具目录](TOOLS.md) · [缓存设置](CACHE.md) · [架构](ARCHITECTURE.md) · [启动、备份与导出](OPERATIONS.md)
+
+**第一次部署，请先跟着 [新手安装说明](INSTALL.md)运行向导。** 它准备独立环境、私有配置和本地服务；本页继续介绍客户端连接、AI 初始设置与日常操作。已经在使用的实例保留原配置，按对应维护流程操作。
 
 本页的日常读写采用 `simple-memory-v1` 配置。旧版 `legacy` 连接继续保留独立授权上下文；先用 `stbrain_help` 确认自己连接的实例采用哪种方式。
 
@@ -35,7 +37,21 @@ ST 按接入能力适配模型与客户端。当前提供 OpenAI 兼容的 Chat 
 
 ## 自己部署：先建立空白测试实例
 
-详细环境准备见 [LOCAL-DEVELOPMENT](LOCAL-DEVELOPMENT.md)，日常运维见 [OPERATIONS](OPERATIONS.md)。源码、虚拟环境、私有配置和运行数据分别保存；主库、学习创意盒和幻觉隔离库使用三个独立路径。
+新手可以在解压后的源码根目录运行安装向导：
+
+```powershell
+python -B scripts/install_stiller.py
+```
+
+此命令用于 Windows x64 / 标准 CPython 3.14；Linux x64 / CPython 3.12、glibc 2.34 或以上使用 `python3.12 -B scripts/install_stiller.py`。平台验证范围与完整步骤见 [INSTALL](INSTALL.md)。
+
+向导询问新的源码外私有目录、模型 HTTPS 地址、真实模型 ID、隐藏输入的 API Key 和可选模块一密码。它生成 `config.env` 及独立凭证，安装依赖，短暂启动三个本机服务检查健康状态和工具目录，随后停止检查进程并给出正式启动命令。此过程不请求真实模型。
+
+安装后的 `连接资料（请勿公开）.txt` 列出网关和 MCP 各自的连接资料。使用向导给出的完整命令启动 ST，再回到本页“已有实例”步骤，让 AI 阅读帮助并完成自己的初始设置。连接资料默认供同一台电脑使用；手机远程访问另行配置。
+
+### 手工配置与已有实例
+
+以下保留维护者的手工配置路径。详细环境准备见 [LOCAL-DEVELOPMENT](LOCAL-DEVELOPMENT.md)，日常运维见 [OPERATIONS](OPERATIONS.md)。源码、虚拟环境、私有配置和运行数据分别保存；主库、学习创意盒和幻觉隔离库使用三个独立路径。向导安装使用私有目录中的 `config.env`，下文 `stiller.env` 是手工示例名称，请按实际路径操作。
 
 仓库中的 `.env.example` 是占位模板，新模板选择 `simple-memory-v1` 与 `tail-context-v2`。复制到仓库外后，由部署者配置：
 

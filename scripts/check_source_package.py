@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = "SOURCE-PACKAGE-MANIFEST.json"
 REQUIRED = {"LICENSE", "NOTICE", "README.md", "COMMERCIAL-LICENSE.md",
             "CONTRIBUTING.md", "SECURITY.md", "requirements.txt",
-            "requirements-windows-py314.lock", "scripts/run_component.py"}
+            "requirements-windows-py314.lock", "requirements-linux-py312.lock",
+            "scripts/run_component.py", "scripts/install_stiller.py", "docs/INSTALL.md"}
 DENIED_DIRS = {".venv", "venv", "node_modules", "__pycache__", "data", "real-data",
                "logs", "backups", "recovery", "private", "secrets", "verification",
                "evidence", "private-verification", "build", "dist"}

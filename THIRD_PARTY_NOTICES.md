@@ -39,6 +39,23 @@ The following inventory records the exact distributions used for the Windows x86
 
 Actual wheel hashes and registry origin domains are recorded in [docs/dependency-inventory.json](docs/dependency-inventory.json); the platform-specific complete hash lock is [requirements-windows-py314.lock](requirements-windows-py314.lock). License files were located in all 30 installed distributions. Selected actual files were read for MCP, HTTPX, certifi, cffi, cryptography, and pywin32; locating the remainder is not represented as a full legal review of every bundled subcomponent.
 
+## Linux dependency baseline
+
+The separate [Linux x86_64 / CPython 3.12 hash lock](requirements-linux-py312.lock) contains 29 distributions from the existing Linux validation baseline. Its selected cryptography wheel requires glibc 2.34 or later; Ubuntu 24.04 / CPython 3.12.3 is the recorded installation and L25 regression environment. This is a separate platform baseline, not a conversion of the Windows wheels.
+
+| Package | Linux version | Distribution-declared license |
+| --- | --- | --- |
+| anyio | 4.14.2 | MIT |
+| pydantic | 2.13.5 | MIT |
+| pydantic-core | 2.46.5 | MIT |
+| sse-starlette | 3.4.8 | BSD-3-Clause |
+
+These four versions differ from the Windows table. The other 25 shared package versions match that table; Windows-only pywin32 is absent from the Linux lock. Platform-specific wheels have their own hashes even when package versions match. The original direct-dependency requirements file pins the Windows baseline and must not be layered over the Linux lock.
+
+The public [Linux inventory](docs/dependency-inventory-linux-py312.json) records exact package versions, wheel names, SHA-256 values, official PyPI links and available license metadata. The selected wheel hashes were checked against official PyPI artifacts and the recorded offline installation; the public inventory includes no deployment paths, credentials or host identifiers.
+
+LICENSE/COPYING texts were located in all 29 Linux wheels, and declared license-file presence was checked. This Linux check records declarations and file existence; it does not claim that every license text or bundled component received a full legal review. Third-party terms remain independent of ST's license. No third-party wheels or installed package directories are included in this source release.
+
 For reference, the upstream [MCP SDK MIT text](https://raw.githubusercontent.com/modelcontextprotocol/python-sdk/main/LICENSE), [HTTPX BSD text](https://raw.githubusercontent.com/encode/httpx/master/LICENSE.md), and [certifi notice](https://raw.githubusercontent.com/certifi/python-certifi/master/LICENSE) explain independent rights. These links can evolve; the installed exact-version distributions and their texts, not current branch labels alone, govern the artifacts you actually use.
 
 ## Clients and source provenance

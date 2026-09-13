@@ -16,7 +16,7 @@ ST 是面向 LLM 的长期记忆后端。它接住 AI 自己写下的经历、�
 
 我们把这样的交流方式叫作：“我想起了。”
 
-[开始使用](#开始使用) · [两种接入](#两种接入一份记忆) · [模块地图](#一份大脑各有所长) · [浮现机制](#记忆怎样浮现) · [架构](#把经历接回对话的架构) · [设计理念](#设计理念) · [本版更新](RELEASE-NOTES-preview.3.md)
+[开始使用](#开始使用) · [安装向导](docs/INSTALL.md) · [两种接入](#两种接入一份记忆) · [模块地图](#一份大脑各有所长) · [浮现机制](#记忆怎样浮现) · [架构](#把经历接回对话的架构) · [设计理念](#设计理念) · [本版更新](RELEASE-NOTES-preview.3.md)
 
 ## 两种接入，一份记忆
 
@@ -236,22 +236,23 @@ AI 可以管理自写提示、单条计划或工具卡的提醒、人称建议�
 
 ### 准备自己部署
 
-本版提供单终端运维入口，管理控制面、MCP 服务与兼容网关。先按 [完整指南](docs/GUIDE.md) 安装依赖，在源码目录外填写私有配置，然后：
+**第一次安装，从向导开始。** 下载源码 ZIP 并解压，在能看到 `README.md` 和 `scripts` 的文件夹中打开终端。Windows x64 / 标准 CPython 3.14 运行：
 
 ```powershell
-python -B scripts/stiller_ops.py check --config C:/stiller-private/stiller.env
-python -B scripts/stiller_ops.py start --config C:/stiller-private/stiller.env
+python -B scripts/install_stiller.py
 ```
 
-新配置模板选择 `simple-memory-v1` 与 `tail-context-v2`；旧配置省略变量时保留原兼容路径。需要直连模块一授权时，先创建私有目录，再运行密码助手：
+Linux x64 / 标准 CPython 3.12、glibc 2.34 或以上运行：
 
-```powershell
-python -B scripts/configure_self_password.py --output C:/stiller-private/self-password.json
+```sh
+python3.12 -B scripts/install_stiller.py
 ```
 
-按提示隐藏输入两次，并在私有配置中填写生成文件的路径。具体配置见 [GUIDE](docs/GUIDE.md#配置直连模块一密码)，停止、备份、恢复与 JSONL 导出见 [OPERATIONS](docs/OPERATIONS.md)。
+选一个源码外的全新私有目录，填写模型服务的 HTTPS 地址、真实模型 ID 和 API Key，按需设置模块一密码。向导会生成独立凭证、安装依赖，并短暂检查三个本机服务；通过后给出完整启动命令和私有连接资料。
 
-开发模板使用同机回环地址；手机或远程连接由部署者另外配置受控 HTTPS 与设备访问权限。
+**安装检查只访问本机，不调用真实模型。软件装好后，再由 AI 完成自我定义的初始设置。** 当前网关适配 OpenAI 兼容 Chat Completions，客户端还需支持对应 MCP 连接与完整工具续轮。
+
+跟着 [新手安装说明](docs/INSTALL.md) 完成环境核对、安装、启动与连接。已有运行基线和新向导验收分别记录，Linux 新向导的全新环境验证仍在补齐。请保留源码目录；手机远程连接由部署者另行配置受控网络与访问权限。手工配置见 [GUIDE](docs/GUIDE.md#手工配置与已有实例)，备份与导出见 [OPERATIONS](docs/OPERATIONS.md)。
 
 ### 正在开发宿主适配
 
@@ -261,7 +262,7 @@ python -B scripts/configure_self_password.py --output C:/stiller-private/self-pa
 
 `0.1.0-preview.3` · Python / SQLite · 44 项 MCP 工具 · 源码开发预览
 
-本版已通过本机使用者验收，并完成私人 VPS 升级；Windows 合成回归覆盖 1503 个用例，Linux 也已单独验证。具体范围见 [本版验证记录](docs/UPDATE-VALIDATION.md)。本次首页调整重新说明已有的自动浮现能力，软件版本与验收范围保持不变。
+本版的 L25 记忆运行时已通过本机使用者验收，并完成私人 VPS 升级；既有 Windows 合成回归覆盖 1503 个用例，Linux 也已单独验证。本次另补安装向导：Windows 空白目录安装与重复运行通过，包装与运维套件 117 项中 116 项通过、1 项仅适用于 POSIX 的权限检查跳过。Linux 向导全流程另行验收，具体范围见 [本版验证记录](docs/UPDATE-VALIDATION.md)。
 
 这一版也让日常使用更顺手：AI 自写提醒的入口更清楚，四个普通脑共用查询与修改入口，工具卡可以记一个 MCP 服务、使用中文场景标签，并由作者填写可信度和可选有效期。`tail-context-v2` 分开放置稳定内容和本轮记忆，已在长期自用中观察到缓存命中改善；详见 [缓存机制](docs/CACHE.md)。
 

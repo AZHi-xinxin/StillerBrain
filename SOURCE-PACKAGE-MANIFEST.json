@@ -18,7 +18,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "4c042bc83c8dc7032b4149649ec363d8d372655dee85536d9564492d60dd7a16"
+      "sha256": "e046940670e94c85ede8ddf098dd911c622f3c1621e44f88c7709d12be170a9b"
     },
     {
       "path": "COMMERCIAL-LICENSE.md",
@@ -42,7 +42,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "dd540468a49d0ae51fe5d8684789ef90b9155c8f18a167f2aa0a1bb1cb4d5df6"
+      "sha256": "24dc764dbdd91046bb6058512bb831c77eafcccdab58b7526765d3dacbea2195"
     },
     {
       "path": "RELEASE-NOTES-preview.3.md",
@@ -62,7 +62,7 @@
     },
     {
       "path": "docs/ARCHITECTURE.md",
-      "sha256": "66335510a3e2f75210f8d093405590e84f41c5031871753c7f85d4688c854155"
+      "sha256": "7b32f00e91cee64921a2be152b07e3c98963bc3a6102fc1914c3ab38c22bed9a"
     },
     {
       "path": "docs/CACHE.md",
@@ -94,7 +94,7 @@
     },
     {
       "path": "docs/PHILOSOPHY.md",
-      "sha256": "42de53c92a8164818a8b47a1285f2545f62b99202f0181a7cc79858be8956219"
+      "sha256": "aedcd29564882a573be7574ef423e29f29ec7fbe9a417da71c3891239f4f7880"
     },
     {
       "path": "docs/RELEASE-CHECKLIST.md",
@@ -102,7 +102,7 @@
     },
     {
       "path": "docs/RETRIEVAL.md",
-      "sha256": "b5c1dbce83697f4996e5c78196a936b3771a7e2771473e5fad0b47784fa05302"
+      "sha256": "9b9d9ea1c89ec42fb6160d2ce13ba3381354735ca2afaccdd99dc68dc68fa66f"
     },
     {
       "path": "docs/TOOLS.md",
@@ -114,7 +114,7 @@
     },
     {
       "path": "docs/assets/stiller-cover.svg",
-      "sha256": "aab807e733f2eefaa1d38ea895334284a67c5b97955488b9bfa099606c41bc1c"
+      "sha256": "55f96ad43b2f3fbe42be4e652d04a091c7d9dc8f10e7063d2418708a77a356c5"
     },
     {
       "path": "docs/dependency-inventory.json",

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="310" viewBox="0 0 1200 310" role="img" aria-labelledby="title desc">
   <title id="title">Stiller Brain</title>
-  <desc id="desc">深蓝星空中相连的星点，象征经历在时间中留下联系。</desc>
+  <desc id="desc">不必先查询，也能自然想起。深蓝星空中相连的星点，象征 AI 写下的经历在回复前重新来到上下文。</desc>
   <defs>
     <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#11182e"/><stop offset="1" stop-color="#29283d"/></linearGradient>
     <radialGradient id="halo"><stop stop-color="#d7b981" stop-opacity=".15"/><stop offset="1" stop-color="#d7b981" stop-opacity="0"/></radialGradient>
@@ -12,5 +12,6 @@
   <g fill="#f0d69b"><circle cx="841" cy="178" r="4"/><circle cx="904" cy="119" r="5"/><circle cx="1041" cy="97" r="4"/><circle cx="1101" cy="166" r="4"/><circle cx="1029" cy="220" r="4"/><circle cx="906" cy="232" r="3"/><path d="m964 148 3.5 10.5 10.5 3.5-10.5 3.5-3.5 10.5-3.5-10.5-10.5-3.5 10.5-3.5z"/></g>
   <text x="65" y="82" fill="#d6c49e" font-family="sans-serif" font-size="14" letter-spacing="5">MEMORY · EXPERIENCE · CONTINUITY</text>
   <text x="61" y="157" fill="#f5f0e5" font-family="Georgia,serif" font-size="62">Stiller Brain</text>
-  <text x="65" y="218" fill="#d7d6e2" font-family="Microsoft YaHei,sans-serif" font-size="23">让共同经历留下来，让后来的交流有来处。</text>
+  <text x="65" y="218" fill="#f0d69b" font-family="Microsoft YaHei,sans-serif" font-size="29">不必先查询，也能自然想起。</text>
+  <text x="65" y="259" fill="#d7d6e2" font-family="Microsoft YaHei,sans-serif" font-size="18">AI 书写记忆 · ST 在回复前带回相关线索</text>
 </svg>

@@ -18,7 +18,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "a9e2337acccab78c819eb89de66e7ab0471193855a57146e419e1344036926ae"
+      "sha256": "d6666266bd45720de0529fa998cb71ea7b4b9313907bc551de6669dd34a8d061"
     },
     {
       "path": "COMMERCIAL-LICENSE.md",
@@ -42,7 +42,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "dc9f1c447296255a2bf4d3d705cad7c3af1f8f55a909c6c01347eb9848800a59"
+      "sha256": "28932e45cac04ac9ad79e8344617c8b7bb10673bddce560ff565c774b023f01e"
     },
     {
       "path": "RELEASE-NOTES-preview.3.md",
@@ -62,7 +62,7 @@
     },
     {
       "path": "docs/ARCHITECTURE.md",
-      "sha256": "7b32f00e91cee64921a2be152b07e3c98963bc3a6102fc1914c3ab38c22bed9a"
+      "sha256": "5622df42c87b66f0d29b8509b6383525a98e19529b2efbc33bcc2f4cd5c0eeaf"
     },
     {
       "path": "docs/CACHE.md",
@@ -74,7 +74,7 @@
     },
     {
       "path": "docs/GUIDE.md",
-      "sha256": "32a968f1163819e332b7f4a8408e75472a8cb74d78630f67c80428e05e41c7b5"
+      "sha256": "37849dea2b553bd50a58c743e1e14d1f42e94f320c3ced2cffa1ef6e9dc79db7"
     },
     {
       "path": "docs/LICENSING-DECISION.md",
@@ -87,6 +87,10 @@
     {
       "path": "docs/MEMORY-DECAY-DESIGN.md",
       "sha256": "2cd3f3bc929fd433c9f593857ef01aca471576cad3c898b463dd620136c2fcaf"
+    },
+    {
+      "path": "docs/MODULES.md",
+      "sha256": "793e83b32859e8124633dacf41c7cefda1cb91077f418f91f170066131a1592e"
     },
     {
       "path": "docs/OPERATIONS.md",
@@ -102,7 +106,7 @@
     },
     {
       "path": "docs/RETRIEVAL.md",
-      "sha256": "9b9d9ea1c89ec42fb6160d2ce13ba3381354735ca2afaccdd99dc68dc68fa66f"
+      "sha256": "b189d3b14ade52ae9a59aed416fc9256a7123e1fa9be4fd1affc9ef1a6835de6"
     },
     {
       "path": "docs/TOOLS.md",

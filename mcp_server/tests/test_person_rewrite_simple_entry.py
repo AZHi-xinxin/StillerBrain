@@ -271,6 +271,15 @@ async def native_probe():
 
         schema = server.mcp._tool_manager.get_tool("remember_memory").parameters
         assert "rewrite_receipt" in schema["properties"] and "rewrite_receipt" not in schema["required"]
+        for tool_name, field in (("preview_person_reference_rewrite", "draft_fields"),
+                                 ("confirm_person_reference_rewrite", "final_fields")):
+            tool = server.mcp._tool_manager.get_tool(tool_name)
+            field_schema = tool.parameters["properties"][field]
+            assert "带 /" in field_schema["description"]
+            assert field_schema["additionalProperties"] is False
+            assert "/original_text" in field_schema["properties"]
+            assert "original_text" not in field_schema["properties"]
+            assert "带 /" in tool.description
         for module in MODULES:
             preview = await call("preview_person_reference_rewrite", _preview_fields(module))
             assert preview["decision"] == "preview_only", preview

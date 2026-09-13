@@ -2,7 +2,7 @@
 
 [首页](../README.md) · [日常指南](GUIDE.md) · [MCP 详细说明](../mcp_server/OPEN_RESPONSE.md)
 
-L25 当前目录为 **44 项**。`simple-memory-v1` 和 `legacy` 的数量相同，集合不同：普通目录提供 `authorize_self_model`，并收起专用的 `revise_tool_guidance`；后者的旧调用仍保留校验与兼容。旧文档里的 40 / 43 等数量属于当时的目录或统计范围，使用时以当前 `tools/list` 为准。`public-tools/20` 是协议标签，不是工具数量。
+L30 当前目录为 **44 项**。`simple-memory-v1` 和 `legacy` 的数量相同，集合不同：普通目录提供 `authorize_self_model`，并收起专用的 `revise_tool_guidance`；后者的旧调用仍保留校验与兼容。旧文档里的 40 / 43 等数量属于当时的目录或统计范围，使用时以当前 `tools/list` 为准。`public-tools/20` 是协议标签，不是工具数量。
 
 下面以 `simple-memory-v1` 为主。模块一首次激活后，普通读写由服务补入内部上下文和模块行版本；AI 使用查询返回的真实目标引用。黑匣子、模块一以及显式旧候选操作保留各自的授权和复核路径。
 
@@ -125,10 +125,36 @@ L25 当前目录为 **44 项**。`simple-memory-v1` 和 `legacy` 的数量相同
 | 工具 | 用途 |
 | --- | --- |
 | `manage_person_reference_advisory` | `set` 自写人称提醒，`disable` 关闭，`reset` 恢复默认 |
-| `preview_person_reference_rewrite` | 对作者明确绑定的草稿人物称呼做字面替换预览 |
+| `preview_person_reference_rewrite` | 作者指明草稿里的称呼指谁、换成什么，查看字面替换预览 |
 | `confirm_person_reference_rewrite` | 确认相同最终稿，取得单次写入 receipt |
 
-称呼校对每条草稿默认关闭。情感、学习、工具的对应存入入口支持回执；统一 `remember_memory` 已接通情感和学习，规划暂未接入。调用方提供人物和别名绑定，功能范围是指定字面称呼校对，不是全文叙事视角自动改写。
+称呼校对每条草稿默认关闭。情感、学习、工具的对应存入入口支持回执；统一 `remember_memory` 已接通情感和学习，规划暂未接入。它校对作者指定的字面称呼，叙事视角与措辞由作者自己组织。
+
+**最短流程：指明替换 → 预览 → 确认 → 按原入口存入。** 版本和校验信息由 ST 从保存的预览取得；人物指向采用作者的明确声明，另交人物认证、别名登记或重复绑定已从新流程中省去。
+
+下面是一段合成的情感草稿，两个字段均保留在预览中：
+
+```json
+{
+  "module": "emotional_memory",
+  "draft_fields": {
+    "/original_text": "我和她完成了练习。",
+    "/summary": "共同练习。"
+  },
+  "rewrite_targets": [{
+    "field_path": "/original_text",
+    "surface_form": "她",
+    "entity_ref": "一起练习的人",
+    "target_surface_form": "小林"
+  }]
+}
+```
+
+把这组参数交给 `preview_person_reference_rewrite`。`entity_ref` 是作者给人物的名称或标记；只有一处匹配时可省略位置，多处时加 `occurrence_index` 指明第几处（从 0 开始）。`draft_fields` 的键使用带 `/` 的完整字段路径；学习正文对应 `/current_understanding`，工具卡字段按当前工具说明提供。
+
+看过预览后，把它返回的 `preview_id` 与 `ai_confirmation: true` 交给 `confirm_person_reference_rewrite`。确认结果带有完整 `final_fields` 和 `rewrite_receipt`，随后把原样最终稿及回执交给对应存入入口。确认完成表示接受这份草稿；实际保存以存入工具的成功回执为准。
+
+草稿在预览后有新改动时，重新预览新稿。旧调用可以继续显式提供版本、哈希和上下文字段，ST 会核对它们与原预览的一致性。原有模块激活、调用者权限、保护范围和回执检查继续生效。
 
 ## 普通修改：字段和引用
 

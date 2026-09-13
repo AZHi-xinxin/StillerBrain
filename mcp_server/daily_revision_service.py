@@ -52,8 +52,10 @@ ORDINARY_REVISION_FIELDS = {
 _TARGETS = {"emotion": ("emotional_memory", "emmem"),
             "learning": ("learning_memory", "learn"), "plan": ("planning_memory", "plan"),
             "tool-card": ("tool_guidance", "toolcard")}
+# Keep the legacy error-detail key, but never redirect a tool-card author to
+# the dedicated name hidden from the simple gateway's advertised catalog.
 _ADVANCED = {"emotional_memory": "revise_emotional_memory", "learning_memory": "revise_learning_memory",
-             "planning_memory": "revise_planning_memory", "tool_guidance": "revise_tool_guidance"}
+             "planning_memory": "revise_planning_memory", "tool_guidance": "revise_memory"}
 _TOOL_CLEAR_FIELDS = frozenset({"reminder", "source_ref", "expires_at"})
 _NEUTRAL_REASON = "AI 主动修订普通记忆；原版本与修订审计保留。"
 _SAFE_FAILURES = frozenset({
@@ -125,7 +127,13 @@ class DailyRevisionAccessService:
             if "version_conflict" in code or code == "stale_plan_ref":
                 guidance = "目标或模块版本已变化；先读回目标并决定是否仍需修改，再使用读到的精确版本；不会自动换成最新版本重试。"
             elif code == "ordinary_revision_requires_advanced":
-                guidance = "请使用 allowed_fields 中的作者字段；系统编号、哈希和审计状态由系统维护。来源依据另可通过模块工具追加。"
+                guidance = (
+                    "工具卡继续使用 revise_memory；changes 只填 allowed_fields 中的作者字段。"
+                    "退役用 changes.intent='retire'；恢复用 changes.intent='restore' 和 changes.target_version。"
+                    "changes.lifecycle 不用于工具卡；系统编号、哈希和审计状态由系统维护。"
+                    if module == "tool_guidance" else
+                    "请使用 allowed_fields 中的作者字段；系统编号、哈希和审计状态由系统维护。来源依据另可通过模块工具追加。"
+                )
             elif code == "no_effective_change":
                 guidance = "修改值与该版本相同，无需创建新版本。"
             else:

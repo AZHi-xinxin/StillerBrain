@@ -61,6 +61,11 @@ _DIAGNOSTIC_FIELDS = frozenset({
     "calm_check_alternatives", "clear_fields", "content", "context", "metadata",
     "facets", "key", "value", "triggers", "situation", "scene", "bindings",
     "speaker", "referent", "occurrence", "scope", "scopes", "status", "options",
+    # Fixed public authoring labels only; extra author-supplied keys stay redacted.
+    "draft_fields", "final_fields", "rewrite_targets", "protected_spans", "field_path",
+    "/original_text", "/summary", "/title", "/current_understanding",
+    "/preceding_context_summary", "/display_label", "/completion_rule", "/purpose",
+    "/call_notes", "/documentation_note", "/salience_reason", "/handoff_condition",
 })
 _DIAGNOSTIC_VALIDATORS = frozenset({
     "type", "required", "additionalProperties", "unevaluatedProperties", "properties",
@@ -72,6 +77,11 @@ _DIAGNOSTIC_VALIDATORS = frozenset({
     "dependencies", "allOf", "anyOf", "oneOf", "not", "if", "then", "else", "$ref",
 })
 _DIAGNOSTIC_PATH_MARKERS = frozenset({"<field>", "[]", "<truncated>"})
+_ADDITIONAL_DIAGNOSTIC_MAX_KEYS = 1024
+_SIMPLE_OBJECT_SCHEMA_KEYS = frozenset({
+    "type", "properties", "required", "additionalProperties", "minProperties", "maxProperties",
+    "title", "description", "examples", "default", "$schema", "$id",
+})
 
 
 def _diagnostic_field(value: Any) -> str:
@@ -100,12 +110,100 @@ def _schema_field_path(error: ValidationError) -> list[str]:
     return path
 
 
+def _additional_properties_detail(error: ValidationError) -> dict[str, Any]:
+    """Inspect simple object key membership only, never values or unknown names.
+
+    Complex schemas (including patternProperties) deliberately get no inferred
+    difference. Do not execute schema regexes or treat an over-limit census as
+    complete. The existing validator remains the sole accept/reject authority.
+    """
+    schema, instance = error.schema, error.instance
+    if (error.validator != "additionalProperties" or not isinstance(schema, Mapping)
+            or schema.get("additionalProperties") is not False
+            or not isinstance(instance, Mapping)
+            or not isinstance(schema.get("properties"), Mapping)
+            or set(schema) - _SIMPLE_OBJECT_SCHEMA_KEYS):
+        return {}
+    properties = schema["properties"]
+    if (len(instance) > _ADDITIONAL_DIAGNOSTIC_MAX_KEYS
+            or len(properties) > _ADDITIONAL_DIAGNOSTIC_MAX_KEYS
+            or any(type(key) is not str for key in instance)
+            or any(type(key) is not str for key in properties)):
+        return {}
+    unexpected_count = unknown_count = 0
+    public_unexpected: list[str] = []
+    for key in instance:
+        if key in properties:
+            continue
+        unexpected_count += 1
+        if key in _DIAGNOSTIC_FIELDS:
+            public_unexpected.append(key)
+        else:
+            unknown_count += 1
+    if not unexpected_count:
+        return {}
+    public_unexpected.sort()
+    shown_unexpected = public_unexpected[:5 if unknown_count else 6]
+    if unknown_count:
+        shown_unexpected.append("<field>")
+    public_allowed = sorted(key for key in properties if key in _DIAGNOSTIC_FIELDS)
+    shown_allowed = public_allowed[:16]
+    return {
+        "unexpected_fields": shown_unexpected,
+        "unexpected_count": unexpected_count,
+        "unknown_count": unknown_count,
+        "unexpected_fields_truncated": len(public_unexpected) > (5 if unknown_count else 6),
+        "allowed_field_count": len(properties),
+        "allowed_fields": shown_allowed,
+        "allowed_fields_truncated": len(properties) > len(shown_allowed),
+    }
+
+
+def _normalize_additional_properties_detail(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Recheck bounds and public labels even for a future exception adapter."""
+    if value.get("validator") != "additionalProperties":
+        return {}
+    counts = ("unexpected_count", "unknown_count", "allowed_field_count")
+    if any(type(value.get(key)) is not int
+           or not 0 <= value[key] <= _ADDITIONAL_DIAGNOSTIC_MAX_KEYS for key in counts):
+        return {}
+    if not 1 <= value["unexpected_count"] or value["unknown_count"] > value["unexpected_count"]:
+        return {}
+    for key in ("unexpected_fields_truncated", "allowed_fields_truncated"):
+        if type(value.get(key)) is not bool:
+            return {}
+    result = {key: value[key] for key in (*counts, "unexpected_fields_truncated", "allowed_fields_truncated")}
+    for key, limit in (("unexpected_fields", 6), ("allowed_fields", 16)):
+        labels = value.get(key)
+        if (not isinstance(labels, (list, tuple)) or len(labels) > limit
+                or any(type(label) is not str for label in labels)):
+            return {}
+        if (len(set(labels)) != len(labels)
+                or any(label not in _DIAGNOSTIC_FIELDS
+                       and not (key == "unexpected_fields" and label == "<field>") for label in labels)):
+            return {}
+        result[key] = list(labels)
+    if not result["unexpected_fields"]:
+        return {}
+    if ("<field>" in result["unexpected_fields"]) != (result["unknown_count"] > 0):
+        return {}
+    shown_public_count = len(result["unexpected_fields"]) - (1 if result["unknown_count"] else 0)
+    public_count = result["unexpected_count"] - result["unknown_count"]
+    if (shown_public_count > public_count
+            or result["unexpected_fields_truncated"] != (shown_public_count < public_count)
+            or len(result["allowed_fields"]) > result["allowed_field_count"]
+            or result["allowed_fields_truncated"] != (len(result["allowed_fields"]) < result["allowed_field_count"])):
+        return {}
+    return result
+
+
 def _validation_detail(error: ValidationError) -> dict[str, Any]:
     validator = error.validator
     detail: dict[str, Any] = {
         "validator": validator if type(validator) is str and validator in _DIAGNOSTIC_VALIDATORS else "other",
         "field_path": _schema_field_path(error),
     }
+    detail.update(_additional_properties_detail(error))
     if validator == "required" and isinstance(error.schema, Mapping) and isinstance(error.instance, Mapping):
         required = error.schema.get("required")
         if isinstance(required, list):
@@ -177,6 +275,7 @@ def normalize_validation_diagnostic(
         required = detail.get("required_fields")
         if isinstance(required, (list, tuple)) and required:
             result["required_fields"] = list(dict.fromkeys(_diagnostic_field(item) for item in required[:6]))
+        result.update(_normalize_additional_properties_detail(detail))
         return result
 
     result = copy_detail(value)

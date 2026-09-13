@@ -187,7 +187,9 @@ def _safe_validation_diagnostic(
     return diagnostic
 
 
-def _tool_validation_message(diagnostic: Mapping[str, Any] | None) -> str:
+def _tool_validation_message(
+    diagnostic: Mapping[str, Any] | None, *, protected_values: Sequence[str] = (),
+) -> str:
     message = "[ST 网关 · tool_arguments_schema_invalid] 本批工具参数与当前工具说明不匹配。"
     if diagnostic is not None:
         message += "工具：" + diagnostic["tool_name"] + "；"
@@ -195,7 +197,54 @@ def _tool_validation_message(diagnostic: Mapping[str, Any] | None) -> str:
         message += "字段：" + path + "；检查：" + diagnostic["validator"] + "。"
         if diagnostic.get("required_fields"):
             message += "缺少字段：" + "、".join(diagnostic["required_fields"]) + "。"
+        if "unexpected_fields" in diagnostic:
+            field_details = (
+                "未被当前字段表接受的键：" + "、".join(diagnostic["unexpected_fields"])
+                + "；共 " + str(diagnostic["unexpected_count"]) + " 个，其中 "
+                + str(diagnostic["unknown_count"]) + " 个以 <field> 隐去。"
+            )
+            if diagnostic["unexpected_fields_truncated"]:
+                field_details += "多余键的公开标签仅显示前几项。"
+            field_details += "当前字段表共允许 " + str(diagnostic["allowed_field_count"]) + " 个键。"
+            if diagnostic["allowed_fields"]:
+                field_details += "可公开的允许键：" + "、".join(diagnostic["allowed_fields"]) + "。"
+            if diagnostic["allowed_fields_truncated"]:
+                field_details += "允许键列表已省略超限或不可公开的名称。"
+            if not any(value and value in field_details for value in protected_values):
+                message += field_details
+        # Fixed correction text only. Never interpolate a rejected key, value,
+        # schema description, or jsonschema's raw error into the explanation.
+        tool = diagnostic["tool_name"].rsplit("__", 1)[-1]
+        field = diagnostic["field_path"]
+        hint = ""
+        if diagnostic["validator"] == "additionalProperties":
+            if tool == "preview_person_reference_rewrite" and field == ["draft_fields", "<field>"]:
+                hint = (
+                    "draft_fields 使用带 / 的字段名。情感字段片段示例："
+                    '{"/original_text":"待写正文","/summary":"摘要"}。'
+                    "学习 content 对应 /current_understanding；工具卡按说明书使用 /purpose、/call_notes 等适用路径。"
+                )
+            elif tool == "confirm_person_reference_rewrite" and field == ["final_fields", "<field>"]:
+                hint = (
+                    "final_fields 保留本次预览 suggested_fields 的带 / 字段名及确认文本，"
+                    "例如情感 /original_text、/summary；final_fields_hash 按完整对象计算。草稿改变时重新预览。"
+                )
+        if not any(value and value in hint for value in protected_values):
+            message += hint
     return message + "本批调用尚未交给客户端执行。请按工具说明修正参数后再试。"
+
+
+def _tool_not_advertised_message(protected_values: Sequence[str] = ()) -> str:
+    # The rejected name is model-authored and may itself contain private data.
+    # Give an actionable, fixed explanation without echoing names or arguments.
+    message = (
+        "[ST 网关 · tool_not_advertised] 模型调用了本轮工具目录没有的名字。"
+        "本批调用尚未交给客户端执行。请刷新工具目录，按当前目录原样使用工具名，"
+        "再从新的用户消息继续。历史工具名称不代表当前可调用。"
+    )
+    if any(value and value in message for value in protected_values):
+        return "tool_not_advertised"
+    return message
 
 
 _LINEAGE_DIAGNOSTIC_REASONS = frozenset(
@@ -983,7 +1032,10 @@ class GatewayApplication:
         for call in calls:
             schema = schemas.get(call.tool_name)
             if schema is None:
-                raise GatewayError(502, "tool_not_advertised")
+                raise GatewayError(
+                    502, "tool_not_advertised",
+                    _tool_not_advertised_message(tuple(prepared.session.protected_values)),
+                )
             canonical_tool = self._execution_tool(schema)
             if canonical_tool is None:
                 # Old canonical ST definitions cannot silently fall back to unbound mode.
@@ -2631,7 +2683,9 @@ class GatewayApplication:
             raise GatewayError(
                 status,
                 code,
-                _tool_validation_message(diagnostic) if code == "tool_arguments_schema_invalid"
+                _tool_validation_message(diagnostic, protected_values=tuple(prepared.session.protected_values)) if code == "tool_arguments_schema_invalid"
+                else _tool_not_advertised_message(tuple(prepared.session.protected_values))
+                if code == "tool_not_advertised"
                 else "原生工具调用未通过本轮目录、参数或宿主执行边界校验。",
                 validation_diagnostic=diagnostic,
             ) from exc
@@ -3918,7 +3972,8 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             payload = GatewayError(
                 error.status,
                 code,
-                _tool_validation_message(diagnostic) if code == "tool_arguments_schema_invalid"
+                _tool_validation_message(diagnostic, protected_values=protected) if code == "tool_arguments_schema_invalid"
+                else _tool_not_advertised_message(protected) if code == "tool_not_advertised"
                 else "[ST 网关 · " + code + "] " + _STREAM_FAILURE_MESSAGES.get(code, "本轮响应未完成，请根据错误码检查后重试。"),
                 validation_diagnostic=diagnostic,
             ).payload()

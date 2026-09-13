@@ -656,9 +656,9 @@ async def remember_memory(
     保存成功的工具结果同时返回当前人称提醒与简短选词建议，供 AI 自行决定是否采用；
     这是存入后的回执提示，不自动改写刚保存的内容，也不要求再调用一次保存。
     rewrite_receipt 可选，仅情感/学习记忆接受已明确确认的一次性指代改写回执；
-    它不自动改写。情感 final_fields 的 original_text/summary 对应 content/summary；
-    学习的 title/summary/current_understanding 对应 title/summary/content，
-    preceding_context_summary 在本入口固定为空；需要非空前置上下文请用专用学习工具。
+    它不自动改写。情感 final_fields 的 /original_text、/summary 对应 content、summary；
+    学习的 /title、/summary、/current_understanding 对应 title、summary、content，
+    /preceding_context_summary 在本入口固定为空；需要非空前置上下文请用专用学习工具。
     字段须与确认预览完全相同。规划不支持此回执；省略时保持普通存入路径。
 
     选词可由 AI 按真实内容考虑原词＋近义表达＋语义相关话题＋情感语境关联：
@@ -693,8 +693,12 @@ async def revise_memory(
     工具卡同样使用 target_ref + changes：引用形如 tool-card://toolcard_…@1，
     changes 可直接写 reminder、purpose、scenario_tags、confidence 等要改的字段。
     reminder/source_ref/expires_at 显式 null 清除，省略保留；clear_fields 兼容旧写法。
-    退役可用 changes.intent='retire'，恢复用 intent='restore' 和 target_version。
-    默认普通修改，无需填写 edit_class 或审查表。simple 目录收起专用工具卡修改名，旧调用保持兼容。
+    退役：revise_memory(target_ref=已读引用, changes={'intent':'retire'})。
+    恢复：revise_memory(target_ref=已读当前引用,
+        changes={'intent':'restore','target_version':已读历史版本号})。
+    即 changes.intent 和 changes.target_version 都放在 changes 内；工具卡不使用 changes.lifecycle。
+    默认普通修改，无需填写 edit_class 或审查表。simple 目录收起专用工具卡修改名。
+    旧接口内部保留兼容；实际调用以当前工具目录和连接授权为准，网关不会执行目录外的旧名称。
 
     In simple-memory-v1 ordinary modules are read-only before module one's first
     completed activation. After activation, direct MCP and gateway writes omit
@@ -892,23 +896,23 @@ async def query_self_model(
 
 @mcp.tool()
 async def preview_person_reference_rewrite(
-    write_context_ref: NonEmptyJsonString,
-    expected_authoring_version: JsonRowVersion,
     module: Literal[
         "emotional_memory_module_two",
         "learning_memory_module_three",
         "tool_guidance_module",
     ],
-    draft_version: JsonRowVersion,
     draft_fields: dict[str, StrictStr],
-    referent_bindings: list[dict[str, Any]],
     rewrite_targets: list[dict[str, Any]],
-    conversation_mode: Literal["one_to_one", "group", "unknown"],
-    authenticated_participant_entity_ids: list[NonEmptyJsonString],
-    alias_collision_scope: NonEmptyJsonString,
-    alias_collision_scope_version: JsonMemoryVersion,
-    protected_spans: list[dict[str, Any]],
-    module_schema_version: NonEmptyJsonString,
+    write_context_ref: NonEmptyJsonString = None,
+    expected_authoring_version: JsonRowVersion = None,
+    draft_version: JsonRowVersion = None,
+    referent_bindings: list[dict[str, Any]] = None,
+    conversation_mode: Literal["one_to_one", "group", "unknown"] = None,
+    authenticated_participant_entity_ids: list[NonEmptyJsonString] = None,
+    alias_collision_scope: NonEmptyJsonString = None,
+    alias_collision_scope_version: JsonMemoryVersion = None,
+    protected_spans: list[dict[str, Any]] = None,
+    module_schema_version: NonEmptyJsonString = None,
     rewrite_eligible_allowlist_version: Literal[
         REWRITE_ELIGIBLE_ALLOWLIST_VERSION
     ] = REWRITE_ELIGIBLE_ALLOWLIST_VERSION,
@@ -919,7 +923,25 @@ async def preview_person_reference_rewrite(
         ALIAS_COMPARISON_PROFILE_VERSION
     ] = ALIAS_COMPARISON_PROFILE_VERSION,
 ) -> dict[str, Any]:
-    """Preview optional literal mention patches for this draft only.
+    """AI 指明称呼指谁、替换成什么，预览这份草稿中的字面修改。
+
+    最少填写 module、draft_fields、rewrite_targets。每个目标填写 field_path、
+    surface_form、entity_ref（作者给人物的名称即可）、target_surface_form；同一字段中
+    原词只出现一次可省 occurrence_index，多次出现时填写从 0 开始的具体位置。
+    无需再交 referent_bindings、认证人物名单或别名登记；人物身份来自作者声明，
+    群聊、unknown 场景和历史人物也可由作者明确指定，服务不冒充宿主认证。
+    protected_spans 可选且生效；这里不自动识别引号或代码区域。
+
+    draft_fields 的键使用带 / 的字段路径。情感示例：
+    {"/original_text":"我和她完成了练习。","/summary":"共同练习。"}。
+    普通存入的 content 对应情感 /original_text、学习 /current_understanding；
+    summary、title 对应 /summary、/title。工具卡用适用的 /purpose、/call_notes 等。
+    rewrite_targets 中的 field_path 使用同一条带 / 路径。
+    示例展示字段格式；人物只需在 rewrite_targets 明确指定，说明书可按需查阅。
+    module_schema_version 和草稿版本可省略；服务提供当前模块版本及内部记账。
+    兼容参数显式提供时仍检查相应版本/内容是否一致；与工具 contract_version 不同。
+    也可用 stbrain_open(view='manual',module='shared_person_authoring') 查阅
+    shared_person_authoring.modules[目标模块].module_schema_version。
 
     In simple-memory-v1 ordinary modules are read-only before module one's first
     completed activation. After activation, direct MCP and gateway callers omit
@@ -953,26 +975,26 @@ async def preview_person_reference_rewrite(
 
 @mcp.tool()
 async def confirm_person_reference_rewrite(
-    write_context_ref: NonEmptyJsonString,
-    expected_authoring_version: JsonRowVersion,
+    preview_id: NonEmptyJsonString,
+    ai_confirmation: JsonTrue,
+    write_context_ref: NonEmptyJsonString = None,
+    expected_authoring_version: JsonRowVersion = None,
     module: Literal[
         "emotional_memory_module_two",
         "learning_memory_module_three",
         "tool_guidance_module",
-    ],
-    preview_id: NonEmptyJsonString,
-    expected_source_draft_hash: NonEmptyJsonString,
-    expected_suggestion_hash: NonEmptyJsonString,
-    expected_validation_context_hash: NonEmptyJsonString,
-    final_fields: dict[str, StrictStr],
-    final_fields_hash: NonEmptyJsonString,
-    conversation_mode: Literal["one_to_one", "group", "unknown"],
-    authenticated_participant_entity_ids: list[NonEmptyJsonString],
-    alias_collision_scope: NonEmptyJsonString,
-    alias_collision_scope_version: JsonMemoryVersion,
-    protected_spans: list[dict[str, Any]],
-    module_schema_version: NonEmptyJsonString,
-    ai_confirmation: JsonTrue,
+    ] = None,
+    expected_source_draft_hash: NonEmptyJsonString = None,
+    expected_suggestion_hash: NonEmptyJsonString = None,
+    expected_validation_context_hash: NonEmptyJsonString = None,
+    final_fields: dict[str, StrictStr] = None,
+    final_fields_hash: NonEmptyJsonString = None,
+    conversation_mode: Literal["one_to_one", "group", "unknown"] = None,
+    authenticated_participant_entity_ids: list[NonEmptyJsonString] = None,
+    alias_collision_scope: NonEmptyJsonString = None,
+    alias_collision_scope_version: JsonMemoryVersion = None,
+    protected_spans: list[dict[str, Any]] = None,
+    module_schema_version: NonEmptyJsonString = None,
     rewrite_eligible_allowlist_version: Literal[
         REWRITE_ELIGIBLE_ALLOWLIST_VERSION
     ] = REWRITE_ELIGIBLE_ALLOWLIST_VERSION,
@@ -985,10 +1007,22 @@ async def confirm_person_reference_rewrite(
 ) -> dict[str, Any]:
     """Confirm the exact preview and issue one opaque single-use write receipt.
 
+    最少填写 preview_id 和 ai_confirmation=true，即确认自己已读过的那份完整预览。
+    服务从同一 owner/model 的不可变预览带回版本、hash 和最终字段；显式提供旧参数时
+    仍逐项检查。旧预览保留其原上下文规则，不能自动转成新的作者声明。
+    成功后返回 final_fields；存入时带 rewrite_receipt 并采用原预览的完整字段。
+    final_fields 和所有 hash 都可省，服务从 preview_id 的快照带回；仅兼容手动提供时校验。
+    最终字段保留带 / 的名称与确认文本，如情感 /original_text、/summary。
+    草稿或字段内容变化时重新预览；带回执存入时映射回普通 content、summary 等字段。
+    module_schema_version 可省略，由该预览的已保存上下文提供，与工具 contract_version 不同。
+    也可用 stbrain_open(view='manual',module='shared_person_authoring') 查阅
+    shared_person_authoring.modules[目标模块].module_schema_version。
+
     In simple-memory-v1 ordinary modules are read-only before module one's first
     completed activation. After activation, direct MCP and gateway callers omit
     internal context and mechanical module row versions. Keep the preview's exact
-    hashes, target module and explicit author confirmation. Legacy mode retains
+    preview_id and explicit author confirmation; the service supplies exact
+    hashes and target module. Legacy mode retains
     its authorized context and wake-bound receipt rules.
     """
     return authoring_rewrite_service.confirm(

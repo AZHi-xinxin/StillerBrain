@@ -13,10 +13,19 @@ import json
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence, TypeAlias
 
+from runtime.authoring import AUTHORING_SCHEMA_VERSIONS
+
 from .ordinary_revision_schema import install_ordinary_revision_schema
 
 
 PUBLIC_CONTRACT_VERSION = "public-tools/20"
+PERSON_REWRITE_MODULE_SCHEMA_VERSION_DESCRIPTION = (
+    "可省略；preview 由服务提供当前版本，confirm 从该预览的不可变上下文提供。显式提供时仍检查。目标记忆模块当前的 schema 版本；按 module 选择："
+    + "；".join(f"{module}={version}" for module, version in AUTHORING_SCHEMA_VERSIONS.items())
+    + "。这是记忆字段结构版本，与工具返回的 contract_version、public-tools 版本及草稿/状态版本不同。"
+      "preview 和 confirm 都使用该映射。手册入口为 stbrain_open(view='manual',module='shared_person_authoring')，"
+      "返回 shared_person_authoring.modules[目标模块].module_schema_version。"
+)
 
 BrainOpenView: TypeAlias = Literal["summary", "manual", "review", "recall"]
 BrainManualModule: TypeAlias = Literal[
@@ -758,6 +767,14 @@ _REWRITE_FIELD_PATHS = [
 ]
 _REWRITE_FIELDS_SCHEMA: dict[str, Any] = {
     "type": "object",
+    "description": (
+        "字段名使用带 / 的完整路径，值为待写文本。情感 content 对应 /original_text，"
+        "学习 content 对应 /current_understanding；summary、title 对应 /summary、/title。"
+        "工具卡按适用字段使用 /purpose、/call_notes 等路径；各模块可用字段见人称说明书。"
+        "情感草稿示例：{\"/original_text\":\"我和她完成了练习。\",\"/summary\":\"共同练习。\"}。"
+        "这是字段片段示例，人物绑定与其他参数按实际草稿填写。"
+    ),
+    "examples": [{"/original_text": "我和她完成了练习。", "/summary": "共同练习。"}],
     "additionalProperties": False,
     "minProperties": 1,
     "properties": {
@@ -789,22 +806,14 @@ _REFERENT_BINDING_SCHEMA: dict[str, Any] = {
 _REWRITE_TARGET_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": [
-        "field_path",
-        "surface_form",
-        "occurrence_index",
-        "entity_ref",
-        "target_surface_form",
-        "mention_kind",
-        "target_alias_ref",
-        "target_alias_version",
-        "unique_in_scope",
-    ],
+    "required": ["field_path", "surface_form", "entity_ref", "target_surface_form"],
     "properties": {
         "field_path": {"type": "string", "enum": _REWRITE_FIELD_PATHS},
         "surface_form": {"type": "string", "minLength": 1, "maxLength": 200},
-        "occurrence_index": {"type": "integer", "minimum": 0},
-        "entity_ref": {"type": "string", "minLength": 1, "maxLength": 300},
+        "occurrence_index": {"type": "integer", "minimum": 0,
+                             "description": "同一字段中原词只出现一次可省；多次出现时指定第几处，从0开始，只替换该处。"},
+        "entity_ref": {"type": "string", "minLength": 1, "maxLength": 300,
+                       "description": "作者明确声明这个称呼指谁，人物名称即可；这是作者声明，不是宿主认证标识。"},
         "target_surface_form": {"type": "string", "minLength": 1, "maxLength": 80},
         "mention_kind": {"enum": ["pronoun", "person_name", "relationship_name"]},
         "target_alias_ref": {"type": "string", "minLength": 1, "maxLength": 300},
@@ -828,21 +837,7 @@ PUBLIC_REWRITE_PREVIEW_INPUT_SCHEMA: dict[str, Any] = {
     "title": "public-tools/16 preview_person_reference_rewrite arguments",
     "type": "object",
     "additionalProperties": False,
-    "required": [
-        "write_context_ref",
-        "expected_authoring_version",
-        "module",
-        "draft_version",
-        "draft_fields",
-        "referent_bindings",
-        "rewrite_targets",
-        "conversation_mode",
-        "authenticated_participant_entity_ids",
-        "alias_collision_scope",
-        "alias_collision_scope_version",
-        "protected_spans",
-        "module_schema_version",
-    ],
+    "required": ["module", "draft_fields", "rewrite_targets"],
     "properties": {
         "write_context_ref": {"type": "string", "minLength": 1},
         "expected_authoring_version": {"type": "integer", "minimum": 0},
@@ -850,13 +845,14 @@ PUBLIC_REWRITE_PREVIEW_INPUT_SCHEMA: dict[str, Any] = {
         "draft_version": {
             "type": "integer",
             "minimum": 0,
-            "description": "本次源草稿的版本；源草稿或上下文改变后重新 preview，不复用旧预览。",
+            "description": "可省略，服务为本次新草稿记账；源草稿改变后重新 preview，不复用旧预览。",
         },
         "draft_fields": copy.deepcopy(_REWRITE_FIELDS_SCHEMA),
         "referent_bindings": {
             "type": "array",
             "maxItems": 64,
             "items": copy.deepcopy(_REFERENT_BINDING_SCHEMA),
+            "description": "可省略；rewrite_targets 已声明称呼指谁，无需重复提交绑定。旧参数显式提供时不允许与目标人物矛盾。",
         },
         "rewrite_targets": {
             "type": "array",
@@ -877,7 +873,8 @@ PUBLIC_REWRITE_PREVIEW_INPUT_SCHEMA: dict[str, Any] = {
             "maxItems": 128,
             "items": copy.deepcopy(_PROTECTED_SPAN_SCHEMA),
         },
-        "module_schema_version": {"type": "string", "minLength": 1},
+        "module_schema_version": {"type": "string", "minLength": 1,
+                                  "description": PERSON_REWRITE_MODULE_SCHEMA_VERSION_DESCRIPTION},
         "rewrite_eligible_allowlist_version": {
             "const": "person-rewrite-allowlist/1",
             "default": "person-rewrite-allowlist/1",
@@ -898,24 +895,7 @@ PUBLIC_REWRITE_CONFIRM_INPUT_SCHEMA: dict[str, Any] = {
     "title": "public-tools/16 confirm_person_reference_rewrite arguments",
     "type": "object",
     "additionalProperties": False,
-    "required": [
-        "write_context_ref",
-        "expected_authoring_version",
-        "module",
-        "preview_id",
-        "expected_source_draft_hash",
-        "expected_suggestion_hash",
-        "expected_validation_context_hash",
-        "final_fields",
-        "final_fields_hash",
-        "conversation_mode",
-        "authenticated_participant_entity_ids",
-        "alias_collision_scope",
-        "alias_collision_scope_version",
-        "protected_spans",
-        "module_schema_version",
-        "ai_confirmation",
-    ],
+    "required": ["preview_id", "ai_confirmation"],
     "properties": {
         "write_context_ref": {"type": "string", "minLength": 1},
         "expected_authoring_version": {"type": "integer", "minimum": 0},
@@ -925,6 +905,7 @@ PUBLIC_REWRITE_CONFIRM_INPUT_SCHEMA: dict[str, Any] = {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
             "description": (
+                "可省略，服务从 preview_id 保存的快照带回；仅兼容手动提供时校验。"
                 "精确匹配该 preview 保存的 source_draft_hash；它只证明预览源快照一致，"
                 "不能证明窗口中的源草稿此后未改变。源草稿、版本或验证上下文变化时，"
                 "必须重新 preview，不要把旧 hash 当成当前草稿未变的证明。"
@@ -932,7 +913,16 @@ PUBLIC_REWRITE_CONFIRM_INPUT_SCHEMA: dict[str, Any] = {
         },
         "expected_suggestion_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "expected_validation_context_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "final_fields": copy.deepcopy(_REWRITE_FIELDS_SCHEMA),
+        "final_fields": {
+            **copy.deepcopy(_REWRITE_FIELDS_SCHEMA),
+            "description": (
+                "可省略，服务从 preview_id 保存的 suggested_fields 带回，并在确认结果返回 final_fields；仅兼容手动提供时校验。"
+                "使用本次预览返回的 suggested_fields，保留带 / 的字段名及确认的对应文本；"
+                "例如情感 /original_text、/summary，学习 /current_understanding、/title、/summary。"
+                "字段名、文本或草稿改变时重新预览；hash 由服务带回。"
+                "普通 remember_memory 的 content 对应情感 /original_text 或学习 /current_understanding。"
+            ),
+        },
         "final_fields_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "conversation_mode": {"enum": ["one_to_one", "group", "unknown"]},
         "authenticated_participant_entity_ids": {
@@ -948,7 +938,8 @@ PUBLIC_REWRITE_CONFIRM_INPUT_SCHEMA: dict[str, Any] = {
             "maxItems": 128,
             "items": copy.deepcopy(_PROTECTED_SPAN_SCHEMA),
         },
-        "module_schema_version": {"type": "string", "minLength": 1},
+        "module_schema_version": {"type": "string", "minLength": 1,
+                                  "description": PERSON_REWRITE_MODULE_SCHEMA_VERSION_DESCRIPTION},
         "rewrite_eligible_allowlist_version": {
             "const": "person-rewrite-allowlist/1",
             "default": "person-rewrite-allowlist/1",
@@ -964,6 +955,22 @@ PUBLIC_REWRITE_CONFIRM_INPUT_SCHEMA: dict[str, Any] = {
         "ai_confirmation": {"const": True},
     },
 }
+
+
+for _rewrite_schema in (PUBLIC_REWRITE_PREVIEW_INPUT_SCHEMA, PUBLIC_REWRITE_CONFIRM_INPUT_SCHEMA):
+    for _compatibility_field in ("conversation_mode", "authenticated_participant_entity_ids",
+                                "alias_collision_scope", "alias_collision_scope_version"):
+        _rewrite_schema["properties"][_compatibility_field]["description"] = (
+            "旧调用兼容字段，可省略；新预览按AI明确声明的目标改写，不用它证明人物认证或限制群聊/历史人物。"
+            "确认时若显式提供，仍须与这份预览保存的值一致；旧预览保留旧上下文规则。"
+        )
+    for _optional_field in ("write_context_ref", "expected_authoring_version"):
+        _rewrite_schema["properties"][_optional_field]["description"] = "普通模式可省略；服务按当前真实已认证操作绑定，原模块一激活和写入权限仍适用。"
+
+for _snapshot_field in ("expected_suggestion_hash", "expected_validation_context_hash", "final_fields_hash", "module"):
+    PUBLIC_REWRITE_CONFIRM_INPUT_SCHEMA["properties"][_snapshot_field]["description"] = (
+        "可省略，服务从 preview_id 的已保存快照读取；仅兼容手动提供时严格校验，无法匹配时重新预览。"
+    )
 
 
 class PublicPayloadValidationError(ValueError):

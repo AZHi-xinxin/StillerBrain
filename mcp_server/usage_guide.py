@@ -93,7 +93,7 @@ def module_usage_guide(module: str, *, simple: bool) -> dict[str, Any]:
             "read": [{"tool": "recall_tool_guidance", "use": "空 query 或 view='directory' 查目录；按 card_id 读卡片和经验。"}],
             "write_tools": ["remember_tool_guidance", "revise_memory", "record_tool_experience", "review_tool_guidance_candidate"],
             "example": {"tool": "remember_tool_guidance", "arguments": {"tool_name": "示例工具", "purpose": "整理资料时查询相关记录。"}},
-            "workflow": ["tool_name 可写工具或 MCP 服务名，purpose 写用途，reminder 可写最多100字的一句场景提醒。", "四个普通脑统一用 revise_memory 修改：target_ref 使用查到的 tool-card://toolcard_…@版本，changes 只填要改的 reminder、purpose、scenario_tags、confidence 等。", "reminder/source_ref/expires_at 填 null 可清除，省略保留；clear_fields 兼容旧写法。普通修改无需 edit_class 或审查表。退役用 changes.intent=retire，恢复用 intent=restore 和 target_version。", "详细步骤按需读取；旧候选仍按查询回执处理。保存提醒是记忆操作，实际执行工具使用当前可用目录和授权。"],
+            "workflow": ["tool_name 可写工具或 MCP 服务名，purpose 写用途，reminder 可写最多100字的一句场景提醒。", "四个普通脑统一用 revise_memory 修改：target_ref 使用查到的 tool-card://toolcard_…@版本，changes 只填要改的 reminder、purpose、scenario_tags、confidence 等。", "reminder/source_ref/expires_at 填 null 可清除，省略保留；clear_fields 兼容旧写法。普通修改无需 edit_class 或审查表。退役用 changes.intent='retire'；恢复用 changes.intent='restore' 和 changes.target_version，均放在 changes 内。", "退役示例：revise_memory(target_ref=已读引用, changes={'intent':'retire'})；恢复示例：revise_memory(target_ref=已读当前引用, changes={'intent':'restore','target_version':已读历史版本号})。工具卡用 intent 管理退役与恢复，不使用 changes.lifecycle。", "详细步骤按需读取；旧候选仍按查询回执处理。保存提醒是记忆操作，实际执行工具使用当前可用目录和授权。"],
         },
         "planning_memory": {
             "title": "计划与进度",
@@ -137,7 +137,8 @@ def module_usage_guide(module: str, *, simple: bool) -> dict[str, Any]:
             "workflow": ["manage_person_reference_advisory：set + text 写自己的提醒并开启，disable 关闭正文显示，reset 恢复默认建议；每次修改保留历史，普通激活后的 simple-memory-v1 无需填版本。", "人称由作者选择；弱提醒开关与本条草稿改写彼此独立，关闭提醒不改变既有记忆。", "按 schema 提供当前待写草稿 draft_fields、draft_version、referent_bindings 和明确的 rewrite_targets。", "preview 会保存预览回执，属于写操作；首次激活前的只读模式会阻止它。", "读取预览后，由 AI 按实际结果明确确认；草稿版本、预览 hash 和作者确认由真实回执关联。"],
             "rewrite_scope": "现有机制为预览→确认→带一次性 rewrite_receipt 存入，是作者指定的字面指代替换，不是自动转换整段叙事人称；每次草稿默认不启用。适用于情感、学习、工具，规划暂未接入。",
             "rewrite_inputs": "人物/别名引用与范围由作者或接入方提供一致的声明；当前没有可查询的宿主人物认证或别名注册表。请使用确知的人物对应关系，不能把自填编号当作身份验证。未确定人物时可保留原文，普通记忆不要求填写这些字段。",
-            "unified_writer": "情感和学习的确认回执可交给 remember_memory；final_fields 必须完全对应实际 content/summary/title。学习在该入口的 preceding_context_summary 固定为空，其他取值请走专用工具。工具卡用 remember_tool_guidance。",
+            "field_format": "draft_fields、final_fields 的键使用带 / 的完整字段路径；referent_bindings、rewrite_targets 内的 field_path 使用同一路径。情感片段示例：{\"/original_text\":\"我和她完成了练习。\",\"/summary\":\"共同练习。\"}。示例仅展示格式，人物对应和其他参数按实际草稿填写。final_fields 使用本次预览 suggested_fields 的带 / 字段名与确认文本，hash 按完整对象计算。",
+            "unified_writer": "情感和学习的确认回执可交给 remember_memory；情感 /original_text 对应 content，学习 /current_understanding 对应 content，/summary、/title 对应 summary、title。final_fields 必须与实际存入的文本完全对应。学习在该入口的 /preceding_context_summary 固定为空字符串，其他取值请走专用工具。工具卡用 remember_tool_guidance，按适用字段使用 /purpose、/call_notes 等路径。",
         },
     }
     entry = modules[module]
@@ -158,7 +159,7 @@ def module_usage_guide(module: str, *, simple: bool) -> dict[str, Any]:
         entry["input_fields"] = "tool_name、purpose 写用途；write_context_ref 和 expected_tool_row_version 使用授权上下文的真实回执。"
         entry["write_tools"].append("revise_tool_guidance")
     if module == "tool_guidance":
-        entry["compatibility"] = "revise_tool_guidance 保留旧调用兼容；simple-memory-v1 常用目录收起该重复入口，统一使用 revise_memory。"
+        entry["compatibility"] = "revise_tool_guidance 内部保留旧调用兼容；simple-memory-v1 常用目录收起该重复入口，新操作统一使用 revise_memory。网关只接受本轮实际工具目录中的名称；旧历史中的工具名不代表本轮可用。"
     if module in {"emotional_memory", "learning_memory", "planning_memory", "tool_guidance"}:
         from .daily_revision_service import ORDINARY_REVISION_FIELDS
         entry["revise_author_fields"] = sorted(ORDINARY_REVISION_FIELDS[module])
@@ -216,7 +217,7 @@ def simple_usage_guide() -> dict[str, Any]:
         },
         "revise": {
             "tool": "revise_memory", "required": ["target_ref", "changes"],
-            "instruction": "四个普通脑统一修改：使用刚读到的版本引用，只填要改的作者字段。工具卡用 tool-card:// 引用；reminder、source_ref、expires_at 填 null 清除。原文、摘要、重要度、关键词及各模块作者字段均可修改，旧版本保留。",
+            "instruction": "四个普通脑统一修改：使用刚读到的版本引用，只填要改的作者字段。工具卡用 tool-card:// 引用；reminder、source_ref、expires_at 填 null 清除。工具卡退役用 changes.intent='retire'；恢复用 changes.intent='restore' 和 changes.target_version，均放在 changes 内。原文、摘要、重要度、关键词及各模块作者字段均可修改，旧版本保留。",
             "conflict": "版本冲突时重新读取；当前内容由 AI 判断后再提交。",
             "technical_fields": "ID、owner、版本、hash 和由来源推导的状态由 ST 维护。",
         },

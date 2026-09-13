@@ -1,14 +1,14 @@
 {
   "format": "stiller-public-release-state/1",
-  "version": "0.1.0-preview.3",
+  "version": "0.1.0-preview.4",
   "scope": "production-readiness-not-source-archive-integrity",
   "source_frozen": true,
   "license_approved": true,
   "clean_environment_verified": false,
-  "complete_regressions_verified": true,
+  "complete_regressions_verified": false,
   "dependency_audit_complete": false,
   "privacy_review_complete": false,
   "user_acceptance_complete": true,
   "publication_authorized": true,
-  "notes": "Accepted local L25 and source-preview publication are authorized. Full tests used existing pinned environments plus isolated synthetic data; universal clean-machine, full dependency provenance/legal and deployment/history privacy certification remain separate from source-package integrity. See docs/UPDATE-VALIDATION.md."
+  "notes": "Accepted local L30 and source-preview publication are authorized. This revision uses targeted synthetic regression plus packaging checks; previous full L25 regressions remain historical evidence. Universal clean-machine, complete regressions, full dependency provenance/legal and deployment/history privacy certification remain separate from source-package integrity. See docs/UPDATE-VALIDATION.md."
 }

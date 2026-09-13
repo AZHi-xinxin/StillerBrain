@@ -64,6 +64,7 @@ AUTHORING_SCHEMA_VERSIONS = {
 REWRITE_ELIGIBLE_ALLOWLIST_VERSION = "person-rewrite-allowlist/1"
 MENTION_PARSER_RULE_VERSION = "literal-person-reference/1"
 ALIAS_COMPARISON_PROFILE_VERSION = "alias-comparison/nfc-casefold/1"
+AUTHOR_DECLARED_REWRITE_MODE = "author_declared/1"
 
 
 
@@ -287,6 +288,7 @@ def prepare_rewrite_preview(
     rewrite_targets: Any = None,
     rewrite_assist: bool = False,
     allowed_field_paths: Iterable[str] = ("/original_text", "/summary"),
+    author_declared: bool = False,
 ) -> dict[str, Any]:
     """Build a deterministic, side-effect-free literal mention preview.
 
@@ -309,7 +311,7 @@ def prepare_rewrite_preview(
 
     allowed = _field_paths(allowed_field_paths)
     draft = _validated_draft_fields(draft_fields, allowed)
-    bindings = validate_referent_bindings(referent_bindings, allowed)
+    bindings = [] if author_declared else validate_referent_bindings(referent_bindings, allowed)
     warnings = referent_warnings(bindings)
     if rewrite_targets is None:
         rewrite_targets = []
@@ -340,11 +342,11 @@ def prepare_rewrite_preview(
         surface_form = raw.get("surface_form")
         occurrence_index = raw.get("occurrence_index")
         identity = (field_path, surface_form, occurrence_index)
-        binding = bindings_by_identity.get(identity)
+        binding = raw if author_declared else bindings_by_identity.get(identity)
         if binding is None:
             skipped.append({"target_index": index, "reason_code": "binding_not_found"})
             continue
-        if binding["resolution_status"] != "resolved":
+        if not author_declared and binding["resolution_status"] != "resolved":
             skipped.append(
                 {
                     "target_index": index,
@@ -352,7 +354,7 @@ def prepare_rewrite_preview(
                 }
             )
             continue
-        if raw.get("entity_ref") != binding["entity_ref"]:
+        if not author_declared and raw.get("entity_ref") != binding["entity_ref"]:
             skipped.append({"target_index": index, "reason_code": "entity_ref_mismatch"})
             continue
         source_text = draft.get(binding["field_path"])
@@ -412,7 +414,7 @@ def prepare_rewrite_preview(
         return {
             "rewrite_assist": True,
             "rewrite_preview_status": "no_applicable_change",
-            "source": "host_rewrite_suggestion",
+            "source": "author_declared_literal_preview" if author_declared else "host_rewrite_suggestion",
             "patches": [],
             "skipped": sorted(skipped, key=lambda item: item["target_index"]),
             "warnings": warnings,
@@ -441,7 +443,7 @@ def prepare_rewrite_preview(
     return {
         "rewrite_assist": True,
         "rewrite_preview_status": "changes_available",
-        "source": "host_rewrite_suggestion",
+        "source": "author_declared_literal_preview" if author_declared else "host_rewrite_suggestion",
         "source_draft_hash": _sha256(draft),
         "suggestion_hash": _sha256(suggested),
         "suggested_fields": suggested,
@@ -493,6 +495,55 @@ def _safe_unicode_lexeme(value: str) -> bool:
         ):
             return False
     return True
+
+
+def _validated_protected_spans(module: str, protected_spans: Any) -> list[dict[str, Any]]:
+    if protected_spans is None:
+        protected_spans = []
+    if not isinstance(protected_spans, list) or len(protected_spans) > 128:
+        raise AuthoringError("protected_spans_invalid")
+    normalized_spans: list[dict[str, Any]] = []
+    for raw in protected_spans:
+        if not isinstance(raw, Mapping) or set(raw) != {"field_path", "byte_start", "byte_end"}:
+            raise AuthoringError("protected_span_shape_invalid")
+        path, start, end = raw.get("field_path"), raw.get("byte_start"), raw.get("byte_end")
+        if path not in AUTHORING_REWRITE_MODULES[module]:
+            raise AuthoringError("protected_span_field_invalid")
+        if (isinstance(start, bool) or isinstance(end, bool) or not isinstance(start, int)
+                or not isinstance(end, int) or start < 0 or end <= start):
+            raise AuthoringError("protected_span_range_invalid")
+        normalized_spans.append({"field_path": path, "byte_start": start, "byte_end": end})
+    normalized_spans.sort(key=lambda item: (item["field_path"], item["byte_start"], item["byte_end"]))
+    return normalized_spans
+
+
+def _canonical_author_declared_context(*, module: str, protected_spans: Any,
+                                      module_schema_version: Any,
+                                      rewrite_eligible_allowlist_version: Any,
+                                      mention_parser_rule_version: Any,
+                                      alias_comparison_profile_version: Any,
+                                      **caller_context: Any) -> dict[str, Any]:
+    """Versioned author-declared evidence, never a host participant assertion."""
+    if module not in AUTHORING_REWRITE_MODULES:
+        raise AuthoringError("rewrite_module_invalid")
+    for supplied, expected, code in (
+        (module_schema_version, AUTHORING_SCHEMA_VERSIONS[module], "module_schema_version_stale"),
+        (rewrite_eligible_allowlist_version, REWRITE_ELIGIBLE_ALLOWLIST_VERSION, "rewrite_allowlist_version_stale"),
+        (mention_parser_rule_version, MENTION_PARSER_RULE_VERSION, "mention_parser_rule_version_stale"),
+        (alias_comparison_profile_version, ALIAS_COMPARISON_PROFILE_VERSION, "alias_comparison_profile_version_stale"),
+    ):
+        if supplied != expected:
+            raise AuthoringError(code)
+    return {
+        "validation_mode": AUTHOR_DECLARED_REWRITE_MODE,
+        "person_identity_source": "ai_author_declaration_not_host_authentication",
+        "caller_compatibility_context": {key: value for key, value in caller_context.items() if value is not None},
+        "protected_spans": _validated_protected_spans(module, protected_spans),
+        "module_schema_version": module_schema_version,
+        "rewrite_eligible_allowlist_version": rewrite_eligible_allowlist_version,
+        "mention_parser_rule_version": mention_parser_rule_version,
+        "alias_comparison_profile_version": alias_comparison_profile_version,
+    }
 
 
 def _canonical_validation_context(
@@ -642,6 +693,45 @@ def _strict_targets(value: Any) -> list[dict[str, Any]]:
             }
         )
     return result
+
+
+def _author_declared_targets(value: Any, draft: Mapping[str, str], allowed: Iterable[str]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[int]]:
+    """Resolve only a uniquely located literal occurrence; never guess a person."""
+    if not isinstance(value, list):
+        raise AuthoringError("rewrite_targets_must_be_array")
+    if len(value) > 64:
+        raise AuthoringError("rewrite_targets_too_many")
+    required = {"field_path", "surface_form", "entity_ref", "target_surface_form"}
+    optional = {"occurrence_index", "mention_kind", "target_alias_ref", "target_alias_version", "unique_in_scope"}
+    result, skipped, original_indices = [], [], []
+    for index, raw in enumerate(value):
+        if not isinstance(raw, Mapping) or not required <= set(raw) or set(raw) - required - optional:
+            raise AuthoringError("rewrite_target_shape_invalid")
+        path = raw["field_path"]
+        if not isinstance(path, str) or path not in allowed:
+            raise AuthoringError("rewrite_target_field_invalid")
+        source = _required_text("rewrite_surface_form", raw["surface_form"], 200)
+        target = _safe_target_surface(raw["target_surface_form"])
+        entity = _required_text("entity_ref", raw["entity_ref"], 300)
+        if not _safe_unicode_lexeme(source) or not _safe_unicode_lexeme(target):
+            raise AuthoringError("rewrite_lexeme_contains_unsafe_unicode")
+        if any(character.isspace() for character in source + target):
+            raise AuthoringError("rewrite_lexeme_must_be_single_form")
+        occurrence = raw.get("occurrence_index")
+        if "occurrence_index" not in raw:
+            count = draft.get(path, "").count(source)
+            if count != 1:
+                skipped.append({"target_index": index,
+                    "reason_code": "occurrence_index_required" if count > 1 else "source_occurrence_missing",
+                    "occurrence_count": count})
+                continue
+            occurrence = 0
+        if type(occurrence) is not int or occurrence < 0:
+            raise AuthoringError("occurrence_index_invalid")
+        result.append({"field_path": path, "surface_form": source, "occurrence_index": occurrence,
+                       "entity_ref": entity, "target_surface_form": target})
+        original_indices.append(index)
+    return result, skipped, original_indices
 
 
 class AuthoringRewriteStore:
@@ -821,6 +911,7 @@ class AuthoringRewriteStore:
         rewrite_eligible_allowlist_version: Any,
         mention_parser_rule_version: Any,
         alias_comparison_profile_version: Any,
+        validation_mode: str = "legacy",
     ) -> dict[str, Any]:
         if (
             isinstance(draft_version, bool)
@@ -828,7 +919,11 @@ class AuthoringRewriteStore:
             or draft_version < 0
         ):
             raise AuthoringError("draft_version_invalid")
-        context = _canonical_validation_context(
+        author_declared = validation_mode == AUTHOR_DECLARED_REWRITE_MODE
+        if validation_mode not in {"legacy", AUTHOR_DECLARED_REWRITE_MODE}:
+            raise AuthoringError("rewrite_validation_mode_invalid")
+        context_builder = _canonical_author_declared_context if author_declared else _canonical_validation_context
+        context = context_builder(
             module=module,
             conversation_mode=conversation_mode,
             authenticated_participant_entity_ids=authenticated_participant_entity_ids,
@@ -842,18 +937,35 @@ class AuthoringRewriteStore:
         )
         allowed = AUTHORING_REWRITE_MODULES[module]
         draft = _validated_draft_fields(draft_fields, allowed)
-        bindings = validate_referent_bindings(referent_bindings, allowed)
+        legacy_bindings = validate_referent_bindings(referent_bindings, allowed)
+        bindings = legacy_bindings
         if _contains_secret(draft, bindings, rewrite_targets):
             raise AuthoringError("credential_or_secret_detected")
-        targets = _strict_targets(rewrite_targets)
+        if author_declared:
+            targets, initial_skips, original_indices = _author_declared_targets(rewrite_targets, draft, allowed)
+            by_coordinate = {(item["field_path"], item["surface_form"], item["occurrence_index"]): item
+                             for item in legacy_bindings}
+            for item in targets:
+                previous = by_coordinate.get((item["field_path"], item["surface_form"], item["occurrence_index"]))
+                if previous is not None and previous["entity_ref"] != item["entity_ref"]:
+                    raise AuthoringError("rewrite_legacy_binding_conflict")
+            # These are explicit author declarations, not invented resolution
+            # status, confidence, registry facts, or host-authenticated people.
+            bindings = [{**item, "source": "author_declared"} for item in targets]
+        else:
+            targets = _strict_targets(rewrite_targets)
+            initial_skips, original_indices = [], list(range(len(targets)))
 
         # Host-authenticated context may veto; it never creates a binding or
         # chooses a target.  Group/unknown scenes and participant mismatches
         # simply skip the suggestion while preserving the ordinary save path.
-        participant_set = set(context["authenticated_participant_entity_ids"])
+        participant_set = set(context.get("authenticated_participant_entity_ids", []))
         eligible_targets = []
         context_skips: list[dict[str, Any]] = []
         for index, target in enumerate(targets):
+            if author_declared:
+                eligible_targets.append(target)
+                continue
             if target["unique_in_scope"] is not True:
                 context_skips.append(
                     {"target_index": index, "reason_code": "alias_not_unique_in_scope"}
@@ -883,7 +995,14 @@ class AuthoringRewriteStore:
             rewrite_targets=eligible_targets,
             rewrite_assist=True,
             allowed_field_paths=allowed,
+            author_declared=author_declared,
         )
+        if author_declared:
+            for item in preview.get("skipped", []):
+                item["target_index"] = original_indices[item["target_index"]]
+            preview.setdefault("skipped", []).extend(initial_skips)
+            preview["validation_mode"] = AUTHOR_DECLARED_REWRITE_MODE
+            preview["person_identity_source"] = "ai_author_declaration_not_host_authentication"
         preview.setdefault("skipped", []).extend(context_skips)
         preview["skipped"] = sorted(
             preview["skipped"], key=lambda item: item.get("target_index", 0)
@@ -900,7 +1019,18 @@ class AuthoringRewriteStore:
         protected = context["protected_spans"]
         safe_patches: list[dict[str, Any]] = []
         protected_skips: list[dict[str, Any]] = []
+        target_index_by_span = {}
+        if author_declared:
+            for position, target in enumerate(targets):
+                text = draft.get(target["field_path"], "")
+                span = _literal_occurrence_span(text, target["surface_form"], target["occurrence_index"])
+                if span is not None:
+                    key = (target["field_path"], len(text[:span[0]].encode("utf-8")),
+                           len(text[:span[1]].encode("utf-8")))
+                    target_index_by_span[key] = original_indices[position]
         for index, patch in enumerate(preview["patches"]):
+            original_index = target_index_by_span.get(
+                (patch["field_path"], patch["byte_start"], patch["byte_end"]), index)
             overlap = any(
                 patch["field_path"] == span["field_path"]
                 and patch["byte_start"] < span["byte_end"]
@@ -909,7 +1039,7 @@ class AuthoringRewriteStore:
             )
             if overlap:
                 protected_skips.append(
-                    {"target_index": index, "reason_code": "protected_span"}
+                    {"target_index": original_index, "reason_code": "protected_span"}
                 )
             else:
                 safe_patches.append(patch)
@@ -1008,6 +1138,38 @@ class AuthoringRewriteStore:
         ).hexdigest()
         return f"{receipt_id}.{proof}"
 
+    def confirmation_inputs(self, *, owner_id: str, model_id: str, preview_id: str) -> dict[str, Any]:
+        """Read this owner's immutable preview; the facade still authorizes use.
+
+        No row/state is created and no current environment replaces the saved
+        context. Old snapshots keep their original legacy context and checks.
+        """
+        with self._connect() as connection:
+            preview = connection.execute(
+                "SELECT * FROM authoring_rewrite_previews WHERE preview_id=? AND owner_id=? AND model_id=?",
+                (preview_id, owner_id, model_id)).fetchone()
+            if preview is None:
+                raise AuthoringError("rewrite_preview_not_found")
+            context = json.loads(preview["validation_context_json"])
+            author_declared = context.get("validation_mode") == AUTHOR_DECLARED_REWRITE_MODE
+            compatibility = context.get("caller_compatibility_context", {}) if author_declared else context
+            arguments = {key: compatibility.get(key) for key in (
+                "conversation_mode", "authenticated_participant_entity_ids", "alias_collision_scope",
+                "alias_collision_scope_version")}
+            arguments.update({key: context[key] for key in (
+                "protected_spans", "module_schema_version", "rewrite_eligible_allowlist_version",
+                "mention_parser_rule_version", "alias_comparison_profile_version")})
+            arguments.update({
+                "preview_id": preview_id,
+                "expected_source_draft_hash": preview["source_hash"],
+                "expected_suggestion_hash": preview["suggestion_hash"],
+                "expected_validation_context_hash": preview["validation_context_hash"],
+                "final_fields": json.loads(preview["suggestion_json"]),
+                "final_fields_hash": preview["suggestion_hash"],
+            })
+            return {"module": preview["module"], "arguments": arguments,
+                    "validation_mode": AUTHOR_DECLARED_REWRITE_MODE if author_declared else "legacy"}
+
     def confirm(
         self,
         *,
@@ -1059,7 +1221,11 @@ class AuthoringRewriteStore:
                         and _ordinary_authoring_access(owner_id, model_id, preview['module'], preview=True))
             if preview["wake_id"] != wake_id and not ordinary:
                 raise AuthoringError("rewrite_preview_wrong_wake")
-            current_context = _canonical_validation_context(
+            saved_context = json.loads(preview["validation_context_json"])
+            context_builder = (_canonical_author_declared_context
+                if saved_context.get("validation_mode") == AUTHOR_DECLARED_REWRITE_MODE
+                else _canonical_validation_context)
+            current_context = context_builder(
                 module=preview["module"],
                 conversation_mode=conversation_mode,
                 authenticated_participant_entity_ids=authenticated_participant_entity_ids,

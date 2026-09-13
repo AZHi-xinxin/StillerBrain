@@ -77,9 +77,12 @@ class ToolValidationDiagnosticTests(unittest.TestCase):
         diagnostic = self.rejected(schema, arguments).validation_diagnostic
         self.assertEqual("additionalProperties", diagnostic["validator"])
         encoded = json.dumps(diagnostic)
-        for forbidden in ("UNPUBLISHED", "PRIVATE", "private summary", "1000"):
+        for forbidden in ("UNPUBLISHED", "PRIVATE", "private summary"):
             self.assertNotIn(forbidden, encoded)
-        self.assertLess(len(encoded), 300)
+        self.assertEqual(1000, diagnostic["unexpected_count"])
+        self.assertEqual(1000, diagnostic["unknown_count"])
+        self.assertEqual(["<field>"], diagnostic["unexpected_fields"])
+        self.assertLess(len(encoded), 512)
 
     def test_enum_omits_actual_value_and_schema_candidates(self):
         schema = {"type": "object", "properties": {"origin": {"enum": ["PRIVATE_CANDIDATE"]}}}

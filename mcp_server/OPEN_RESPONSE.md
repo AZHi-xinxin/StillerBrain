@@ -106,16 +106,18 @@ advance_plan(target_ref, expected_event_seq, event_type, note)
 
 每条草稿默认关闭，由 AI 显式 `preview_person_reference_rewrite → confirm_person_reference_rewrite → remember`，确认相同最终稿后使用一次性 `rewrite_receipt`。支持情感、学习与工具专用存入；统一 `remember_memory` 支持情感和学习，规划暂不支持。
 
+L30 简化入口：预览只需 `module`、完整 `draft_fields` 与 `rewrite_targets`。每条目标提供 `field_path`、`surface_form`、`entity_ref`、`target_surface_form`，表示在哪里、原称呼、指谁、改成什么。单处匹配可省略 `occurrence_index`；多处匹配时显式指定从 0 开始的位置。确认只需 `preview_id` 与 `ai_confirmation: true`，返回完整 `final_fields` 和 `rewrite_receipt`。版本、哈希和预览上下文由服务读取保存的快照。
+
 统一入口的字段映射：
 
 | 模块 | 预览 final_fields | 统一 remember_memory |
 | --- | --- | --- |
-| 情感 | `original_text`、`summary` | `content`、`summary` |
-| 学习 | `title`、`summary`、`current_understanding` | `title`、`summary`、`content` |
+| 情感 | `/original_text`、`/summary` | `content`、`summary` |
+| 学习 | `/title`、`/summary`、`/current_understanding` | `title`、`summary`、`content` |
 
-统一学习入口的 `preceding_context_summary` 固定为空，需要该字段时使用专用学习工具。字段内容须与已确认预览完全相同，回执只供同一作者、本次写入使用。
+`draft_fields` 与 `final_fields` 的键均使用带 `/` 的完整路径。统一学习入口的 `/preceding_context_summary` 在完整预览稿中填写为空，需要非空内容时使用专用学习工具。字段内容须与已确认预览完全相同，回执只供同一作者、本次写入使用。
 
-人物与别名绑定由调用方明确提供，属于最小字面替换的输入条件；它不是已实现的宿主人物认证，也不是一键全文第一人称改写。省略 receipt 时保持普通保存路径。
+人物指向由作者在目标中明确声明，另行人物认证、别名登记和重复绑定已从新流程省去；作者声明与宿主认证分别标记。明确位置的群聊或历史人物同样可预览。省略 receipt 时保持普通保存路径；要改草稿时，重新预览新的完整稿。旧调用显式提供的上下文、版本和哈希仍逐项核对。
 
 ## 6. 模块一与按需材料
 

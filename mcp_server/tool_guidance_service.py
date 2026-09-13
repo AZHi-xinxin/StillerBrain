@@ -209,17 +209,23 @@ class ToolGuidanceAccessService:
                 "场景匹配与作者开关决定提醒；服务未广告、Schema 变化、信心、旧有效期和失败冷却用于详情诊断。",
                 "具体工具名、参数说明与使用经验在手动详情中查看；提醒与实际执行权限分别处理。",
                 "普通作者字段直接追加新版本，历史可以查询；退役保留内容并停止自动提醒。",
-                "旧 pending 可以直接撤回或由已认证普通作者明确采纳，保留候选记录；普通修改使用 revise_tool_guidance。",
+                "旧 pending 可以直接撤回或由已认证普通作者明确采纳，保留候选记录；普通修改使用 revise_memory。",
                 "经验为 AI 自述；实际结果由本轮目标工具的回执核对。",
             ],
             "tools": {
                 "remember_tool_guidance": "保存工具或服务的用途、可选一句 reminder 和场景关键词；详情可随后补充。",
                 "recall_tool_guidance": "view=directory 查目录；view=card 查原文；history 查历史；failures 查经验。",
-                "revise_tool_guidance": "直接追加修改版本；intent=retire 退役，intent=restore 恢复历史版本。",
+                "revise_memory": "使用刚读到的 tool-card:// 版本引用作为 target_ref，changes 只填要改的作者字段。退役用 changes.intent='retire'；恢复用 changes.intent='restore' 和 changes.target_version。",
                 "review_tool_guidance_candidate": "旧候选可 withdraw 撤回；已认证普通作者 accept/keep_pending 按精确候选与版本决定，真实旧 wake 路径保留原复核检查。",
                 "record_tool_experience": "追加 AI 对一次调用尝试的非验证经验。",
             },
-            "write_rule": "写入使用服务提供的当前身份与版本。沿用返回的 tool_row_version 和卡片 version，冲突时先查目录与原文。",
+            "write_rule": "统一修改只填写 target_ref 和 changes；target_ref 沿用刚查询到的卡片版本引用。服务按当前授权补入内部身份与模块行版本，冲突时先查目录与原文；legacy 连接另提供其真实 write_context_ref。",
+            "revision_examples": {
+                "retire": "revise_memory(target_ref=刚读到的卡片引用, changes={'intent':'retire'})",
+                "restore": "revise_memory(target_ref=刚读到的当前卡片引用, changes={'intent':'restore','target_version':已读历史版本号})",
+                "lifecycle": "工具卡的退役与恢复使用上述 changes.intent；changes.lifecycle 是其他模块的字段，不用于工具卡。",
+            },
+            "legacy_compatibility": "revise_tool_guidance 内部保留既有调用兼容；simple-memory-v1 常用目录收起此重复入口，新操作统一用 revise_memory。网关只接受本轮实际工具目录中的名称；旧历史中的工具名不代表本轮可用。",
             "authoring_constraints": {
                 "confidence": (
                     "工具卡 confidence 由我按自己的判断填写 0–100 的整数，source_type 如实记录来源。"
@@ -227,7 +233,8 @@ class ToolGuidanceAccessService:
                 ),
                 "expires_at": (
                     "有效期由我决定；新卡省略或 null 表示长期保留。日期使用带时区的 ISO 时间，"
-                    "可以如实记录过去日期。修改时省略或 null 保留旧日期，clear_fields=[\"expires_at\"] 明确清除。"
+                    "可以如实记录过去日期。统一修改时省略保留旧日期，changes.expires_at=null 明确清除；"
+                    "changes.clear_fields=[\"expires_at\"] 兼容旧清除写法。"
                 ),
                 "reminder": "可选，一句 1–100 字的自然语言提醒；具体工具标识与调用参数写在原文详情。",
                 "scenario_tags": (

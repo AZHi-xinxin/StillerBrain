@@ -108,6 +108,7 @@ def _source_frame(body: Mapping[str, Any]) -> dict[str, Any] | None:
         "thread_id",
         "lineage_stable",
         "prior_assistant_present",
+        "first_user_turn",
         "source_event_id",
         "capture_items",
     }
@@ -122,6 +123,9 @@ def _source_frame(body: Mapping[str, Any]) -> dict[str, Any] | None:
     prior_assistant_present = value.get("prior_assistant_present", False)
     if not isinstance(prior_assistant_present, bool):
         raise ValueError("source_frame.prior_assistant_present must be boolean")
+    first_user_turn = value.get("first_user_turn", False)
+    if not isinstance(first_user_turn, bool):
+        raise ValueError("source_frame.first_user_turn must be boolean")
     thread_id = value.get("thread_id")
     if thread_id is not None and (
         not isinstance(thread_id, str) or not thread_id.strip() or len(thread_id) > 256
@@ -154,6 +158,7 @@ def _source_frame(body: Mapping[str, Any]) -> dict[str, Any] | None:
         "thread_id": thread_id,
         "lineage_stable": lineage_stable,
         "prior_assistant_present": prior_assistant_present,
+        "first_user_turn": first_user_turn,
         "source_event_id": source_event_id,
         "capture_items": cleaned_items,
     }

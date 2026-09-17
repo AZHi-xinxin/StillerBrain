@@ -2739,6 +2739,7 @@ class ModuleOneOnboardingStore:
                 prior_assistant_present = (
                     source_frame.get("prior_assistant_present") is True
                 )
+                first_user_turn = source_frame.get("first_user_turn") is True
                 thread_id = (
                     source_frame.get("thread_id")
                     if lineage_stable
@@ -2749,6 +2750,38 @@ class ModuleOneOnboardingStore:
                     query_text = ""
                 if not isinstance(thread_id, str):
                     thread_id = None
+
+                catalog_entries = advertised_tools_snapshot.get("entries", [])
+                st_open_advertised = (
+                    any(
+                        isinstance(item, Mapping)
+                        and isinstance(item.get("canonical_name"), str)
+                        and (
+                            item["canonical_name"] == "stbrain_open"
+                            or item["canonical_name"].endswith("__stbrain_open")
+                        )
+                        for item in catalog_entries
+                    )
+                    if isinstance(catalog_entries, list)
+                    else False
+                )
+                if first_user_turn and st_open_advertised:
+                    # One-turn capability signpost, never an instruction or a
+                    # permission. It obeys the existing master injection switch.
+                    dynamic["st_start_entry"] = {
+                        "contract": "st-start-entry/1",
+                        "frame": {
+                            "instruction_authority": "none",
+                            "permission_authority": "none",
+                            "optional": True,
+                        },
+                        "situation": "new_conversation_first_user_turn",
+                        "entry": "stbrain_open",
+                        "message": (
+                            "这是新对话的第一轮。如果需要先接续共同经历、身份关系或旧事，"
+                            "我可以自行决定先调用 stbrain_open；也可以不调用，直接回应。"
+                        ),
+                    }
 
                 learning_outcome: list[dict[str, Any]] | None = None
                 tool_outcome: Mapping[str, Any] | None = None

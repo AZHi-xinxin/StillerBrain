@@ -2,7 +2,17 @@
 
 [日常指南](../docs/GUIDE.md) · [工具目录](../docs/TOOLS.md) · [MCP 组件](README.md)
 
-当前公开契约为 `public-tools/20`，默认展开协议为 `brain-open/2`。本文以 `simple-memory-v1` 为主；简化与兼容目录均为 44 个公开工具，工具集合差异见 [TOOLS](../docs/TOOLS.md)。客户端使用当前工具 Schema 组织真实调用。
+当前公开契约为 `public-tools/20`，默认展开协议为 `brain-open/2`。本文以 `simple-memory-v1` 为主；默认完整目录提供 44 个公开工具，显式日常档为 7 入口，工具集合差异见 [TOOLS](../docs/TOOLS.md)。客户端使用当前工具 Schema 组织真实调用。
+
+## 目录选择与操作调用
+
+默认 `/mcp` 或 `tool_profile=full` 返回完整目录。`/mcp?tool_profile=daily` 或请求头 `X-STBrain-Tool-Profile: daily` 选择日常档；两个选择器各最多一次，同时提供时必须一致。选择按请求生效，不改变实例的访问配置，也不会在升级时自动替客户端切档。
+
+日常档按顺序提供 `stbrain_open`、`remember_memory`、`remember_tool_guidance`、`revise_memory`、`advance_plan`、`stbrain_tools`、`stbrain_manage`。`stbrain_open` 无必填参数。`stbrain_tools()` 列分类，`stbrain_tools(category=...)` 列该类操作，`stbrain_tools(action=...)` 返回一个操作的准确参数。当前 `simple-memory-v1` 工具箱可发现 45 项操作，包含常用能力与兼容操作。
+
+本文或 `detail_lookup` 中给出的操作名，若不在当前独立工具目录中，使用 `stbrain_manage(action=操作名, arguments=原参数对象)` 调用。已知参数时可直接执行；内层参数仍经过原 Schema、权限与执行绑定检查。直接调用七个入口时按各自 Schema 平铺业务参数，只有 `stbrain_manage` 使用内层 `arguments` 封装子操作。
+
+更改连接后重连、刷新目录，从新回合开始；旧历史里的工具说明不会自动消失。客户端禁用或审批工具箱入口的选择继续生效。
 
 ## 1. 普通保存
 
@@ -59,7 +69,7 @@ revise_memory(target_ref, changes, reason=可选理由)
 
 只需真实 `target_ref` 与本次要改的字段。引用直接复制查询结果，版本定位已经包含其中；内部模块行版本由服务处理。真实并发冲突时重新读取，再决定本次修改。
 
-模块一首次完成并激活后，普通作者修改使用已读引用提交原文、摘要、情绪、来源或其他公开作者字段；版本历史保留，作者自行选择叙述人称。需要对应模块说明时，调用 `stbrain_help(module=对应模块)` 即可。
+模块一首次完成并激活后，普通作者修改使用已读引用提交原文、摘要、情绪、来源或其他公开作者字段；版本历史保留，作者自行选择叙述人称。需要对应模块说明时，完整目录调用 `stbrain_help(module=对应模块)`；日常档调用 `stbrain_manage(action="stbrain_help", arguments={"module":对应模块})`。
 
 | 目标 | 引用前缀 | 作者字段示例 |
 | --- | --- | --- |
@@ -106,7 +116,7 @@ advance_plan(target_ref, expected_event_seq, event_type, note)
 
 每条草稿默认关闭，由 AI 显式 `preview_person_reference_rewrite → confirm_person_reference_rewrite → remember`，确认相同最终稿后使用一次性 `rewrite_receipt`。支持情感、学习与工具专用存入；统一 `remember_memory` 支持情感和学习，规划暂不支持。
 
-L30 简化入口：预览只需 `module`、完整 `draft_fields` 与 `rewrite_targets`。每条目标提供 `field_path`、`surface_form`、`entity_ref`、`target_surface_form`，表示在哪里、原称呼、指谁、改成什么。单处匹配可省略 `occurrence_index`；多处匹配时显式指定从 0 开始的位置。确认只需 `preview_id` 与 `ai_confirmation: true`，返回完整 `final_fields` 和 `rewrite_receipt`。版本、哈希和预览上下文由服务读取保存的快照。
+预览只需 `module`、完整 `draft_fields` 与 `rewrite_targets`。每条目标提供 `field_path`、`surface_form`、`entity_ref`、`target_surface_form`，表示在哪里、原称呼、指谁、改成什么。单处匹配可省略 `occurrence_index`；多处匹配时显式指定从 0 开始的位置。确认只需 `preview_id` 与 `ai_confirmation: true`，返回完整 `final_fields` 和 `rewrite_receipt`。版本、哈希和预览上下文由服务读取保存的快照。
 
 统一入口的字段映射：
 
@@ -115,7 +125,7 @@ L30 简化入口：预览只需 `module`、完整 `draft_fields` 与 `rewrite_ta
 | 情感 | `/original_text`、`/summary` | `content`、`summary` |
 | 学习 | `/title`、`/summary`、`/current_understanding` | `title`、`summary`、`content` |
 
-`draft_fields` 与 `final_fields` 的键均使用带 `/` 的完整路径。统一学习入口的 `/preceding_context_summary` 在完整预览稿中填写为空，需要非空内容时使用专用学习工具。字段内容须与已确认预览完全相同，回执只供同一作者、本次写入使用。
+`draft_fields` 与 `final_fields` 的键均使用带 `/` 的完整路径。学习草稿可以只包含标题、摘要与正文：统一学习入口将缺省 `/preceding_context_summary` 与精确空字符串视为等价，不要求 AI 补隐藏空字段。需要非空前置上下文时使用专用学习工具；非空、空白字符串、null 和其他字段仍严格区分。其他字段内容须与已确认预览完全相同，回执只供同一作者、本次写入使用。
 
 人物指向由作者在目标中明确声明，另行人物认证、别名登记和重复绑定已从新流程省去；作者声明与宿主认证分别标记。明确位置的群聊或历史人物同样可预览。省略 receipt 时保持普通保存路径；要改草稿时，重新预览新的完整稿。旧调用显式提供的上下文、版本和哈希仍逐项核对。
 
@@ -163,13 +173,29 @@ manual 支持 `self_revision`、`emotional_memory`、`learning_memory`、`tool_g
 - 读取自我定义免部署密码。已验证的网关执行绑定承担其核心写入身份校验。
 - 直连写入、修改模块一时，使用 `authorize_self_model(password)` 取得短期授权，再把返回的真实 `grant_ref` 交给 `stbrain_open_direct` 打开 Direct 上下文。授权期 15 分钟，grant 单次消费。
 
+日常档通过 `stbrain_manage` 选择这些专用操作。身份取决于服务端对本轮调用的实际绑定，不由模型名或文字声明决定；已验证网关调用无需另走密码授权。部署密码是授权凭证，不能作为记忆保存。
+
 兼容配置保留已有授权上下文路径。需要 Direct 上下文的操作使用独立签发的 grant 和实际 `write_context_ref`；具体高级参数参考当前回执。`execution_ref` 由宿主签发，直连调用方省略。
+
+### 成功与失败的工具经验
+
+`recall_tool_guidance(view="experiences", card_id=...)` 读取全部结果类型，包括成功与部分成功。`query` 可为精确经验 ID 或尝试、教训、原因、结果类型中的文本片段；`limit` 最多 5 条，结果的 `total` 与 `truncated` 说明匹配总量和是否截断。原 `failures` 仍排除成功和部分成功，`history` 仍读取卡片版本。
+
+经验保留原文、结果、卡片版本及作者可信度。`ai_reported` / `verified=false` 仍表示作者自报，100 分不自动等于独立核验。`call_notes_current` 是广告目录、参数结构、有效期、活动状态与最近失败等因素的综合诊断，不是保存状态或最后修改时间。
+
+### 新对话第一轮的可选入口提醒
+
+网关按真实消息结构提供 `first_user_turn`，控制面验证其布尔类型。生成前上下文只在第一轮、本轮目录确实含 `stbrain_open`、且总注入开关允许时附加 `st_start_entry`。它标记为可选、无指令权威和无授权权威，模型可以不调用而直接回应；后续轮次和未提供入口的请求不附加这条提示。仅连接 MCP 不经过该网关注入路径。
 
 ## 7. 回执和诊断
 
 按调用的真实 `decision`、状态和版本确认结果。版本冲突、权限拒绝、普通参数校验和网关执行绑定错误是不同阶段，使用各自的错误码处理。
 
 当前网关工具参数诊断提供经筛选的工具名、公开字段和校验类型，便于修正参数；失败批次保持未释放。详情见 [网关说明](../rikkahub_gateway/README.md)。
+
+工具调用响应成功写出后开始独立回包计时，`STBRAIN_GATEWAY_TOOL_RESULT_WAIT_SECONDS` 默认 300 秒。完整回包取消计时，新批次重新计时；超时仅尝试安全收尾旧传输等待。仍有运行中的执行登记或控制面未确认关闭时继续保护现场，不重做工具，不伪造结果，不声称外部操作已取消。这不改变正常模型生成时限。
+
+存入内容的凭证检查也覆盖“密码我设成了……”等中文口语写法，在持久化前拒绝真实秘密；没有真实值的流程说明、变量名与存放位置可以保留。
 
 升级在当前工具链结束后进行，刷新客户端 Schema，再以合成内容验证普通查改和完整工具续轮。测试源码、回归结果、部署回执和手机体验分别记录，参见 [UPDATE-VALIDATION](../docs/UPDATE-VALIDATION.md)。
 

@@ -27,6 +27,7 @@ import uuid
 EXECUTION_CONTRACT = "st-execution/1"
 EXECUTION_REF_FIELD = "execution_ref"
 EXECUTION_TOOLS = frozenset({
+    "stbrain_manage",
     "stbrain_open", "remember_memory", "revise_memory", "advance_plan", "submit_self_model_candidate", "activate_self_model_candidate",
     "query_self_model", "preview_person_reference_rewrite", "confirm_person_reference_rewrite",
     "manage_person_reference_advisory",

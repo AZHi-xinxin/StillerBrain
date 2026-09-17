@@ -17,7 +17,7 @@
 | Windows x64 电脑 | 标准版 CPython 3.14，使用常规 GIL 构建；私有目录放在本机 NTFS 磁盘 | CPython 3.14.6；ST 服务及新向导空白安装、重跑通过 |
 | Linux x64 电脑或 VPS | 标准版 CPython 3.12，使用常规 GIL 构建；glibc 2.34 或以上 | Ubuntu 24.04 x64 / CPython 3.12.3；依赖、ST 服务与私人 VPS 升级已验收 |
 
-服务的实际运行与新增向导脚本的全流程测试分别记录；新向导在 Linux 上尚待补做的具体一项见[安装向导验收](UPDATE-VALIDATION.md#安装向导补充验收2026-09-13)。其他发行版、处理器架构与 Python 版本按各自环境核验。
+服务的实际运行与新增向导脚本的全流程测试分别记录；新向导在 Linux 上尚待补做的具体一项见[安装向导验收](UPDATE-VALIDATION-preview.3.md#安装向导补充验收2026-09-13)。其他发行版、处理器架构与 Python 版本按各自环境核验。
 
 先查看自己的 Python 版本。Windows 在 PowerShell 中运行：
 

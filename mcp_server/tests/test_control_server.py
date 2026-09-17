@@ -314,6 +314,12 @@ class ControlServerTests(unittest.TestCase):
             },
             {
                 "query_text": "ok",
+                "lineage_stable": False,
+                "first_user_turn": "yes",
+                "capture_items": [],
+            },
+            {
+                "query_text": "ok",
                 "lineage_stable": True,
                 "thread_id": None,
                 "source_event_id": "event",

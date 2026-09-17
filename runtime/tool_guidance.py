@@ -2694,7 +2694,7 @@ class ToolGuidanceStore:
         catalog: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         self.ensure_state(owner_id=owner_id, model_id=model_id)
-        if view not in {"suggestions", "directory", "card", "history", "failures"}:
+        if view not in {"suggestions", "directory", "card", "history", "failures", "experiences"}:
             raise ToolGuidanceError("invalid_recall_view")
         limit = _integer("limit", limit, 1, 5)
         query = _text("query", query, 4000, allow_empty=True)
@@ -2775,6 +2775,62 @@ class ToolGuidanceStore:
                         for row in versions
                     ],
                     "guidance_authority": "historical_advice_only",
+                    "execution_performed": False,
+                }
+            if view == "experiences":
+                if not exact_card:
+                    raise ToolGuidanceError("card_id_required")
+                self._card_row(connection, owner_id, model_id, exact_card)
+                # An explicit read may inspect every outcome, including success,
+                # without changing the failure-only or automatic-recall paths.
+                where = "owner_id = ? AND model_id = ? AND card_id = ?"
+                params: list[Any] = [owner_id, model_id, exact_card]
+                if query:
+                    if re.fullmatch(r"toolexp_[0-9a-f]{32}", query):
+                        where += " AND experience_id = ?"
+                        params.append(query)
+                    else:
+                        where += (
+                            " AND (instr(lower(attempt_summary), lower(?)) > 0"
+                            " OR instr(lower(lesson), lower(?)) > 0"
+                            " OR instr(lower(reason_code), lower(?)) > 0"
+                            " OR instr(lower(outcome), lower(?)) > 0)"
+                        )
+                        params.extend([query] * 4)
+                total = connection.execute(
+                    "SELECT COUNT(*) FROM tool_experiences WHERE " + where, params
+                ).fetchone()[0]
+                rows = connection.execute(
+                    "SELECT * FROM tool_experiences WHERE " + where
+                    + " ORDER BY occurred_at DESC, experience_id DESC LIMIT ?",
+                    [*params, limit],
+                ).fetchall()
+                return {
+                    "decision": "precise_result",
+                    "view": view,
+                    "card_id": exact_card,
+                    "experiences": [
+                        {
+                            **{key: row[key] for key in (
+                                "experience_id", "card_id", "card_version", "outcome", "reason_code",
+                                "attempt_summary", "lesson", "confidence", "occurred_at",
+                                "observed_schema_hash", "catalog_hash", "cooldown_until",
+                            )},
+                            "provenance": "ai_reported",
+                            "verified": False,
+                            "evidence_ref": None,
+                        }
+                        for row in rows
+                    ],
+                    "total": total,
+                    "truncated": total > len(rows),
+                    "next_step": (
+                        "Use query with an experience_id or words from the attempt, lesson, reason, or outcome to narrow results."
+                        if total > len(rows) else None
+                    ),
+                    "guidance_authority": "historical_advice_only",
+                    "permission_authority": "none",
+                    "state_changed": False,
                     "execution_performed": False,
                 }
             if view == "failures":

@@ -25,7 +25,7 @@ async def probe():
         fixture.bootstrap_live()
         common = {"owner_id": server.OWNER_ID, "model_id": server.MODEL_ID}
         tools = server.mcp._tool_manager.list_tools()
-        assert len(tools) == 44
+        assert len(tools) == 46  # 44 legacy tools plus two internal compact facades.
         tool = server.mcp._tool_manager.get_tool("remember_memory")
         assert tool.parameters["required"] == ["module", "content"]
         assert "execution_ref" in tool.parameters["properties"]
@@ -114,7 +114,7 @@ async def probe():
                     "expected_event_seq": sequence, "event_type": "resume", "note": "Stale resume"}, "stale-event")
                 assert stale_event["decision"] == "reject" and stale_event["state_changed"] is False, stale_event
             results.append(module)
-        return {"decision": "PASS", "modules": results, "tool_count": 44,
+        return {"decision": "PASS", "modules": results, "registered_tool_count": 46,
                 "single_native_call_per_memory": True, "replays_rejected": True,
                 "single_revision_per_module": True, "stale_targets_rejected": True,
                 "plan_event_cas_verified": True,

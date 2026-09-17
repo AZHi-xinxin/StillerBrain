@@ -349,7 +349,7 @@ async def probe(mode):
 
         elif mode == 'canonical_schema':
             tools = server.mcp._tool_manager.list_tools()
-            assert len(tools) == 44
+            assert len(tools) == 46  # Legacy44 plus compact discovery/dispatch.
             def schema_types(value):
                 if isinstance(value, dict):
                     return ({value['type']} if isinstance(value.get('type'), str) else set()).union(

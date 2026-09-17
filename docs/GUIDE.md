@@ -6,7 +6,7 @@
 
 ST 可以部署在 Windows 电脑、Linux 电脑或 Linux VPS 上。Windows 与 Linux 服务均有实际验收；Linux 已验证环境为 Ubuntu 24.04 x64 / CPython 3.12.3，私人阿里云 VPS 上已有运行实例。先确认服务放在哪台设备，再选择该系统的安装命令；手机客户端连接现有实例时，直接使用部署者提供的地址与凭证。
 
-本页的日常读写采用 `simple-memory-v1` 配置。旧版 `legacy` 连接继续保留独立授权上下文；先用 `stbrain_help` 确认自己连接的实例采用哪种方式。
+本页的日常读写采用 `simple-memory-v1` 配置。旧版 `legacy` 连接继续保留独立授权上下文；先读当前实例的帮助确认配置。日常档通过 `stbrain_manage(action="stbrain_help")` 读取，完整档可直接调用 `stbrain_help`。
 
 ## 先分清两种连接
 
@@ -27,15 +27,29 @@ ST 按接入能力适配模型与客户端。当前提供 OpenAI 兼容的 Chat 
 
 网关身份由服务端核验本次调用，模型名称和“我是网关模型”的文字声明只是描述。部署密码、模型 API Key、MCP Token 各有用途。
 
+选择日常档后，上述专用操作通过 `stbrain_manage` 执行；读取参数可用 `stbrain_tools(action=操作名)`。目录收起不会改变原授权规则。已验证的网关调用无需向人类索要部署密码；普通模块在首次激活后的读写也不使用模块一密码。
+
 ## 已有实例：怎样开始体验
 
 1. 在客户端接入部署者提供的 ST MCP 地址与凭证。
 2. 需要自动浮现时，再将模型 Base URL 和凭证配置为对应 ST 网关；模型能力标识使用当前接入的真实模型 ID，使客户端能按实际能力处理工具调用。
-3. 刷新 MCP 工具目录，调用 `stbrain_help` 查看当前配置和用法。
+3. 重连、刷新 MCP 工具目录，从新回合用 `stbrain_open` 查看当前阶段；需要帮助时按当前档位调用 `stbrain_help` 操作。
 4. 由 AI 按模块一说明完成首次设置、后续真实轮次复核与激活。
 5. 验证一次普通保存、查询、修改，以及完整工具续轮，再逐步接入自己的资料。
 
 手机里的 `127.0.0.1` 是手机自己。远程连接应使用部署者提供、经过 TLS 与设备授权验收的地址。
+
+### 选择日常七入口
+
+想减少常驻工具说明，在客户端把 ST MCP 地址末尾改为 `/mcp?tool_profile=daily`；已有其他查询参数时追加 `&tool_profile=daily`，已有 `tool_profile` 时修改原值，避免重复。保留原认证信息，重连并刷新工具目录，从下一条新消息开始使用。
+
+日常档提供 `stbrain_open`、`remember_memory`、`remember_tool_guidance`、`revise_memory`、`advance_plan`、`stbrain_tools`、`stbrain_manage`，其中 `stbrain_open` 排在首位，无必填参数。后两个入口让 AI 自行查分类、读参数和执行其余 ST 操作，详细用法见 [工具箱](TOOLS.md#日常七入口与分类工具箱)。
+
+默认 `/mcp` 仍是完整 44 项目录，升级不会自动切档。也可由客户端设置请求头 `X-STBrain-Tool-Profile: daily`；查询参数和请求头各只允许出现一次，同时提供时必须一致。它们按请求选择目录，与 `STBRAIN_ACCESS_PROFILE` 的访问权限配置独立。
+
+工具箱说明会随客户端发送的目录提供给模型，包括自写提醒、浮现开关和记忆整理等用途。模型不必等人类逐次切档；如果客户端禁用了整个 ST MCP 或工具箱入口，则仍以客户端许可为准。
+
+经过 ST 网关的新对话第一轮，在本轮目录确有 `stbrain_open`、且总注入开关允许时，会给出可忽略的入口提醒。是否调用由模型决定；这项首轮提醒不会每轮重复，也不适用于绕过网关的纯 MCP 请求。目录瘦身不清除旧窗口历史，也不承诺固定 token 数或响应时间。
 
 ## 自己部署：先建立空白测试实例
 
@@ -76,6 +90,7 @@ python3.12 -B scripts/install_stiller.py
 | `STBRAIN_MCP_TOKEN`、`STBRAIN_HOST_TOKEN`、`STBRAIN_HUMAN_TOKEN`、`STBRAIN_WAKE_SECRET` | 不同服务和权限通道的独立秘密 |
 | `STBRAIN_EXECUTION_EPOCH` | 本套部署的执行绑定标识 |
 | `STBRAIN_GATEWAY_CONTEXT_LAYOUT` | `legacy`、`anchored-v1` 或 `tail-context-v2`；详见缓存页 |
+| `STBRAIN_GATEWAY_TOOL_RESULT_WAIT_SECONDS` | 工具调用发出后的回包等待时间，默认 300 秒；不是模型生成时限 |
 
 省略访问配置或布局变量的旧配置继续沿用兼容路径和 `legacy` 布局；新模板的选择不会自动改写旧实例。保持执行绑定开启，并使用独立随机秘密。
 
@@ -98,7 +113,7 @@ python -B scripts/stiller_ops.py check --config C:/stiller-private/stiller.env
 python -B scripts/stiller_ops.py start --config C:/stiller-private/stiller.env
 ```
 
-开发示例默认端口为 MCP `18794`、控制面 `18795`、网关 `18796`；以实际配置为准。OpenAI 兼容模型 Base URL 末尾使用 `/v1`，MCP 地址末尾使用 `/mcp`。客户端模型凭证填写网关 Token，上游 API Key 留在网关私有配置中。
+开发示例默认端口为 MCP `18794`、控制面 `18795`、网关 `18796`；以实际配置为准。OpenAI 兼容模型 Base URL 末尾使用 `/v1`，MCP 地址末尾使用 `/mcp`，日常档增加 `?tool_profile=daily`。客户端模型凭证填写网关 Token，上游 API Key 留在网关私有配置中。
 
 ## 日常使用：四个动作
 
@@ -124,6 +139,8 @@ python -B scripts/stiller_ops.py start --config C:/stiller-private/stiller.env
 
 统一查询只是读取，不是保存前必须打开的步骤。具体模块的 `recall_*` 继续支持更细的查询和历史读取。
 
+日常档中，详情回执给出的专用操作名填入 `stbrain_manage.action`，对应参数放入内层 `arguments`。想查工具成功经验时，用 `recall_tool_guidance` 操作的 `view="experiences"` 和已有 `card_id`；具体示例见 [工具经验](TOOLS.md#5-工具记忆--4-项)。
+
 ### 3. 只提交想修改的部分
 
 ```json
@@ -148,6 +165,8 @@ python -B scripts/stiller_ops.py start --config C:/stiller-private/stiller.env
 | 一条工具卡或计划的简短提醒 | 对应记录的 `reminder`，普通修改用 `revise_memory` |
 | 人称弱提醒 | `manage_person_reference_advisory` 的 `set` / `disable` / `reset` |
 | 哪些模块自动参与后续上下文 | `query_injection_control` / `manage_injection_control` |
+
+表中的专用操作在日常档通过 `stbrain_manage` 执行，`stbrain_tools(category="diy")` 可查看分类；已知参数时可直接调用，无需先查目录。
 
 轻提醒默认空白，可自写、清空、回滚。`manual_only` 留待主动查询；`scene_relevant` 配合自己写的场景标签浮现。普通场景标签按本轮人类话语匹配，适合写“提醒我”“设个闹钟”“回家了”等自然表达。当前这类治理提醒使用大小写归一后的子串匹配；原词、近义和相关说法由 AI 按真实语境补充，命中后仍受开关和容量影响。
 
@@ -175,7 +194,11 @@ python -B scripts/stiller_ops.py start --config C:/stiller-private/stiller.env
 
 **再次遇到回复中断怎么办？**
 
-保留时间、版本和错误码，查看安全工具名、字段及校验类型。结果未知的写入先查询。当前网关提供更明确的失败线索，客户端长期展示错误与历史中断的具体原因仍分别核实。
+保留时间、版本和错误码，查看安全工具名、字段及校验类型。结果未知的写入先查询。工具调用成功发出后，网关默认等待回包 300 秒；超时尝试安全收尾旧等待。如果操作仍在执行，或控制面未确认关闭，会继续保护现场，不自动重做操作或声称外部动作已取消。该机制不限制正常模型生成，也不代表网络延迟已修复。
+
+**为什么“密码我设成了……”无法保存？**
+
+凭证保护会检查实际存入内容，包括中文口语中的密码、密钥和令牌赋值，并在写入前拒绝。普通轮换流程、变量名和存放位置可以记录；部署密码、API Key、Token 的真实值应留在部署者的私有配置中。
 
 ## 维护与公开反馈
 

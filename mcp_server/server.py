@@ -1967,16 +1967,22 @@ async def recall_tool_guidance(
     query: StrictStr = "",
     tool_name: StrictStr | None = None,
     card_id: StrictStr | None = None,
-    view: Literal["suggestions", "directory", "card", "history", "failures"] = "suggestions",
+    view: Literal["suggestions", "directory", "card", "history", "failures", "experiences"] = "suggestions",
     include_stale: StrictBool = False,
     include_downweighted: StrictBool = False,
     limit: Annotated[StrictInt, Field(ge=1, le=5)] = 5,
 ) -> dict[str, Any]:
-    """Precisely read tool advice, card details, version history, or AI-reported failures.
+    """Read tool advice, card details, version history, or AI-reported experiences.
 
     simple-memory-v1 permits this read before module-one activation. Ordinary
     writes open after activation. Use an empty query or view='directory' for the
-    bounded directory, then card_id with view='card'/'history'/'failures' for detail.
+    bounded directory, then card_id with view='card'/'history' for detail.
+    view='experiences' reads all outcomes, including success; 'failures' stays
+    failure-only. Both require card_id. For experiences, query may be an exact
+    experience_id or text from the attempt, lesson, reason, or outcome. Results
+    are limited to 5; total/truncated disclose more matches. Self-reports remain
+    unverified regardless of confidence. Use flat arguments at this direct tool;
+    through stbrain_manage, put them inside arguments with action=recall_tool_guidance.
     Reading advice grants no permission to execute the referenced tool.
     """
     return tool_guidance_service.recall(
@@ -2762,6 +2768,14 @@ if SIMPLE_MEMORY_ACCESS:
     # been installed. Previously cached dedicated calls retain those guards.
     from .simple_tool_catalog import install_simple_tool_catalog
     install_simple_tool_catalog(mcp)
+
+
+# Opt-in directory projection comes last; full discovery and all call guards
+# remain exactly as above. The selector is read only for explicit tools/list.
+from .tool_catalog_profile import install_tool_catalog_profile
+from .compact_tool_dispatch import install_compact_tool_dispatch
+install_compact_tool_dispatch(mcp)
+install_tool_catalog_profile(mcp)
 
 
 if __name__ == "__main__":

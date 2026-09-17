@@ -18,6 +18,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import os
 import re
 import threading
@@ -46,6 +47,7 @@ from .tool_execution import (
     parse_arguments,
 )
 from runtime.execution_binding import EXECUTION_CONTRACT, EXECUTION_TOOLS
+from runtime.compact_tool_routes import MANAGE_TOOL, CompactRouteError, resolve_compact_action
 
 
 CONTEXT_MARKER = "STILLER_BRAIN_PRE_GENERATION_CONTEXT_V1\n"
@@ -765,6 +767,7 @@ class GatewayConfig:
     require_execution_binding: bool = False
     execution_epoch: str = ""
     abnormal_wait_seconds: float = 180.0
+    tool_result_wait_seconds: float = 300.0
     context_layout: str = "legacy"
 
     def __post_init__(self) -> None:
@@ -774,6 +777,10 @@ class GatewayConfig:
             raise ValueError("execution epoch is required for strict execution binding")
         if not 0 < self.abnormal_wait_seconds <= 180:
             raise ValueError("abnormal wait must be positive and at most 180 seconds")
+        if (type(self.tool_result_wait_seconds) not in {int, float}
+                or not math.isfinite(self.tool_result_wait_seconds)
+                or not 0 < self.tool_result_wait_seconds <= threading.TIMEOUT_MAX):
+            raise ValueError("tool result wait must be finite, positive and within the platform timer limit")
         if len(self.gateway_token) < 32 or len(self.host_token) < 32:
             raise ValueError("gateway and host tokens must contain at least 32 characters")
         if self.human_token and len(self.human_token) < 32:
@@ -862,6 +869,7 @@ class GatewayConfig:
             ),
             require_execution_binding=os.environ.get("STBRAIN_REQUIRE_EXECUTION_BINDING", "0") == "1",
             execution_epoch=os.environ.get("STBRAIN_EXECUTION_EPOCH", ""),
+            tool_result_wait_seconds=float(os.environ.get("STBRAIN_GATEWAY_TOOL_RESULT_WAIT_SECONDS", "300")),
             context_layout=os.environ.get("STBRAIN_GATEWAY_CONTEXT_LAYOUT", "legacy"),
         )
 
@@ -916,6 +924,8 @@ class TurnSession:
     created_at: float
     expires_at: datetime
     tool_wait_armed_at: float | None = None
+    tool_result_wait_deadline: float | None = None
+    tool_result_wait_timer: threading.Timer | None = field(default=None, repr=False)
     expected_tool_call_ids: set[str] = field(default_factory=set)
     expected_tool_call_order: list[str] = field(default_factory=list)
     expected_tool_calls: dict[str, ToolExecutionBinding] = field(default_factory=dict)
@@ -1045,6 +1055,16 @@ class GatewayApplication:
             arguments = parse_arguments(call.arguments_text)
             if "execution_ref" in arguments:
                 raise GatewayError(502, "execution_reference_model_supplied")
+            if canonical_tool == MANAGE_TOOL:
+                # The transport receipt still binds the original outer call.
+                # The executor lease binds the exact guarded child operation.
+                # MCP repeats this deterministic route before claiming it.
+                try:
+                    canonical_tool, arguments = resolve_compact_action(arguments)
+                except CompactRouteError:
+                    raise GatewayError(502, "compact_action_invalid") from None
+                if canonical_tool not in EXECUTION_TOOLS:
+                    continue  # Health/help/password-grant paths have their own original guards.
             managed.append({
                 "call_id": call.tool_call_id, "advertised_name": call.tool_name,
                 "canonical_tool": canonical_tool, "schema_hash": canonical_hash(schema),
@@ -1085,8 +1105,75 @@ class GatewayApplication:
 
     def mark_response_delivered(self, prepared: PreparedTurn) -> None:
         with self._lock:
-            if self._request_is_current(prepared) and prepared.session.expected_tool_call_ids:
-                prepared.session.delivered_at_monotonic = time.monotonic()
+            if (self._request_is_current(prepared) and prepared.session.expected_tool_call_ids
+                    and prepared.session.delivered_at_monotonic is None):
+                # Start only after the tool-call response was actually written,
+                # never at the beginning of a long model generation. Repeated
+                # delivery notifications cannot extend this batch's deadline.
+                session = prepared.session
+                session.delivered_at_monotonic = time.monotonic()
+                session.tool_result_wait_deadline = session.delivered_at_monotonic + self.config.tool_result_wait_seconds
+                self._schedule_tool_result_wait(session, self.config.tool_result_wait_seconds)
+
+    def _schedule_tool_result_wait(self, session: TurnSession, delay: float) -> None:
+        if session.tool_result_wait_timer is not None:
+            session.tool_result_wait_timer.cancel()
+        timer = threading.Timer(delay, self._recover_tool_result_wait,
+                                (session, session.execution_revision, session.request_generation,
+                                 session.tool_result_wait_deadline))
+        timer.daemon = True
+        session.tool_result_wait_timer = timer
+        timer.start()
+
+    def _retire_tool_result_wait(self, session: TurnSession) -> bool:
+        """Confirmed transport retirement, not cancellation of external tools.
+
+        Caller holds the app lock. Never replay the tool or accept a new wake
+        while ST reports a running claim or Control cannot confirm closure.
+        Uninstrumented external tools may still be running; their late result
+        lineage is retired, but their real-world execution is not declared done.
+        """
+        if self._current_session is not session:
+            return True
+        try:
+            if self.config.require_execution_binding and session.execution_batch_id:
+                self._close_execution_session(session)
+            else:
+                closed = self.control.post("/v1/host/context/close", {
+                    "wake_id": session.wake_id, "wake_capability": session.wake_capability})
+                if closed.get("decision") != "closed":
+                    raise GatewayError(409, "tool_wait_recovery_in_progress")
+        except GatewayError:
+            session.recovery_pending = True
+            self._audit_recovery(session, "quarantined", "tool_result_wait_cleanup_pending")
+            return False
+        self._remember_retired_tool_calls(tuple(session.expected_tool_call_ids))
+        self._audit_recovery(session, "retired", "tool_result_wait_timed_out")
+        self._cancel_recovery_timer(session)
+        session.request_generation += 1
+        session.expected_tool_call_ids.clear()
+        session.expected_tool_call_order.clear()
+        session.expected_tool_calls.clear()
+        session.tool_wait_armed_at = None
+        self._current_session = None
+        return True
+
+    def _recover_tool_result_wait(self, session: TurnSession, revision: int,
+                                  generation: int, deadline: float | None) -> None:
+        with self._lock:
+            if (self._current_session is not session or session.execution_revision != revision
+                    or session.request_generation != generation
+                    or deadline is None or session.tool_result_wait_deadline != deadline
+                    or session.tool_wait_armed_at is None or not session.expected_tool_call_ids):
+                return
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                self._schedule_tool_result_wait(session, remaining)
+                return
+            if not self._retire_tool_result_wait(session):
+                # The five-minute wait already elapsed. Retry cleanup shortly;
+                # do not add the separate 180-second partial-result grace period.
+                self._schedule_tool_result_wait(session, 5.0)
 
     def _request_is_current(self, prepared: PreparedTurn) -> bool:
         return (self._current_session is prepared.session
@@ -1214,6 +1301,10 @@ class GatewayApplication:
     def _cancel_recovery_timer(session: TurnSession) -> None:
         if session.recovery_timer is not None:
             session.recovery_timer.cancel()
+        if session.tool_result_wait_timer is not None:
+            session.tool_result_wait_timer.cancel()
+        session.tool_result_wait_timer = None
+        session.tool_result_wait_deadline = None
         session.recovery_timer = None
         session.abnormal_wait_started = None
         session.abandon_requested = False
@@ -1952,6 +2043,16 @@ class GatewayApplication:
             item["role"] == "assistant"
             for item in captures[:latest_user_index]
         ) if latest_user_index >= 0 else False
+        user_message_count = sum(
+            1 for message in messages if message.get("role") == "user"
+        )
+        conversational_history_present = any(
+            message.get("role") in {"assistant", "tool", "function"}
+            for message in messages
+        )
+        first_user_turn = (
+            user_message_count == 1 and not conversational_history_present
+        )
         # Chat-completions clients normally resend the entire conversation on
         # every turn.  Capture only the new suffix after the previous user
         # message (typically the last assistant reply plus the current user
@@ -1967,6 +2068,8 @@ class GatewayApplication:
             # stable conversation id.  It may gate a one-turn boundary hint,
             # but never enables capture or inferred cross-window lineage.
             "prior_assistant_present": prior_assistant_present,
+            # Exact structural fact only: never guess from a name or greeting.
+            "first_user_turn": first_user_turn,
             "source_event_id": source_event_id,
             "capture_items": captures[-4:] if lineage_stable else [],
         }
@@ -2149,17 +2252,19 @@ class GatewayApplication:
 
     @staticmethod
     def _expired_armed_tool_wait(session: TurnSession) -> bool:
-        """Return true only for an armed tool wait past its authoritative wake TTL.
+        """Only armed tool waits expire; model generation is never timed here.
 
-        A normal upstream generation can legitimately outlive the wake TTL. It
-        remains serialized and requires transport/operator cleanup instead of
-        allowing a new human frame to replace its still-running wake.
+        The delivery-based monotonic deadline is independent of the global wake
+        TTL. Keep wake expiry as an additional authorization boundary, not as
+        the normal half-hour fallback for a lost tool-result response.
         """
 
         return (
             session.tool_wait_armed_at is not None
             and bool(session.expected_tool_call_ids)
-            and datetime.now(timezone.utc) >= session.expires_at
+            and (datetime.now(timezone.utc) >= session.expires_at
+                 or (session.tool_result_wait_deadline is not None
+                     and time.monotonic() >= session.tool_result_wait_deadline))
         )
 
     def _remember_retired_tool_calls(self, call_ids: Sequence[str]) -> None:
@@ -2178,6 +2283,13 @@ class GatewayApplication:
         """Invalidate one expired armed lineage while the app lock is held."""
 
         if self._current_session is not session:
+            return
+        if (session.tool_result_wait_deadline is not None
+                and time.monotonic() >= session.tool_result_wait_deadline):
+            if not self._retire_tool_result_wait(session):
+                self._schedule_tool_result_wait(session, 5.0)
+                raise GatewayError(409, "tool_wait_recovery_in_progress",
+                    "工具结果等待已超过时限，旧轮正在安全收尾；执行仍在进行或结束状态未确认，请稍后再发送。")
             return
         strict_execution = self.config.require_execution_binding and session.execution_batch_id
         if strict_execution:

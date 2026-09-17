@@ -1,27 +1,43 @@
 {
   "format": "stiller-source-release-state/1",
-  "version": "0.1.0-preview.4",
+  "version": "0.1.0-preview.5",
   "distribution": "source-available-development-preview",
   "license": "PolyForm-Noncommercial-1.0.0",
   "license_official_sha256": "ffcca38841adb694b6f380647e15f17c446a4d1656fed51a1e2041d064c94cc8",
-  "base_public_commit": "3e1d0ac87915292e993794469681636813b2a0e0",
-  "accepted_local_revision": "L30",
-  "baseline_reviewed_frozen_source_files": 199,
-  "synced_frozen_files": 195,
-  "retained_public_additions": [
-    "mcp_server/OPEN_RESPONSE.md",
-    "mcp_server/README.md",
-    "rikkahub_gateway/README.md",
-    "tests/test_usage_consistency_r4h34.py"
-  ],
-  "product_core_files_verified_identical": 63,
-  "targeted_source_tests": {
+  "base_public_commit": "6c2b978e708385f5e7e4dd8fcd4a120bf80ca742",
+  "accepted_functional_revisions": "L31-L36 selected functionality",
+  "source_derived_files": 206,
+  "source_files_identical_to_frozen": 205,
+  "selected_source_difference": {
+    "path": "rikkahub_gateway/server.py",
+    "excluded": "L36 ControlClient proxy inheritance change",
+    "reason": "Network and latency work deferred pending real-world acceptance",
+    "first_turn_optional_reminder_retained": true
+  },
+  "retained_public_ast_test": "tests/test_usage_consistency_r4h34.py",
+  "current_candidate_regression": {
     "platform": "Windows x86_64 / CPython 3.14.6",
-    "modules": 15,
-    "passed": 140,
-    "skipped": 0,
+    "tests": {
+      "discovered": 691,
+      "passed": 691,
+      "skipped": 0
+    },
+    "mcp_server": {
+      "discovered": 483,
+      "passed": 483,
+      "skipped": 0
+    },
+    "rikkahub_gateway": {
+      "discovered": 421,
+      "passed": 420,
+      "skipped": 1
+    },
+    "total_passed": 1594,
+    "total_skipped": 1,
     "synthetic_only": true,
-    "real_model_calls": 0
+    "real_model_calls": 0,
+    "live_memory_writes": 0,
+    "harness_and_documentation_issues_corrected_then_rerun": true
   },
   "packaging_tests": {
     "discovered": 117,
@@ -30,49 +46,25 @@
     "skips": [
       "POSIX mode test on Windows",
       "2 explicitly opt-in local-service smoke tests"
-    ],
-    "environment_harness_issue_corrected": true
+    ]
   },
-  "historical_validation": "docs/UPDATE-VALIDATION-preview.3.md",
-  "full_regression_rerun_this_revision": false,
-  "linux_existing_validated_platform": "Ubuntu 24.04 x86_64 / CPython 3.12.3; L25 service and regression baseline",
-  "linux_targeted_source_tests": {
-    "revision": "L30",
+  "linux_prior_instance_validation": {
+    "revision": "L36",
     "platform": "Ubuntu 24.04 x86_64 / CPython 3.12.3",
-    "existing_dependency_environment_unchanged": true,
-    "passed": 122,
-    "skipped": 0,
-    "person_authoring": 61,
-    "gateway_catalog_diagnostics": 61,
-    "isolated_test_source_files": 201,
-    "frozen_source_files": 199,
-    "retained_synthetic_fixture_files": 2,
-    "product_core_files_verified_identical": 63,
-    "synthetic_only": true,
-    "non_root": true,
-    "private_network": true,
-    "production_paths_accessible": false,
-    "memory_limit_mib": 384,
-    "cpu_quota_percent": 50,
-    "real_model_calls": 0
+    "targeted_tests_passed": 187,
+    "same_as_selected_public_candidate": false,
+    "selected_public_candidate_rerun_this_release": false
   },
+  "historical_validation": [
+    "docs/UPDATE-VALIDATION-preview.4.md",
+    "docs/UPDATE-VALIDATION-preview.3.md"
+  ],
   "linux_new_installer_end_to_end_verified": false,
-  "linux_instance_upgrade": {
-    "revision": "L30",
-    "controlled_deployment_phases_completed": 7,
-    "original_https_entry_readonly_checks_passed": true,
-    "tool_catalog_count": 44,
-    "preview_required_fields": 3,
-    "rewrite_target_required_fields": 4,
-    "confirm_required_fields": 2,
-    "unauthorized_checks_returned_401": 4,
-    "product_core_files_verified_identical": 63,
-    "database_content_schema_rowids_preserved": true,
-    "private_configuration_unchanged": true,
-    "execution_batches_closed_or_revoked": 0,
-    "real_model_requests": 0,
-    "test_memory_writes": 0,
-    "post_upgrade_phone_conversation_retested": false
+  "live_service_changes_this_publication": false,
+  "catalog": {
+    "default_full": 44,
+    "explicit_daily": 7,
+    "simple_profile_discoverable_actions": 45
   },
   "source_tree_review_complete": true,
   "validation_details": "docs/UPDATE-VALIDATION.md",
@@ -82,6 +74,6 @@
   "github_publication_authorized": true,
   "production_readiness_certified": false,
   "real_client_cache_savings_quantified": false,
-  "cache_feedback": "User accepted sustained qualitative cache-hit improvement; no quantified savings benchmark is claimed",
+  "network_latency_fixes_included": false,
   "production_gate": "python -B scripts/check_release.py"
 }

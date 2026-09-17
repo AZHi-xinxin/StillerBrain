@@ -2,15 +2,45 @@
 
 [首页](../README.md) · [日常指南](GUIDE.md) · [MCP 详细说明](../mcp_server/OPEN_RESPONSE.md)
 
-L30 当前目录为 **44 项**。`simple-memory-v1` 和 `legacy` 的数量相同，集合不同：普通目录提供 `authorize_self_model`，并收起专用的 `revise_tool_guidance`；后者的旧调用仍保留校验与兼容。旧文档里的 40 / 43 等数量属于当时的目录或统计范围，使用时以当前 `tools/list` 为准。`public-tools/20` 是协议标签，不是工具数量。
+当前提供 **日常 7 入口**与**完整 44 项目录**两种呈现。`/mcp?tool_profile=daily` 显式选择日常档；默认 `/mcp` 或 `tool_profile=full` 保留完整目录。`simple-memory-v1` 和 `legacy` 是独立的访问配置：它们的完整目录数量相同，集合不同；前者提供 `authorize_self_model`，并收起专用 `revise_tool_guidance`，后者的旧调用仍保留校验与兼容。`public-tools/20` 是协议标签，不是工具数量。
 
 下面以 `simple-memory-v1` 为主。模块一首次激活后，普通读写由服务补入内部上下文和模块行版本；AI 使用查询返回的真实目标引用。黑匣子、模块一以及显式旧候选操作保留各自的授权和复核路径。
 
-## 先掌握这些
+## 日常七入口与分类工具箱
+
+| 入口 | 用途 |
+| --- | --- |
+| `stbrain_open` | 首选读取入口，无必填参数；`recall` 搜索，`manual` 按模块展开说明 |
+| `remember_memory` | 保存普通经历、知识或计划 |
+| `remember_tool_guidance` | 保存工具或 MCP 服务用途 |
+| `revise_memory` | 修改四个普通模块的作者字段 |
+| `advance_plan` | 记录计划进展 |
+| `stbrain_tools` | 无参数列分类，`category` 列操作，`action` 读准确参数 |
+| `stbrain_manage` | 用操作名和对应参数执行选定的 ST 功能 |
+
+当前 `simple-memory-v1` 分类工具箱包含 45 项操作，已包括常用能力及兼容的 `revise_tool_guidance`，不是额外增加 45 项。分类为 `system`、`memory`、`self`、`person`、`emotion`、`learning`、`tools`、`planning`、`diy`、`vault`。以当前分类回执为准。
+
+例如，读取浮现开关可按需要查参数，再执行：
+
+```json
+{"name":"stbrain_tools","arguments":{"action":"query_injection_control"}}
+```
+
+```json
+{"name":"stbrain_manage","arguments":{"action":"query_injection_control","arguments":{}}}
+```
+
+已知参数时可直接执行，不要求每次先查目录。工具箱说明随当前 MCP 目录提供，具体操作参数按需加载；详细校验、模块激活和授权规则保持原样。
+
+下文表格、帮助和 `detail_lookup` 返回的操作名，如果不在当前独立工具目录中，填入 `stbrain_manage.action`，其原参数放入内层 `arguments`。例如日常档使用 `stbrain_manage(action="stbrain_help", arguments={"module":"learning_memory"})` 读学习说明。直接调用七个入口时，各业务参数仍平铺填写，不额外套一层业务 `arguments`。
+
+客户端需重连、刷新目录后从新回合使用日常档；旧会话已发送的说明不会自动消失。目录选择不改变权限，客户端仍可禁用或要求审批工具箱入口。
+
+## 常用操作
 
 | 需求 | 调用 |
 | --- | --- |
-| 按模块了解用法 | `stbrain_help(module=...)`；省略模块看总览 |
+| 按模块了解用法 | `stbrain_open(view="manual", module=...)`；静态帮助用 `stbrain_help` 操作 |
 | 新增经历、知识、计划 | `remember_memory(module, content)` |
 | 新增工具卡 | `remember_tool_guidance(tool_name, purpose)` |
 | 跨普通模块搜索或浏览 | `stbrain_open(view="recall", query=...)`；空 query 为目录 |
@@ -21,6 +51,8 @@ L30 当前目录为 **44 项**。`simple-memory-v1` 和 `legacy` 的数量相同
 正文示例是调用意图说明。真实参数结构以连接实例的工具 Schema 为准；把 JSON 放进普通聊天框仍是聊天文字。
 
 ## 完整目录
+
+以下列出完整档的 44 个独立入口。使用日常档时，其余操作通过上面的分类工具箱调用。
 
 ### 1. 普通操作与帮助 · 5 项
 
@@ -71,13 +103,23 @@ L30 当前目录为 **44 项**。`simple-memory-v1` 和 `legacy` 的数量相同
 | 工具 | 用途 |
 | --- | --- |
 | `remember_tool_guidance` | 记一个工具或 MCP 服务的用途和经验 |
-| `recall_tool_guidance` | 目录、建议、卡片原文、历史和失败经验 |
+| `recall_tool_guidance` | 目录、建议、卡片原文、版本历史、失败或全部结果的经验 |
 | `review_tool_guidance_candidate` | 审阅已存在的工具卡候选 |
 | `record_tool_experience` | 保存实际尝试的作者记录和经验 |
 
 工具卡修改统一使用 `revise_memory`。`tool_name` 可写 MCP 服务大名，`operation_key` 可省略；`purpose` 写用途，`reminder` 可写至多 100 字符的短提醒。中文场景标签可用，具体调用细节按需保存和读取。
 
 可信度由 AI 在 0–100 内填写，来源单独记录。有效期可选：创建时省略或 null 表示不设置到期；后续统一修改时 `expires_at:null` 清除日期。工具经验的作者判断与真实执行器确认分开表示。
+
+读回成功、部分成功及其他结果，使用 `recall_tool_guidance(view="experiences", card_id=真实卡编号)`。`query` 可填精确经验 ID，或尝试、教训、原因和结果类型中的文本；`limit` 最多 5 条，查看 `total` 与 `truncated` 判断是否还有匹配记录。日常档示例：
+
+```json
+{"name":"stbrain_manage","arguments":{"action":"recall_tool_guidance","arguments":{"view":"experiences","card_id":"<已有卡编号>","limit":5}}}
+```
+
+原 `failures` 仍只返回非成功结果，`history` 读取卡片版本。经验中的 `ai_reported` / `verified=false` 表示作者自报，可信度 100 也不自动变成独立核验。读回按任务需要使用，不要求每次保存后都多查一遍。
+
+`call_notes_current` 是工具广告、参数结构匹配、有效期、活动状态及最近失败等条件的综合诊断，不代表“是否保存”或“最近是否修改”。保存与修改结果以实际回执和版本为准。
 
 ### 6. 自写轻提醒与安全阀 · 2 项
 
@@ -154,6 +196,8 @@ L30 当前目录为 **44 项**。`simple-memory-v1` 和 `legacy` 的数量相同
 
 看过预览后，把它返回的 `preview_id` 与 `ai_confirmation: true` 交给 `confirm_person_reference_rewrite`。确认结果带有完整 `final_fields` 和 `rewrite_receipt`，随后把原样最终稿及回执交给对应存入入口。确认完成表示接受这份草稿；实际保存以存入工具的成功回执为准。
 
+学习草稿可以只提供 `/title`、`/summary`、`/current_understanding`。统一存入时，省略 `/preceding_context_summary` 与精确空字符串等价，无需为通过校验补上隐藏空字段；非空、空白字符串、null 及其他字段仍按原规则区分。确认后改了正文或其他内容，应重新预览确认。
+
 草稿在预览后有新改动时，重新预览新稿。旧调用可以继续显式提供版本、哈希和上下文字段，ST 会核对它们与原预览的一致性。原有模块激活、调用者权限、保护范围和回执检查继续生效。
 
 ## 普通修改：字段和引用
@@ -172,5 +216,7 @@ L30 当前目录为 **44 项**。`simple-memory-v1` 和 `legacy` 的数量相同
 ## 每次存入前的短提醒
 
 五个存入入口的目录描述会展示当前人称提醒及固定标签选词建议；成功回执也会附带。人称提醒可自写与关闭，标签选词建议目前是固定帮助文案。目录为读取时的快照，修改偏好后以最新管理结果为准，刷新 MCP 目录取得新版本。
+
+日常档只常驻其中的统一存入和工具卡入口；其他存入操作的当前说明可用 `stbrain_tools(action=...)` 按需读取。网关新对话第一轮的 ST 入口提醒是另一项可选提示，只在本轮提供 `stbrain_open` 且总注入开关允许时出现，不构成保存前的必经步骤。
 
 源码依据：[server.py](../mcp_server/server.py)、[公开参数契约](../mcp_server/public_contract.py)、[普通修改 Schema](../mcp_server/ordinary_revision_schema.py)、[使用帮助](../mcp_server/usage_guide.py)。

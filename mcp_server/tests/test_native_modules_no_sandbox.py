@@ -45,7 +45,7 @@ async def synthetic_probe(scenario: str) -> dict:
         fixture.bootstrap_live()
         native_tools = server.mcp._tool_manager.list_tools()
         names = {tool.name for tool in native_tools}
-        require(len(names) == 44, "unexpected_public_tool_count")
+        require(len(names) == 46, "unexpected_registered_tool_count")
         require("workspace_shell" not in names, "sandbox_tool_present")
         require(not any("sandbox" in name or "shell" in name for name in names), "sandbox_tool_present")
         synthetic_external_tools = []

@@ -1,6 +1,6 @@
 {
   "format": "stiller-public-release-state/1",
-  "version": "0.1.0-preview.4",
+  "version": "0.1.0-preview.5",
   "scope": "production-readiness-not-source-archive-integrity",
   "source_frozen": true,
   "license_approved": true,
@@ -10,5 +10,5 @@
   "privacy_review_complete": false,
   "user_acceptance_complete": true,
   "publication_authorized": true,
-  "notes": "Accepted local L30 and source-preview publication are authorized. This revision uses targeted synthetic regression plus packaging checks; previous full L25 regressions remain historical evidence. Universal clean-machine, complete regressions, full dependency provenance/legal and deployment/history privacy certification remain separate from source-package integrity. See docs/UPDATE-VALIDATION.md."
+  "notes": "Selected accepted L31-L36 functionality and source-preview publication are authorized. New network/latency fixes are excluded pending real-world acceptance. Source regression and packaging evidence are recorded separately in docs/UPDATE-VALIDATION.md; universal clean-machine, cross-platform complete regressions, full dependency provenance/legal and deployment/history privacy certification remain separate from source-package integrity."
 }

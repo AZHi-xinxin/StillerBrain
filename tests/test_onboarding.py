@@ -241,6 +241,68 @@ class ModuleOneOnboardingTests(unittest.TestCase):
         self.assertTrue(after["write_context_available"])
         self.assertEqual(wake["wake_id"], after["wake_id"])
 
+    def test_st_start_entry_is_first_turn_only_and_catalog_bound(self) -> None:
+        self.bootstrap_live()
+        entries = [{
+            "canonical_name": "mcp__StillerBrian__stbrain_open",
+            "schema_hash": "a" * 64,
+        }]
+        catalog = {
+            "contract": "advertised-tools/1",
+            "catalog_complete": True,
+            "catalog_hash": hashlib.sha256(
+                json.dumps(entries, ensure_ascii=False, sort_keys=True,
+                           separators=(",", ":")).encode("utf-8")
+            ).hexdigest(),
+            "entries": entries,
+        }
+
+        def prepare(event: str, *, first: bool, tools: dict) -> dict:
+            wake = self.store.issue_wake(
+                owner_id=self.owner,
+                model_id=self.model,
+                host_id="host:test",
+                thread_id=f"thread:{event}",
+                source_kind="human_message",
+                source_event_id=event,
+            )
+            return self.store.build_pre_generation_context(
+                owner_id=self.owner,
+                model_id=self.model,
+                wake_id=wake["wake_id"],
+                wake_capability=wake["wake_capability"],
+                source_digest=f"source:{event}",
+                host_contract_digest="host-contract:v1",
+                advertised_tools=tools,
+                source_frame={
+                    "query_text": "阿止",
+                    "thread_id": f"thread:{event}",
+                    "lineage_stable": True,
+                    "prior_assistant_present": not first,
+                    "first_user_turn": first,
+                    "source_event_id": event,
+                    "capture_items": [],
+                },
+            )
+
+        first = json.loads(prepare("st-start-first", first=True, tools=catalog)["message"]["content"])
+        self.assertEqual("stbrain_open", first["st_start_entry"]["entry"])
+        self.assertTrue(first["st_start_entry"]["frame"]["optional"])
+        self.assertEqual("none", first["st_start_entry"]["frame"]["instruction_authority"])
+
+        later = json.loads(prepare("st-start-later", first=False, tools=catalog)["message"]["content"])
+        self.assertNotIn("st_start_entry", later)
+
+        empty_entries: list[dict] = []
+        empty_catalog = {
+            "contract": "advertised-tools/1",
+            "catalog_complete": True,
+            "catalog_hash": hashlib.sha256(b"[]").hexdigest(),
+            "entries": empty_entries,
+        }
+        absent = json.loads(prepare("st-start-absent", first=True, tools=empty_catalog)["message"]["content"])
+        self.assertNotIn("st_start_entry", absent)
+
     @staticmethod
     def planning_calm() -> dict[str, object]:
         return {

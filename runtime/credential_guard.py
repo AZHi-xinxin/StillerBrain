@@ -29,11 +29,22 @@ _ZH = r"(?:密码|口令|私钥|令牌|密钥)"
 _METRIC = r"(?:预算|用量|数量|计数|消耗|总量|usage|budget|count|consumption)"
 _CHANGE = r"(?:轮换|更新|变更|更换|修改|重置|设置|切换)"
 _EN_CHANGE = r"(?:rotation|update|replacement|rotated|updated|changed|reset|set)"
+# A finite affirmative grammar, not a free-text window after a credential word.
+# Chinese speech commonly puts the subject between label and assignment and
+# uses the short verb/result particle: "密码我设成了 ...". Negation, questions
+# without an assignment, and unrelated API/key terminology are not connectors.
+_ZH_SPOKEN_LINK = (
+    r"(?:(?:我们|你们|他们|她们|我|你|您|他|她)" + _H + r")?"
+    r"(?:(?:已经|刚刚|重新|手动|现在|刚|已)" + _H + r"){0,2}"
+    r"(?:设置|设定|修改|更换|重置|设|改|换)" + _H
+    + r"(?:成|为|到)" + _H + r"(?:了" + _H + r")?[:=]?"
+)
 _LINK = (
     r"(?:[:=]|(?:是|为)" + _H + r"[:=]?"
     r"|(?:已|已经)?" + _CHANGE + _H + r"(?:[:=]|(?:为|成|到)" + _H + r"[:=]?)"
     r"|(?:is|was)\b" + _H + r"[:=]?"
-    r"|" + _EN_CHANGE + r"\b" + _H + r"(?:[:=]|(?:to|from|as|is)\b" + _H + r"[:=]?))"
+    r"|" + _EN_CHANGE + r"\b" + _H + r"(?:[:=]|(?:to|from|as|is)\b" + _H + r"[:=]?)"
+    r"|" + _ZH_SPOKEN_LINK + r")"
 )
 _ASSIGNMENT = re.compile(
     r"(?P<label>" + _EN + "|" + _ZH + r")"

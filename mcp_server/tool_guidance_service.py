@@ -214,12 +214,16 @@ class ToolGuidanceAccessService:
             ],
             "tools": {
                 "remember_tool_guidance": "保存工具或服务的用途、可选一句 reminder 和场景关键词；详情可随后补充。",
-                "recall_tool_guidance": "view=directory 查目录；view=card 查原文；history 查历史；failures 查经验。",
+                "recall_tool_guidance": "view=directory 查目录；card 查原文；history 查版本；experiences 查成功、部分成功及失败经验；failures 仅查非成功项。经验查询须带 card_id，可用 query 填经验编号或正文片段，limit 最多5，total/truncated 提示是否仍有匹配。",
                 "revise_memory": "使用刚读到的 tool-card:// 版本引用作为 target_ref，changes 只填要改的作者字段。退役用 changes.intent='retire'；恢复用 changes.intent='restore' 和 changes.target_version。",
                 "review_tool_guidance_candidate": "旧候选可 withdraw 撤回；已认证普通作者 accept/keep_pending 按精确候选与版本决定，真实旧 wake 路径保留原复核检查。",
                 "record_tool_experience": "追加 AI 对一次调用尝试的非验证经验。",
             },
             "write_rule": "统一修改只填写 target_ref 和 changes；target_ref 沿用刚查询到的卡片版本引用。服务按当前授权补入内部身份与模块行版本，冲突时先查目录与原文；legacy 连接另提供其真实 write_context_ref。",
+            "read_notes": [
+                "call_notes_available 表示手动详情可读原文；call_notes_current 不是是否保存成功或是否为最新版本，而是调用笔记通过当前目录、参数结构、有效期、活动状态及最近失败诊断的标记。false 不删除原文，也不禁止手动读回。",
+                "直接调用 recall_tool_guidance/stbrain_open 等工具时参数平铺；只有通过 stbrain_manage 代为调用时，才写 action 和 arguments。读取经验不执行工具，不改变记忆，也不会把经验全文自动注入聊天。",
+            ],
             "revision_examples": {
                 "retire": "revise_memory(target_ref=刚读到的卡片引用, changes={'intent':'retire'})",
                 "restore": "revise_memory(target_ref=刚读到的当前卡片引用, changes={'intent':'restore','target_version':已读历史版本号})",

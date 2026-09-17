@@ -147,7 +147,7 @@ async def probe(mode):
 
         common = {'owner_id': server.OWNER_ID, 'model_id': server.MODEL_ID}
         tools = server.mcp._tool_manager.list_tools()
-        assert len(tools) == 44
+        assert len(tools) == 46  # Legacy44 plus compact discovery/dispatch.
         schemas = {tool.name: copy.deepcopy(tool.parameters) for tool in tools}
         entries = [{'canonical_name': name, 'schema_hash': canonical_hash(schema)}
                    for name, schema in schemas.items()]

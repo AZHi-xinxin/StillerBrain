@@ -1,16 +1,16 @@
 # 源码包与生产验收检查表
 
-本页对应 `0.1.0-preview.4`，采用 PolyForm Noncommercial 1.0.0。源码交付、特定实例升级和通用生产认证分别记录；本版证据见 [UPDATE-VALIDATION](UPDATE-VALIDATION.md)。
+本页对应 `0.1.0-preview.5`，采用 PolyForm Noncommercial 1.0.0。源码交付、特定实例升级和通用生产认证分别记录；本版证据见 [UPDATE-VALIDATION](UPDATE-VALIDATION.md)。
 
 ## 1. 本版源码预览已核实的内容
 
 - [x] 正式 LICENSE、项目 NOTICE、商业申请、贡献、安全及隐私说明随源码保留。
-- [x] 以 199 份冻结文件为来源清单，195 份逐项同步；63 份运行核心与 Schema 的 SHA256 保持一致，3 份组件文档与 1 份跨 Python 静态测试保留较新公开内容。
-- [x] Windows 本次风险相关 140 项通过；包装、运维与安装 114 项通过、3 项按平台及选测开关跳过。
-- [x] 上一版 Windows 1503 项、Linux 运行时 668 项/MCP 386 项/网关 378 项及三服务选测保留为历史基线，见 [preview.3 验证记录](UPDATE-VALIDATION-preview.3.md)。
-- [x] 新预览和确认参数已通过原生 MCP 合成入口测试；完整目录保持 44 项。
-- [x] 本机 L30 已获使用者验收并授权发布；长期缓存自用反馈保持原有定性范围。
-- [x] 本版公开树完成凭证、私人部署标识及本地链接核对；私人记忆、运行数据库、私有配置和验证证据保留在源码包外。
+- [x] 从 L36 来源同步 206 份源码、Schema 与测试文件，另保留公开仓库的跨 Python AST 静态测试；组件文档按本版公开用法更新。待验收的网络与内部代理差异按本次发布范围排除，不将整个部署目录原样公开。
+- [x] 旧版测试保留为历史基线，不计作本版重新运行结果，见 [preview.4 验证记录](UPDATE-VALIDATION-preview.4.md) 与 [preview.3 验证记录](UPDATE-VALIDATION-preview.3.md)。
+- [x] 默认 `/mcp` 仍为完整 44 项目录；显式 `/mcp?tool_profile=daily` 为日常 7 入口。当前 `simple-memory-v1` 分类工具箱可发现 45 项操作，先按分类发现、按操作读准确参数，再由统一入口执行；已知参数可直接执行，原权限继续校验。
+- [x] 本版合入使用者已验收的核心记忆与 MCP 更新，网络与长上下文延迟验收单独保留；长期缓存自用反馈仍按原有定性范围描述。
+- [x] 最终公开候选的源码回归、目录与调用边界检查完成，按 [UPDATE-VALIDATION](UPDATE-VALIDATION.md) 记录实际范围、通过与跳过情况；不沿用旧版测试数量作为本版结论。
+- [x] 最终公开树完成凭证、私人部署标识及本地链接核对；私人记忆、运行数据库、私有配置和验证证据保留在源码包外。
 
 依赖锁定、来源与已知漏洞查询的范围见 [UPDATE-VALIDATION](UPDATE-VALIDATION.md) 和 [第三方提示](../THIRD_PARTY_NOTICES.md)。更早预览版的来源与文件一致性记录见 [SOURCE-PROVENANCE](../SOURCE-PROVENANCE.md) 的历史段落；旧目录和测试结果以对应历史版本为准。
 

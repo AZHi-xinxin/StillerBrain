@@ -242,6 +242,7 @@ class GatewayTests(unittest.TestCase):
             if path == "/v1/host/context/prepare"
         )
         self.assertFalse(prepare["source_frame"]["prior_assistant_present"])
+        self.assertTrue(prepare["source_frame"]["first_user_turn"])
 
     def test_stable_thread_sends_bounded_text_only_source_frame(self) -> None:
         long_text = "灯塔" * 700
@@ -277,6 +278,7 @@ class GatewayTests(unittest.TestCase):
 
         self.assertTrue(frame["lineage_stable"])
         self.assertTrue(frame["prior_assistant_present"])
+        self.assertFalse(frame["first_user_turn"])
         self.assertEqual("thread:test", frame["thread_id"])
         self.assertEqual("event:source-frame", frame["source_event_id"])
         self.assertEqual(long_text, frame["query_text"])
@@ -345,10 +347,31 @@ class GatewayTests(unittest.TestCase):
         self.assertFalse(frame["lineage_stable"])
         self.assertIsNone(frame["thread_id"])
         self.assertTrue(frame["prior_assistant_present"])
+        self.assertFalse(frame["first_user_turn"])
         self.assertEqual([], frame["capture_items"])
         self.assertEqual("仍可用于本轮召回的问题", frame["query_text"])
         self.assertTrue(frame["source_event_id"].startswith("gateway-"))
         self.app.finish_turn(turn, keep_for_tools=False)
+
+    def test_first_user_turn_is_structural_not_a_greeting_guess(self) -> None:
+        cases = (
+            ([{"role": "system", "content": "synthetic"},
+              {"role": "user", "content": "一段很长的普通请求"}], True),
+            ([{"role": "user", "content": "阿止"},
+              {"role": "user", "content": "补一句"}], False),
+            ([{"role": "user", "content": "阿止"},
+              {"role": "assistant", "content": "在"},
+              {"role": "user", "content": "继续"}], False),
+        )
+        for index, (messages, expected) in enumerate(cases):
+            with self.subTest(index=index):
+                frame = self.app._source_frame(
+                    messages,
+                    thread_id="thread:test",
+                    lineage_stable=True,
+                    source_event_id=f"event:first-{index}",
+                )
+                self.assertIs(expected, frame["first_user_turn"])
 
     def test_upstream_payload_preserves_reasoning_and_tool_contract(self) -> None:
         tools = [

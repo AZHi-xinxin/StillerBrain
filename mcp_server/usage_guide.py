@@ -90,7 +90,11 @@ def module_usage_guide(module: str, *, simple: bool) -> dict[str, Any]:
         "tool_guidance": {
             "title": "工具提醒与经验",
             "purpose": "保存工具用途、适用场景、步骤和使用经验。",
-            "read": [{"tool": "recall_tool_guidance", "use": "空 query 或 view='directory' 查目录；按 card_id 读卡片和经验。"}],
+            "read_notes": [
+                "call_notes_available 表示原文可手动读取；call_notes_current 是当前目录/参数结构、有效期、活动状态及最近失败的综合诊断，不是保存成功或最新版本标记。false 不删除原文，也不禁止读回。",
+                "直接入口参数平铺；经 stbrain_manage 调用时才包在 arguments 内。读取经验不执行工具，也不会把全文自动注入。",
+            ],
+            "read": [{"tool": "recall_tool_guidance", "use": "空 query 或 view='directory' 查目录；card_id + view='card' 读原文，view='experiences' 读全部结果的经验（包括成功），view='failures' 仅读非成功项。经验可用 query 填编号或正文片段缩小范围，total/truncated 提示未列完。"}],
             "write_tools": ["remember_tool_guidance", "revise_memory", "record_tool_experience", "review_tool_guidance_candidate"],
             "example": {"tool": "remember_tool_guidance", "arguments": {"tool_name": "示例工具", "purpose": "整理资料时查询相关记录。"}},
             "workflow": ["tool_name 可写工具或 MCP 服务名，purpose 写用途，reminder 可写最多100字的一句场景提醒。", "四个普通脑统一用 revise_memory 修改：target_ref 使用查到的 tool-card://toolcard_…@版本，changes 只填要改的 reminder、purpose、scenario_tags、confidence 等。", "reminder/source_ref/expires_at 填 null 可清除，省略保留；clear_fields 兼容旧写法。普通修改无需 edit_class 或审查表。退役用 changes.intent='retire'；恢复用 changes.intent='restore' 和 changes.target_version，均放在 changes 内。", "退役示例：revise_memory(target_ref=已读引用, changes={'intent':'retire'})；恢复示例：revise_memory(target_ref=已读当前引用, changes={'intent':'restore','target_version':已读历史版本号})。工具卡用 intent 管理退役与恢复，不使用 changes.lifecycle。", "详细步骤按需读取；旧候选仍按查询回执处理。保存提醒是记忆操作，实际执行工具使用当前可用目录和授权。"],
@@ -212,7 +216,7 @@ def simple_usage_guide() -> dict[str, Any]:
             "emotional_memory": "recall_emotional_memory：query 搜索，memory_id 查版本与原文。",
             "learning_memory": "recall_learning_memory：query 搜索，view='inventory' 查目录，再按查询结果中的引用读原文。",
             "planning_memory": "recall_planning_memory：query 搜索或按 plan_ref 读取计划及事件。",
-            "tool_guidance": "recall_tool_guidance：空 query 或 view='directory' 查目录；card_id 查卡片原文、历史或使用经验。",
+            "tool_guidance": "recall_tool_guidance：directory 查目录；card_id + card/history/experiences 分别查原文、版本、全部结果的经验；failures 只查非成功项。",
             "principle": "搜索结果先给可选条目，再按需要读原文；零命中可以换关键词或查目录。",
         },
         "revise": {

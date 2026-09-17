@@ -4,7 +4,7 @@
 
 ST 现在提供两份平台专用的完整哈希锁。安装使用对应的一份锁，包版本和下载文件的 SHA-256 一起核对。
 
-**ST 服务在 Windows 与 Linux 都已实际验收。** Linux 的已验环境是 Ubuntu 24.04 x64 / CPython 3.12.3，私人阿里云 VPS 上也已运行 ST。下表区分各平台的依赖条件；新增安装向导脚本的测试进度单独见 [UPDATE-VALIDATION](UPDATE-VALIDATION.md#安装向导补充验收2026-09-13)。
+**ST 服务在 Windows 与 Linux 都已实际验收。** Linux 的已验环境是 Ubuntu 24.04 x64 / CPython 3.12.3，私人阿里云 VPS 上也已运行 ST。下表区分各平台的依赖条件；新增安装向导脚本的测试进度单独见 [UPDATE-VALIDATION](UPDATE-VALIDATION-preview.3.md#安装向导补充验收2026-09-13)。
 
 | 平台与解释器 | 完整哈希锁 | 依赖数量与已验环境 |
 | --- | --- | --- |

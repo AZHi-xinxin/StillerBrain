@@ -1315,6 +1315,28 @@ class AuthoringRewriteStore:
         }
 
 
+def _rewrite_field_hashes(module: str, fields: Mapping[str, str]) -> tuple[str, ...]:
+    """Match the one optional empty field materialized by the learning writer.
+
+    Keep existing preview/receipt hashes intact. Only an omitted learning
+    preceding-context field and its exact empty-string default are equivalent;
+    all authored text, other fields, nulls and non-empty values remain exact.
+    The same variants must be used when detecting an exposed suggestion, so
+    omitting a receipt cannot bypass confirmation via the implicit default.
+    """
+    canonical_fields = dict(fields)
+    hashes = [_sha256(canonical_fields)]
+    field = "/preceding_context_summary"
+    if (module == "learning_memory_module_three"
+            and canonical_fields.get(field, "") == ""):
+        if field in canonical_fields:
+            del canonical_fields[field]
+        else:
+            canonical_fields[field] = ""
+        hashes.append(_sha256(canonical_fields))
+    return tuple(hashes)
+
+
 def claim_rewrite_receipt(
     connection: sqlite3.Connection,
     *,
@@ -1331,14 +1353,15 @@ def claim_rewrite_receipt(
     if receipt_token is None:
         # Exact exposed suggestions cannot silently enter through the ordinary
         # path merely by omitting lineage/receipt metadata.
-        suggestion_hash = _sha256(dict(final_fields))
+        suggestion_hashes = _rewrite_field_hashes(module, final_fields)
+        hash_placeholders = ",".join("?" for _ in suggestion_hashes)
         try:
             ordinary = _ordinary_authoring_access(owner_id, model_id, module)
             exposed = connection.execute(
                 "SELECT 1 FROM authoring_rewrite_previews WHERE owner_id = ? AND model_id = ? "
-                "AND module = ? AND (wake_id = ? " + ("OR context_mode='ordinary_authenticated'" if ordinary else "") + ") AND suggestion_hash = ? "
+                "AND module = ? AND (wake_id = ? " + ("OR context_mode='ordinary_authenticated'" if ordinary else "") + ") AND suggestion_hash IN (" + hash_placeholders + ") "
                 "AND status IN ('available', 'confirmed') LIMIT 1",
-                (owner_id, model_id, module, wake_id, suggestion_hash),
+                (owner_id, model_id, module, wake_id, *suggestion_hashes),
             ).fetchone()
         except sqlite3.OperationalError as exc:
             if "no such table" not in str(exc).casefold():
@@ -1365,9 +1388,9 @@ def claim_rewrite_receipt(
         or (receipt["wake_id"] != wake_id and not ordinary)
     ):
         raise AuthoringError("rewrite_receipt_binding_mismatch")
-    final_hash = _sha256(dict(final_fields))
+    final_hashes = _rewrite_field_hashes(module, final_fields)
     request_hash = _sha256(dict(request_payload))
-    if final_hash != receipt["final_hash"]:
+    if receipt["final_hash"] not in final_hashes:
         raise AuthoringError("rewrite_receipt_final_mismatch")
     if receipt["status"] == "consumed":
         if receipt["request_hash"] != request_hash:

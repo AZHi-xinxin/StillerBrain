@@ -4,6 +4,8 @@
 
 **第一次安装，从 [新手向导](INSTALL.md)开始。** 安装检查通过后，复制向导给出的完整启动命令：它使用私有 `venv` 中的 Python，通过 `scripts/install_stiller.py --start` 启动该实例。Windows 命令粘贴到 PowerShell；运行期间保留终端，按 Ctrl+C 停止本次服务。请保留创建该安装时的源码文件夹及其位置。
 
+已有 Linux VPS 或自建 systemd 服务的部署者，请另读 [系统更新与 ST 重启](LINUX-SERVICE-MAINTENANCE.md)：公版前台启动与带离线收尾的受管服务不是同一运维方式。不要将普通自动重启直接套用于需要额外收尾的实例，也不要因此关闭全系统安全更新。
+
 下文保留手工运维命令，路径均为示例。向导用户请把 `--config` 后的路径替换为自己的 `<私有安装目录>/config.env`，并使用该目录 `venv` 中 Python 的完整路径，或先激活这个环境；在 ST 源码根目录运行。手工部署的环境准备与配置见[完整指南](GUIDE.md)。
 
 向导把三个数据库放在私有安装目录中。备份另选一个并列目录，例如安装在 `C:/ST-private`，备份放在 `C:/ST-backups/snapshot-001`；保持备份位于源数据库所在目录之外。

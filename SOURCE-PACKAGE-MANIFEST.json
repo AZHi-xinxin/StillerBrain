@@ -18,7 +18,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "8696e0283d61d2a7eb30e5b21319c409d42276d5d7c62fb4d0bec82deda50b18"
+      "sha256": "c5ffab7b9707a002bff86267ab912657da00eceefcf3763f21476391d597ed02"
     },
     {
       "path": "COMMERCIAL-LICENSE.md",
@@ -86,11 +86,15 @@
     },
     {
       "path": "docs/INSTALL.md",
-      "sha256": "e3eaee8cce876495f4c5fe703a8bd14e13e4d654f26eb49c70d1ee5823b4a129"
+      "sha256": "6002c8d556f898a4e3ebd70b1b6e820ab052476c5ea2d4743154f9731ce0bfd3"
     },
     {
       "path": "docs/LICENSING-DECISION.md",
       "sha256": "ea4232271f89f19572a4bac248e3ea04c02eafc3ac759cf83f029e2b11a811f2"
+    },
+    {
+      "path": "docs/LINUX-SERVICE-MAINTENANCE.md",
+      "sha256": "c500ceebae79007884fe28a762e80bb1a163700b0e44be5303954a402221d392"
     },
     {
       "path": "docs/LOCAL-DEVELOPMENT.md",
@@ -106,7 +110,7 @@
     },
     {
       "path": "docs/OPERATIONS.md",
-      "sha256": "7497012920b46465693c4f71a31266710f9f71d0b75dabcb6ae9846b1c25619d"
+      "sha256": "589071f27d1d671fd5137b3062cce266576e8e9d037413f9c0fc6639d815b126"
     },
     {
       "path": "docs/PHILOSOPHY.md",
@@ -134,7 +138,7 @@
     },
     {
       "path": "docs/UPDATE-VALIDATION.md",
-      "sha256": "67873d201b5bb956612feea5e7bfb318402f2833f00e07917ac51e347a69835e"
+      "sha256": "8ec69d98fe0046bcd28f9c725f64bcb5ef46597cac0c7b0b5b61af9c65fe0bab"
     },
     {
       "path": "docs/assets/stiller-cover.svg",

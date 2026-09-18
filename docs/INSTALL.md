@@ -143,6 +143,8 @@ Windows 的命令以 `&` 开头，请粘贴到 **PowerShell**。Linux 的命令�
 
 当前启动方式是前台运行。开机常驻、远程连接和以后升级可由部署者另行安排；日常启动、停止与备份见 [运维说明](OPERATIONS.md)。
 
+如果部署者把它另外接入 Linux systemd 常驻服务，还需确认自动更新时的停止和重启流程，见 [Linux 服务维护](LINUX-SERVICE-MAINTENANCE.md)。本向导不安装 systemd unit，也不默认修改系统的自动重启策略。
+
 ## 7. 由 AI 开始设置自己的大脑
 
 先刷新客户端的 MCP 工具目录，让 AI 调用 `stbrain_help` 阅读本实例的说明。你可以这样告诉它：

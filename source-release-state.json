@@ -7,15 +7,17 @@
   "base_public_commit": "6c2b978e708385f5e7e4dd8fcd4a120bf80ca742",
   "accepted_functional_revisions": "L31-L36 selected functionality",
   "source_derived_files": 206,
-  "source_files_identical_to_frozen": 205,
+  "source_files_identical_to_frozen": 206,
   "selected_source_difference": {
     "path": "rikkahub_gateway/server.py",
-    "excluded": "L36 ControlClient proxy inheritance change",
-    "reason": "Network and latency work deferred pending real-world acceptance",
+    "status": "previous exclusion restored after user acceptance on 2026-09-18",
+    "restored": "L36 ControlClient proxy inheritance change",
     "first_turn_optional_reminder_retained": true
   },
   "retained_public_ast_test": "tests/test_usage_consistency_r4h34.py",
   "current_candidate_regression": {
+    "recorded_at": "2026-09-17",
+    "scope": "Historical first preview.5 publication; followup reruns recorded separately in network_followup",
     "platform": "Windows x86_64 / CPython 3.14.6",
     "tests": {
       "discovered": 691,
@@ -74,6 +76,33 @@
   "github_publication_authorized": true,
   "production_readiness_certified": false,
   "real_client_cache_savings_quantified": false,
-  "network_latency_fixes_included": false,
+  "network_latency_fixes_included": true,
+  "network_followup": {
+    "date": "2026-09-18",
+    "base_public_commit": "71a21a62e74632eceacb3e614a6dcc5ac9845b60",
+    "scope": "Default ControlClient trust_env=False only; upstream policy unchanged",
+    "acceptance": "User reported smooth gateway conversation on school mobile data near 300K context and authorized publication",
+    "acceptance_is_user_report_not_benchmark": true,
+    "private_network_configuration_included": false,
+    "all_network_latency_problems_certified_resolved": false,
+    "new_regression_file": "rikkahub_gateway/tests/test_control_client_proxy.py",
+    "targeted_tests_passed": 4,
+    "gateway_regression": {
+      "discovered": 425,
+      "passed": 424,
+      "skipped": 1,
+      "includes_targeted_tests": true
+    },
+    "core_and_mcp_suites_rerun": false,
+    "packaging_regression": {
+      "discovered": 117,
+      "passed": 114,
+      "skipped": 3
+    },
+    "public_file_count": 269,
+    "synthetic_only": true,
+    "real_model_calls": 0,
+    "live_service_changes": false
+  },
   "production_gate": "python -B scripts/check_release.py"
 }

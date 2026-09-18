@@ -18,7 +18,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "c5ffab7b9707a002bff86267ab912657da00eceefcf3763f21476391d597ed02"
+      "sha256": "d09315e6879190efc8e2ea80ad504ba30119cef7b33c3a43e542ba0422e98353"
     },
     {
       "path": "COMMERCIAL-LICENSE.md",
@@ -54,7 +54,7 @@
     },
     {
       "path": "RELEASE-NOTES-preview.5.md",
-      "sha256": "622304527a2aa0348806bdf16b5929d734407db02df0096b0b37241640d1b337"
+      "sha256": "416ea92ef3ebc5c44df30cf6832d7c1b5cb55f824d1cb9e3100a2ed6cee99513"
     },
     {
       "path": "SECURITY.md",
@@ -62,7 +62,7 @@
     },
     {
       "path": "SOURCE-PROVENANCE.md",
-      "sha256": "467fdc01ae950818252a19704ff2ab1a09cd3aba35bb7ba96796a5aac22cab87"
+      "sha256": "382d413536cd0e93dd4f6daedf5a8db2663bfe06d47b6039f91ba747429dab1a"
     },
     {
       "path": "THIRD_PARTY_NOTICES.md",
@@ -118,7 +118,7 @@
     },
     {
       "path": "docs/RELEASE-CHECKLIST.md",
-      "sha256": "e91d79e1cef54068c7ac27ea856cbd5953226a9cc12ff964efe8af0c9ef9421c"
+      "sha256": "0c9576db9efe96056d95d0ca7688cefefe41d5549d92ca8e35e55c38d3a09c53"
     },
     {
       "path": "docs/RETRIEVAL.md",
@@ -138,7 +138,7 @@
     },
     {
       "path": "docs/UPDATE-VALIDATION.md",
-      "sha256": "8ec69d98fe0046bcd28f9c725f64bcb5ef46597cac0c7b0b5b61af9c65fe0bab"
+      "sha256": "8c080427456af302b1b91e5a118e7bfa3f5725f5a850f0d885ee54b933a8d851"
     },
     {
       "path": "docs/assets/stiller-cover.svg",
@@ -590,7 +590,7 @@
     },
     {
       "path": "rikkahub_gateway/server.py",
-      "sha256": "26b8cfd4cf5ee50b8183c93dfb72ccbae9ed86af8763a134c304ce16eb47d680"
+      "sha256": "c9357b2fb878d0dc06e6fe8f4d00e9ef354ef9f5f99d42199005f75d3af87067"
     },
     {
       "path": "rikkahub_gateway/tests/__init__.py",
@@ -599,6 +599,10 @@
     {
       "path": "rikkahub_gateway/tests/test_cache_layout.py",
       "sha256": "ab36176cb0dfefeec5928da181cae4aaa32ce0995bf009d4d2b1650b721ccdef"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_control_client_proxy.py",
+      "sha256": "cea38f4351caa08fb6c74cc207f5a35e6263d64a1d8e8428a510931d4fbe53d0"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway.py",
@@ -866,7 +870,7 @@
     },
     {
       "path": "source-release-state.json",
-      "sha256": "9d1bf54f89bb1bc857c3c67881dcdb9a80d36da9433d5b3c40b21cea5e9c4e4d"
+      "sha256": "5f21cbf24d9d098a1ee1522268d5763e179958a48fa638eb2a162e9cb5848ab7"
     },
     {
       "path": "tests/__init__.py",

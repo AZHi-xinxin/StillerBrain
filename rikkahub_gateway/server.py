@@ -887,7 +887,11 @@ class ControlClient:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.token = token
-        self.client = client or httpx.Client(timeout=timeout)
+        # The control plane is a loopback/private service selected by the host,
+        # never an Internet upstream.  Inheriting HTTP(S)_PROXY can route these
+        # authenticated calls through a desktop proxy and turn a healthy local
+        # Control service into opaque 502 responses.
+        self.client = client or httpx.Client(timeout=timeout, trust_env=False)
 
     def post(self, path: str, payload: Mapping[str, Any]) -> dict[str, Any]:
         try:

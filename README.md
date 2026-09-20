@@ -280,6 +280,12 @@ python3.12 -B scripts/install_stiller.py
 
 **当前预览版已支持网关自动浮现、AI 主动整理和版本回看。** 过去可以接上今天，新的理解也能继续留下来。记忆渐隐策略属于后续方向，目前处于设计阶段；[记忆渐隐讨论稿](docs/MEMORY-DECAY-DESIGN.md)保留后续机制的设计与验证路径。
 
+## 支持作者
+
+作者昕昕（GitHub：AZHi-xinxin）的爱发电主页：[https://afdian.com/a/azhi1](https://afdian.com/a/azhi1)。
+
+如果 ST 对你有所帮助，欢迎通过爱发电自愿支持我的创作与后续开发。感谢你的支持！
+
 ## 使用许可
 
 个人非商业使用、修改和许可范围内的分发可免费进行。代码采用 [PolyForm Noncommercial 1.0.0](LICENSE)，完整允许范围与条件以原文为准；超出允许范围的商业使用，请向昕昕申请单独书面授权。[商业授权说明](COMMERCIAL-LICENSE.md)

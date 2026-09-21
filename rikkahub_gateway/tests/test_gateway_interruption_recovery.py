@@ -88,7 +88,9 @@ class TimedOutWriter:
 
     def write(self, raw):
         self.writes += 1
-        if self.connection.gettimeout() != 10.0:
+        # A terminal commit shares one total deadline, so later writes may
+        # receive less than 10 seconds, but never an unbounded/larger timeout.
+        if not 0 < self.connection.gettimeout() <= 10.0:
             raise AssertionError("client write did not receive bounded timeout")
         self.entered.set()
         if not self.contender_attempted.wait(2):
@@ -623,7 +625,10 @@ class AnchoredInterruptionTests(unittest.TestCase):
             thread.join(2)
         self.assertFalse(thread.is_alive())
         self.assertEqual(1, writer.writes)
-        self.assertEqual([10.0, None], connection.changes)
+        self.assertEqual(2, len(connection.changes))
+        self.assertGreater(connection.changes[0], 0)
+        self.assertLessEqual(connection.changes[0], 10.0)
+        self.assertIsNone(connection.changes[1])
         self.assertIsNone(connection.timeout)
         self.assertIsNone(prepared.session.delivered_at_monotonic)
         self.assertIsNone(self.app._current_session)

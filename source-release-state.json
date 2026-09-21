@@ -1,108 +1,112 @@
 {
   "format": "stiller-source-release-state/1",
-  "version": "0.1.0-preview.5",
+  "version": "0.2.0-preview.1",
   "distribution": "source-available-development-preview",
   "license": "PolyForm-Noncommercial-1.0.0",
-  "license_official_sha256": "ffcca38841adb694b6f380647e15f17c446a4d1656fed51a1e2041d064c94cc8",
-  "base_public_commit": "6c2b978e708385f5e7e4dd8fcd4a120bf80ca742",
-  "accepted_functional_revisions": "L31-L36 selected functionality",
-  "source_derived_files": 206,
-  "source_files_identical_to_frozen": 206,
-  "selected_source_difference": {
-    "path": "rikkahub_gateway/server.py",
-    "status": "previous exclusion restored after user acceptance on 2026-09-18",
-    "restored": "L36 ControlClient proxy inheritance change",
-    "first_turn_optional_reminder_retained": true
-  },
-  "retained_public_ast_test": "tests/test_usage_consistency_r4h34.py",
-  "current_candidate_regression": {
-    "recorded_at": "2026-09-17",
-    "scope": "Historical first preview.5 publication; followup reruns recorded separately in network_followup",
-    "platform": "Windows x86_64 / CPython 3.14.6",
-    "tests": {
-      "discovered": 691,
-      "passed": 691,
-      "skipped": 0
+  "base_public_commit": "3d1e68ede1aab078658f5f2e8578512c27440f06",
+  "accepted_functional_revisions": "L37-source-r2 on existing preview.5",
+  "exact_accepted_incremental_files": [
+    {
+      "path": "rikkahub_gateway/server.py",
+      "previous_sha256": "c9357b2fb878d0dc06e6fe8f4d00e9ef354ef9f5f99d42199005f75d3af87067",
+      "sha256": "5bda28ab19ff5fd3061b81711c01c8175714696cf0d880d594f22cd48e1d39a2"
     },
-    "mcp_server": {
-      "discovered": 483,
-      "passed": 483,
-      "skipped": 0
+    {
+      "path": "rikkahub_gateway/short_term.py",
+      "previous_sha256": null,
+      "sha256": "596d6afab9a3c2c06d3c4d52483bacebb97d87dc8e674ea37b356d0d896089ca"
     },
-    "rikkahub_gateway": {
-      "discovered": 421,
-      "passed": 420,
-      "skipped": 1
+    {
+      "path": "rikkahub_gateway/short_term_wire.py",
+      "previous_sha256": null,
+      "sha256": "0b3fd31457d9591fa4285684ec3bc108dd1f770fd547ce8b47d52f3059ce7093"
     },
-    "total_passed": 1594,
-    "total_skipped": 1,
-    "synthetic_only": true,
-    "real_model_calls": 0,
-    "live_memory_writes": 0,
-    "harness_and_documentation_issues_corrected_then_rerun": true
-  },
-  "packaging_tests": {
-    "discovered": 117,
-    "passed": 114,
-    "skipped": 3,
-    "skips": [
-      "POSIX mode test on Windows",
-      "2 explicitly opt-in local-service smoke tests"
-    ]
-  },
-  "linux_prior_instance_validation": {
-    "revision": "L36",
-    "platform": "Ubuntu 24.04 x86_64 / CPython 3.12.3",
-    "targeted_tests_passed": 187,
-    "same_as_selected_public_candidate": false,
-    "selected_public_candidate_rerun_this_release": false
-  },
-  "historical_validation": [
-    "docs/UPDATE-VALIDATION-preview.4.md",
-    "docs/UPDATE-VALIDATION-preview.3.md"
+    {
+      "path": "rikkahub_gateway/tests/test_auxiliary_isolation.py",
+      "previous_sha256": null,
+      "sha256": "277215071eafc974637ebaf2ea56de074f9b71b2019369508b96054e75468295"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_gateway_interruption_recovery.py",
+      "previous_sha256": "acb3473592a1e39250173cdc3974abb079a3aa0429e2da7596ef81852041a6cb",
+      "sha256": "abddcbc6f7e406c13d42884c0b6a5ff5b9d88a94ab5b27bdf0974536510590b3"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_short_term_integration.py",
+      "previous_sha256": null,
+      "sha256": "ced3761a21131b5e63ce468094c47879479c63b148181d632edbf0bfd870d72e"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_short_term_review.py",
+      "previous_sha256": null,
+      "sha256": "c390ccb59a5bd4073248015dd9c1c6de6f46198579c92cf8778ff6694e71ba3d"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_source_transition.py",
+      "previous_sha256": null,
+      "sha256": "b15a440c3334aa00200c782722f71e565f83bc5e7678e9cd4129531bf62ea858"
+    },
+    {
+      "path": "runtime/onboarding.py",
+      "previous_sha256": "8195076bf1bc49124b5fb7f1ec94276e49bdb957360359475aad32bd54e945c9",
+      "sha256": "a63bb9092d32f017fcb59694f3b66ed749f9cdcf467adc4ba3f34f1a965f48c7"
+    },
+    {
+      "path": "tests/test_gateway_short_term.py",
+      "previous_sha256": null,
+      "sha256": "a1b62485d3938becdcfdb3bf6ea100eca22ebf83bff7c5f38babdda0a21a5d2c"
+    }
   ],
-  "linux_new_installer_end_to_end_verified": false,
+  "retained_public_ast_test": "tests/test_usage_consistency_r4h34.py",
+  "historical_public_state": "source-release-state-preview.5.json",
+  "user_acceptance": {
+    "RikkaHub_same_identity_window_switch": "passed_user_report",
+    "same_window_no_replay": "passed_user_report",
+    "Orbis_cross_frontend": "not_accepted_missing_source_adaptation"
+  },
+  "synthetic_only_this_publication": true,
+  "real_model_calls_this_publication": 0,
   "live_service_changes_this_publication": false,
+  "production_readiness_certified": false,
+  "linux_new_installer_end_to_end_verified_this_publication": false,
   "catalog": {
     "default_full": 44,
     "explicit_daily": 7,
     "simple_profile_discoverable_actions": 45
   },
-  "source_tree_review_complete": true,
   "validation_details": "docs/UPDATE-VALIDATION.md",
   "integrity_check": "python -B scripts/check_source_package.py",
   "integrity_manifest": "SOURCE-PACKAGE-MANIFEST.json",
-  "archive_contains_git_history": false,
   "github_publication_authorized": true,
-  "production_readiness_certified": false,
-  "real_client_cache_savings_quantified": false,
-  "network_latency_fixes_included": true,
-  "network_followup": {
-    "date": "2026-09-18",
-    "base_public_commit": "71a21a62e74632eceacb3e614a6dcc5ac9845b60",
-    "scope": "Default ControlClient trust_env=False only; upstream policy unchanged",
-    "acceptance": "User reported smooth gateway conversation on school mobile data near 300K context and authorized publication",
-    "acceptance_is_user_report_not_benchmark": true,
-    "private_network_configuration_included": false,
-    "all_network_latency_problems_certified_resolved": false,
-    "new_regression_file": "rikkahub_gateway/tests/test_control_client_proxy.py",
-    "targeted_tests_passed": 4,
-    "gateway_regression": {
-      "discovered": 425,
-      "passed": 424,
-      "skipped": 1,
-      "includes_targeted_tests": true
+  "production_gate": "python -B scripts/check_release.py",
+  "current_candidate_regression": [
+    {
+      "group": "tests",
+      "returncode": 0,
+      "tests": 747,
+      "skipped": 0,
+      "seconds": 102.98
     },
-    "core_and_mcp_suites_rerun": false,
-    "packaging_regression": {
-      "discovered": 117,
-      "passed": 114,
-      "skipped": 3
+    {
+      "group": "mcp_server/tests",
+      "returncode": 0,
+      "tests": 483,
+      "skipped": 0,
+      "seconds": 292.57
     },
-    "public_file_count": 269,
-    "synthetic_only": true,
-    "real_model_calls": 0,
-    "live_service_changes": false
-  },
-  "production_gate": "python -B scripts/check_release.py"
+    {
+      "group": "rikkahub_gateway/tests",
+      "returncode": 0,
+      "tests": 479,
+      "skipped": 0,
+      "seconds": 95.17
+    },
+    {
+      "group": "packaging_tests",
+      "returncode": 0,
+      "tests": 117,
+      "skipped": 3,
+      "seconds": 25.07
+    }
+  ]
 }

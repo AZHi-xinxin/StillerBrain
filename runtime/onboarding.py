@@ -2617,6 +2617,7 @@ class ModuleOneOnboardingStore:
                 return {
                     "decision": "context_reused",
                     "message": message,
+                    "short_term_policy": self._short_term_policy(connection, owner_id, model_id),
                     **({"context_bundle": bundle} if bundle is not None else {}),
                     "context_hash": snapshot["context_hash"],
                     "snapshot_status": snapshot["status"],
@@ -3092,6 +3093,7 @@ class ModuleOneOnboardingStore:
             return {
                 "decision": "context_prepared",
                 "message": message,
+                "short_term_policy": self._short_term_policy(connection, owner_id, model_id),
                 **({"context_bundle": bundle} if bundle is not None else {}),
                 "context_hash": context_hash,
                 "snapshot_status": "prepared",
@@ -3100,6 +3102,15 @@ class ModuleOneOnboardingStore:
                 "state_changed": state_changed,
                 "pointer_changed": False,
             }
+
+    def _short_term_policy(self, connection, owner_id: str, model_id: str) -> dict[str, Any]:
+        # Authenticated host-only metadata, never model-authored text. Existing
+        # global and emotional automatic-projection controls also gate the
+        # volatile replacement for the old emotional ephemeral capture path.
+        allowed = all(self.injection_control_store.effective_mode(
+            owner_id=owner_id, model_id=model_id, scope=scope, connection=connection
+        ) == "enabled" for scope in ("global", "emotional_memory"))
+        return {"contract": "st-short-term-policy/1", "enabled": allowed}
 
     @staticmethod
     def _validate_context_layout(value: Mapping[str, Any] | None) -> dict[str, Any] | None:

@@ -24,6 +24,7 @@ import re
 import threading
 import time
 import uuid
+from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -32,6 +33,9 @@ from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit
 
 import httpx
+
+from .short_term import Scope, ShortTermMemory
+from .short_term_wire import client_source, source_message, handover_message, FinalBodyCollector
 
 from .tool_execution import (
     EXECUTION_BINDING_CONTRACT,
@@ -48,6 +52,7 @@ from .tool_execution import (
 )
 from runtime.execution_binding import EXECUTION_CONTRACT, EXECUTION_TOOLS
 from runtime.compact_tool_routes import MANAGE_TOOL, CompactRouteError, resolve_compact_action
+from runtime.credential_guard import contains_credential_or_secret
 
 
 CONTEXT_MARKER = "STILLER_BRAIN_PRE_GENERATION_CONTEXT_V1\n"
@@ -769,6 +774,7 @@ class GatewayConfig:
     abnormal_wait_seconds: float = 180.0
     tool_result_wait_seconds: float = 300.0
     context_layout: str = "legacy"
+    short_term_enabled: bool = False
 
     def __post_init__(self) -> None:
         if self.context_layout not in {"legacy", "anchored-v1", "tail-context-v2"}:
@@ -871,6 +877,7 @@ class GatewayConfig:
             execution_epoch=os.environ.get("STBRAIN_EXECUTION_EPOCH", ""),
             tool_result_wait_seconds=float(os.environ.get("STBRAIN_GATEWAY_TOOL_RESULT_WAIT_SECONDS", "300")),
             context_layout=os.environ.get("STBRAIN_GATEWAY_CONTEXT_LAYOUT", "legacy"),
+            short_term_enabled=os.environ.get("STBRAIN_GATEWAY_SHORT_TERM", "1") == "1",
         )
 
 
@@ -953,6 +960,11 @@ class TurnSession:
     # Confirmed by authenticated Control as a complete ordered bundle. Metadata
     # and hashes stay in the host; only exact role/content frames reach a model.
     context_bundle: dict[str, Any] | None = field(default=None, repr=False)
+    short_term_ticket: Any = field(default=None, repr=False)
+    short_term_source: Any = field(default=None, repr=False)
+    short_term_transition: Any = field(default=None, repr=False)
+    short_term_had_handover: bool = False
+    short_term_allowed: bool = False
 
 
 @dataclass
@@ -1009,6 +1021,66 @@ class GatewayApplication:
         self._retired_tool_call_ids: set[str] = set()
         self._retired_tool_call_order: list[str] = []
         self._lock = threading.RLock()
+        self.short_term = ShortTermMemory()
+        self._short_term_frames: dict[str, tuple[float, float, Any]] = {}
+        self._short_term_stop = threading.Event()
+        # Fixed, content-free counters only; no prompts, IDs, keys or bodies.
+        self._short_term_diagnostics: Counter[str] = Counter()
+
+    def _short_term_note(self, event: str) -> None:
+        with self._lock:
+            self._short_term_diagnostics[event] += 1
+
+    def short_term_status(self) -> dict[str, Any]:
+        with self._lock:
+            stats = self.short_term.stats()
+            return {"contract": "st-short-term-diagnostics/1",
+                    "enabled": self.config.short_term_enabled,
+                    "auxiliary_model": self.auxiliary_model,
+                    "cache": {"scopes": stats.scope_count, "messages": stats.message_count,
+                              "bytes": stats.byte_count},
+                    "events": dict(self._short_term_diagnostics)}
+
+    def maintain_short_term(self) -> None:
+        self.short_term.prune()
+        with self._lock:
+            now = time.monotonic()
+            for wake_id, (started, expires, handover) in list(self._short_term_frames.items()):
+                if now >= expires or self._current_session is None or wake_id != self._current_session.wake_id:
+                    self._short_term_frames.pop(wake_id, None)
+                else:
+                    remaining = tuple(item for item in handover.messages if item.age_seconds + now - started < 1800)
+                    self._short_term_frames[wake_id] = (started, expires, type(handover)(handover.from_source, remaining))
+
+    def start_short_term_cleanup(self) -> None:
+        def clean():
+            while not self._short_term_stop.wait(5):
+                self.maintain_short_term()
+        if self.config.short_term_enabled:
+            threading.Thread(target=clean, name="st-short-term-cleanup", daemon=True).start()
+
+    def close_short_term(self) -> None:
+        self._short_term_stop.set()
+        with self._lock:
+            self._short_term_frames.clear()
+        self.short_term.close()
+
+    def capture_final_body(self, prepared: PreparedTurn, collector: FinalBodyCollector) -> None:
+        # Called only after validation AND successful complete delivery. This
+        # does not create an emotional-memory row or a Control snapshot.
+        if not self.config.short_term_enabled or prepared.session.short_term_ticket is None:
+            return
+        result = collector.result()
+        if result is None:
+            self._short_term_note("capture_invalid_final")
+            return
+        message_id, text = result
+        if contains_credential_or_secret(text):
+            self._short_term_note("capture_secret_rejected")
+            return
+        outcome = self.short_term.complete(prepared.session.short_term_ticket,
+                                          message_id or prepared.session.wake_id, text)
+        self._short_term_note("capture_" + outcome.reason)
 
     @staticmethod
     def _execution_tool(schema: Mapping[str, Any]) -> str | None:
@@ -1547,8 +1619,99 @@ class GatewayApplication:
                     "created": 0,
                     "owned_by": "stiller-gateway",
                 }
-            ],
+            ] + ([{"id": self.auxiliary_model, "object": "model", "created": 0,
+                   "owned_by": "stiller-auxiliary-no-memory"}]
+                 if self.config.short_term_enabled else []),
         }
+
+    @property
+    def auxiliary_model(self) -> str:
+        return self.config.public_model + "--auxiliary-no-memory"
+
+    def is_auxiliary(self, payload: Mapping[str, Any]) -> bool:
+        # Explicit purpose selected by the human in the fast-model setting.
+        # Missing source / prompt wording / lack of tools are NOT classifiers.
+        # A previously selected auxiliary alias must remain stateless even if
+        # the operator later switches off short-term memory.
+        return payload.get("model") == self.auxiliary_model
+
+    def auxiliary_completion(self, payload: Mapping[str, Any]) -> tuple[str, bytes]:
+        """Stateless text generation: never touches Control or a chat session.
+
+        Buffer this small auxiliary reply before delivery, so neither partial
+        tool calls nor malformed/protected output can escape. Normal chat's
+        progressive streaming and all of its lineage fences remain unchanged.
+        """
+        if not self.is_auxiliary(payload):
+            raise GatewayError(400, "auxiliary_model_required")
+        messages = self._messages(payload)
+        if (payload.get("tools") or payload.get("functions")
+                or payload.get("tool_choice") not in (None, "none")
+                or payload.get("function_call") not in (None, "none")
+                or any(m.get("role") in {"tool", "function"}
+                       or m.get("tool_calls") or m.get("function_call") for m in messages)):
+            raise GatewayError(400, "auxiliary_tools_forbidden",
+                               "快速任务模型不支持工具；正式聊天请使用原 ST 模型。")
+        if payload.get("n", 1) != 1 or isinstance(payload.get("n"), bool):
+            raise GatewayError(400, "auxiliary_single_choice_required")
+        forwarded = copy.deepcopy(dict(payload))
+        forwarded["model"] = self.config.upstream_model
+        forwarded["messages"] = messages
+        encoded = self.encode_upstream_payload(forwarded)
+        self._short_term_note("auxiliary_started")
+        try:
+            with self.upstream.stream("POST", self.upstream_url(),
+                                      headers=self.upstream_headers(), content=encoded) as response:
+                if not 200 <= response.status_code < 300:
+                    raise GatewayError(502, "auxiliary_upstream_error")
+                raw = bytearray()
+                deadline = time.monotonic() + self.config.timeout_seconds
+                for chunk in response.iter_bytes():
+                    if time.monotonic() > deadline:
+                        raise GatewayError(504, "auxiliary_upstream_timeout")
+                    if len(raw) + len(chunk) > self.config.max_body_bytes:
+                        raise GatewayError(502, "auxiliary_response_too_large")
+                    raw.extend(chunk)
+            protected = tuple(v for v in (self.config.gateway_token, self.config.host_token,
+                                          self.config.human_token, self.config.upstream_api_key) if v)
+            collector = FinalBodyCollector()
+            if payload.get("stream") is True:
+                events = _canonical_client_sse_events(bytes(raw))
+                done = False
+                for event in events:
+                    if done:
+                        raise GatewayError(502, "auxiliary_invalid_response")
+                    if event.payload is not None:
+                        collector.feed(event.payload)
+                    done = event.done
+                if not done or collector.result() is None:
+                    raise GatewayError(502, "auxiliary_invalid_response")
+                wire = b"".join(event.raw for event in events)
+                if _buffered_sse_contains_protected_value(wire, protected):
+                    raise GatewayError(502, "upstream_protected_value")
+                content_type = "text/event-stream; charset=utf-8"
+            else:
+                result = json.loads(bytes(raw).decode("utf-8"))
+                if not isinstance(result, dict):
+                    raise GatewayError(502, "auxiliary_invalid_response")
+                collector.feed(result, stream=False)
+                if collector.result() is None:
+                    raise GatewayError(502, "auxiliary_invalid_response")
+                if _contains_protected_value(result, protected):
+                    raise GatewayError(502, "upstream_protected_value")
+                wire = json.dumps(result, ensure_ascii=False, allow_nan=False).encode("utf-8")
+                content_type = "application/json; charset=utf-8"
+            self._short_term_note("auxiliary_validated")
+            return content_type, wire
+        except httpx.RequestError as exc:
+            self._short_term_note("auxiliary_failed")
+            raise GatewayError(502, "auxiliary_upstream_unavailable") from exc
+        except (UnicodeError, ValueError) as exc:
+            self._short_term_note("auxiliary_failed")
+            raise GatewayError(502, "auxiliary_invalid_response") from exc
+        except GatewayError:
+            self._short_term_note("auxiliary_failed")
+            raise
 
     @staticmethod
     def _contains_reserved_context(value: Any) -> bool:
@@ -1594,7 +1757,8 @@ class GatewayApplication:
 
     @staticmethod
     def _thread_id(payload: Mapping[str, Any], headers: Mapping[str, str]) -> str:
-        supplied = _normalize_headers(headers).get("x-st-thread-id")
+        normalized = _normalize_headers(headers)
+        supplied = normalized.get("x-st-thread-id") or normalized.get("x-session-id")
         if isinstance(supplied, str) and supplied.strip():
             value = supplied.strip()
             if len(value) > 256:
@@ -2325,6 +2489,9 @@ class GatewayApplication:
         headers: Mapping[str, str],
     ) -> PreparedTurn:
         normalized_headers = _normalize_headers(headers)
+        if self.is_auxiliary(payload):
+            # Even internal callers cannot accidentally open a normal wake.
+            raise GatewayError(400, "auxiliary_requires_stateless_route")
         messages = self._messages(payload)
         # Anchor the actual client history, before continuation normalization.
         # A later human turn must carry this exact prefix to abandon its wait.
@@ -2352,8 +2519,10 @@ class GatewayApplication:
                 if self._expired_armed_tool_wait(current):
                     self._retire_expired_tool_wait(current)
                     raise GatewayError(409, "tool_continuation_context_lost")
-                supplied_thread = normalized_headers.get("x-st-thread-id")
+                supplied_thread = normalized_headers.get("x-st-thread-id") or normalized_headers.get("x-session-id")
                 if supplied_thread and supplied_thread != current.thread_id:
+                    raise GatewayError(409, "tool_continuation_thread_mismatch")
+                if self.config.short_term_enabled and client_source(normalized_headers) != current.short_term_source:
                     raise GatewayError(409, "tool_continuation_thread_mismatch")
                 # Check before consuming any signed tool batch or receipt. A
                 # rejected history must remain retryable with the real branch.
@@ -2552,7 +2721,7 @@ class GatewayApplication:
                         "上一轮仍在生成或等待工具结果，请完成后再发送新的用户消息。",
                     )
                 thread_id = self._thread_id(payload, normalized_headers)
-                lineage_stable = bool(normalized_headers.get("x-st-thread-id"))
+                lineage_stable = bool(normalized_headers.get("x-st-thread-id") or normalized_headers.get("x-session-id"))
                 source_event_id = (
                     normalized_headers.get("x-request-id")
                     or normalized_headers.get("idempotency-key")
@@ -2600,6 +2769,13 @@ class GatewayApplication:
                                       if self.config.context_layout == "tail-context-v2"
                                       else "context_layout")
                 with self._fresh_context_wake(wake):
+                    source_frame = self._source_frame(
+                        messages, thread_id=thread_id, lineage_stable=lineage_stable,
+                        source_event_id=str(source_event_id))
+                    if self.config.short_term_enabled:
+                        # L37 replaces incoming-history capture. Query text is
+                        # still used for retrieval, never as short-term storage.
+                        source_frame["capture_items"] = []
                     prepared = self.control.post(
                         "/v1/host/context/prepare",
                         {
@@ -2609,12 +2785,7 @@ class GatewayApplication:
                             "host_contract_digest": self.config.host_contract_digest,
                             "advertised_tools": advertised_tools,
                             **({layout_request_key: context_layout} if context_layout is not None else {}),
-                            "source_frame": self._source_frame(
-                                messages,
-                                thread_id=thread_id,
-                                lineage_stable=lineage_stable,
-                                source_event_id=str(source_event_id),
-                            ),
+                            "source_frame": source_frame,
                         },
                     )
                     message = prepared.get("message")
@@ -2650,6 +2821,40 @@ class GatewayApplication:
                     context_bundle=context_bundle,
                 )
                 self._current_session = session
+                if self.config.short_term_enabled:
+                    session.short_term_source = client_source(normalized_headers)
+                    # Only confirmed Control identity scopes the cache. Client
+                    # headers/user fields are routing hints, not authorization.
+                    if context_bundle is not None:
+                        binding = context_bundle["binding"]
+                        scope = Scope(binding["owner_id"], binding["model_id"])
+                        policy = prepared.get("short_term_policy")
+                        session.short_term_allowed = (isinstance(policy, dict)
+                            and set(policy) == {"contract", "enabled"}
+                            and policy["contract"] == "st-short-term-policy/1"
+                            and policy["enabled"] is True)
+                        if not session.short_term_allowed or session.short_term_source is None:
+                            self.short_term.discard(scope)
+                            self._short_term_note("discard_policy" if not session.short_term_allowed
+                                                  else "discard_unknown_source")
+                        else:
+                            begun = self.short_term.begin(scope, session.short_term_source)
+                            session.short_term_ticket = begun.ticket
+                            session.short_term_transition = begun.transition
+                            self._short_term_note("source_" + begun.transition.state)
+                            if begun.handover is not None:
+                                session.short_term_had_handover = True
+                                self._short_term_note("handover_created")
+                                now = time.monotonic()
+                                expires = now + max(1800 - item.age_seconds for item in begun.handover.messages)
+                                self._short_term_frames[session.wake_id] = (now, expires, begun.handover)
+                    else:
+                        # A legacy Control downgrade has no authenticated
+                        # identity binding: break lineage instead of bridging
+                        # over that unknown interval when Control recovers.
+                        self.short_term.clear()
+                        self._short_term_frames.clear()
+                        self._short_term_note("discard_missing_identity")
 
             session.request_generation += 1
             session.history_anchor_count = history_anchor_count
@@ -2657,6 +2862,19 @@ class GatewayApplication:
             forwarded = copy.deepcopy(dict(payload))
             forwarded["model"] = self.config.upstream_model
             forwarded["messages"] = self._apply_context(session, messages)
+            if self.config.short_term_enabled and session.short_term_allowed:
+                self.maintain_short_term()
+                # Separate ephemeral host annotation: do not alter the exact
+                # authenticated Control frames/hash or persist this reference.
+                frame = self._short_term_frames.get(session.wake_id)
+                forwarded["messages"].append(source_message(
+                    session.short_term_source, session.short_term_transition,
+                    handover_present=frame is not None,
+                    handover_expired=session.short_term_had_handover and frame is None,
+                    tool_continuation=continuation,
+                ))
+                if frame is not None:
+                    forwarded["messages"].append(handover_message(frame[2], time.monotonic() - frame[0]))
             # Keep provider/client generation controls transparent.  The gateway
             # owns only the upstream model selection and the exact ST system
             # message; thinking/reasoning, tools, tool_choice, image input and
@@ -2865,6 +3083,7 @@ class GatewayApplication:
                         return
                 self._cancel_recovery_timer(prepared.session)
                 self._current_session = None
+                self._short_term_frames.pop(prepared.session.wake_id, None)
                 prepared.session.expected_tool_call_ids.clear()
                 prepared.session.expected_tool_call_order.clear()
                 prepared.session.expected_tool_calls.clear()
@@ -3744,9 +3963,13 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             previous_timeout = None
             timeout_changed = False
             try:
+                commit_deadline = getattr(self, "_commit_deadline", None)
+                remaining = commit_deadline - time.monotonic() if commit_deadline is not None else 10.0
+                if remaining <= 0:
+                    raise TimeoutError("terminal_write_deadline")
                 if connection is not None:
                     previous_timeout = connection.gettimeout()
-                    write_timeout = min(previous_timeout, 10.0) if previous_timeout is not None else 10.0
+                    write_timeout = min(previous_timeout, remaining, 10.0) if previous_timeout is not None else min(remaining, 10.0)
                     connection.settimeout(write_timeout)
                     timeout_changed = True
                 yield
@@ -3841,6 +4064,9 @@ class _GatewayHandler(BaseHTTPRequestHandler):
         if route in {"/models", "/v1/models"}:
             self._json(200, self.app.models())
             return
+        if route == "/v1/st/short-term/status":
+            self._json(200, self.app.short_term_status())
+            return
         self._json(404, GatewayError(404, "not_found").payload())
 
     def do_POST(self) -> None:  # noqa: N802
@@ -3878,6 +4104,38 @@ class _GatewayHandler(BaseHTTPRequestHandler):
         completed = False
         try:
             payload = self._read_json()
+            if self.app.is_auxiliary(payload):
+                performance.stage = "auxiliary_stateless"
+                content_type, wire = self.app.auxiliary_completion(payload)
+                # No global chat lock or turn state is held during network I/O.
+                connection = getattr(self, "connection", None)
+                previous_timeout = connection.gettimeout() if connection is not None else None
+                try:
+                    if connection is not None:
+                        connection.settimeout(min(previous_timeout, 10.0)
+                                              if previous_timeout is not None else 10.0)
+                    self.send_response(200)
+                    self.send_header("Content-Type", content_type)
+                    self.send_header("Content-Length", str(len(wire)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.end_headers()
+                    self.wfile.write(wire)
+                    self.wfile.flush()
+                    performance.http_status = 200
+                    performance.note_client_bytes(len(wire))
+                    self.app._short_term_note("auxiliary_delivered")
+                    completed = True
+                except (OSError, TimeoutError):
+                    self.close_connection = True
+                    self.app._short_term_note("auxiliary_client_disconnected")
+                finally:
+                    if connection is not None:
+                        try:
+                            connection.settimeout(previous_timeout)
+                        except OSError:
+                            pass
+                return
             performance.stage = "prepare_turn"
             prepare_started_at = time.perf_counter()
             try:
@@ -3997,19 +4255,18 @@ class _GatewayHandler(BaseHTTPRequestHandler):
         if isinstance(body, dict) and response_status < 400:
             body["model"] = self.app.config.public_model
         delivered = False
-        self.app.finish_turn(
-            prepared,
-            keep_for_tools=keep,
-            tool_call_ids=self.app.response_tool_call_ids(body),
-            tool_call_bindings=bindings,
-        )
+        final_body = FinalBodyCollector()
+        if 200 <= response_status < 300 and not keep:
+            final_body.feed(body, stream=False)
         try:
             if performance is not None:
                 performance.stage = "client_write"
-            with self._client_write_boundary(prepared):
-                self._json(response_status, body if isinstance(body, dict) else {})
+            def send_json():
+                with self._client_write_boundary(prepared):
+                    self._json(response_status, body if isinstance(body, dict) else {})
+            self._commit_final_delivery(prepared, final_body, send_json, keep,
+                                        self.app.response_tool_call_ids(body), bindings)
             delivered = True
-            self.app.mark_response_delivered(prepared)
             if performance is not None:
                 performance.stage = "complete"
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError):
@@ -4029,6 +4286,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
         headers_sent = False
         bindings: dict[str, ToolExecutionBinding] = {}
         performance = getattr(self, "_request_performance", None)
+        final_body = FinalBodyCollector()
 
         def send_sse_headers() -> None:
             nonlocal headers_sent
@@ -4057,6 +4315,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             # Reconcile only the public model identifier after the original
             # event passed protected-value checks and any tool commit barrier.
             # Nested data/arguments, usage and provider error events are kept.
+            final_body.feed(event.payload)
             if event.payload is not None and "error" not in event.payload:
                 payload = dict(event.payload)
                 payload["model"] = self.app.config.public_model
@@ -4125,6 +4384,9 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             ) as response:
                 if performance is not None:
                     performance.note_upstream_headers(response.status_code)
+
+                if not 200 <= response.status_code < 300:
+                    final_body.invalidate()
 
                 def upstream_chunks():
                     transferred = 0
@@ -4212,16 +4474,12 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                         if performance is not None:
                             performance.stage = "tool_validation"
                         bindings = self.app.bind_response_tool_calls(prepared, decorated)
-                    self.app.finish_turn(
-                        prepared,
-                        keep_for_tools=keep,
-                        tool_call_ids=scanner.tool_call_ids,
-                        tool_call_bindings=bindings,
-                    )
-                    for event in client_events:
-                        write_completion_event(event)
+                    def send_buffered():
+                        for event in client_events:
+                            write_completion_event(event)
+                    self._commit_final_delivery(prepared, final_body, send_buffered, keep,
+                                                scanner.tool_call_ids, bindings)
                     delivered = True
-                    self.app.mark_response_delivered(prepared)
                     if performance is not None:
                         performance.stage = "complete"
                     return
@@ -4319,18 +4577,14 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                     if performance is not None:
                         performance.stage = "tool_validation"
                     bindings = self.app.bind_response_tool_calls(prepared, decorated)
-                self.app.finish_turn(
-                    prepared,
-                    keep_for_tools=keep,
-                    tool_call_ids=scanner.tool_call_ids,
-                    tool_call_bindings=bindings,
-                )
-                for raw_event in deferred_tail:
-                    write_completion_event(_parse_sse_event(raw_event))
-                if not headers_sent:
-                    send_sse_headers()
+                def send_tail():
+                    for raw_event in deferred_tail:
+                        write_completion_event(_parse_sse_event(raw_event))
+                    if not headers_sent:
+                        send_sse_headers()
+                self._commit_final_delivery(prepared, final_body, send_tail, keep,
+                                            scanner.tool_call_ids, bindings)
                 delivered = True
-                self.app.mark_response_delivered(prepared)
                 if performance is not None:
                     performance.stage = "complete"
         except GatewayError as exc:
@@ -4361,6 +4615,22 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             if not delivered:
                 self.app.finish_turn(prepared, keep_for_tools=False)
 
+    def _commit_final_delivery(self, prepared, collector, write_final, keep, call_ids, bindings):
+        # Only the bounded terminal tail (not upstream generation) is atomic
+        # with capture. A newly opened chat cannot begin after final delivery
+        # but before the previous body's cache commit.
+        with self.app._lock:
+            self.app.finish_turn(prepared, keep_for_tools=keep,
+                                 tool_call_ids=call_ids, tool_call_bindings=bindings)
+            self._commit_deadline = time.monotonic() + 10.0
+            try:
+                write_final()
+                self.app.mark_response_delivered(prepared)
+                if not keep:
+                    self.app.capture_final_body(prepared, collector)
+            finally:
+                self._commit_deadline = None
+
     def log_message(self, fmt: str, *args: Any) -> None:
         # Never log request paths, headers, model prompts, or credentials.
         return
@@ -4381,7 +4651,12 @@ def main() -> None:
         _GatewayHandler,
     )
     server.application = application  # type: ignore[attr-defined]
-    server.serve_forever()
+    application.start_short_term_cleanup()
+    try:
+        server.serve_forever()
+    finally:
+        application.close_short_term()
+        server.server_close()
 
 
 if __name__ == "__main__":

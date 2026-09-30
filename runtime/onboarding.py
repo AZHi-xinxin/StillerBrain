@@ -43,6 +43,9 @@ from .execution_binding import (
     assert_no_running_executions,
     expected_execution_wake,
 )
+from .execution_profiles import (
+    DEFAULT_PROFILE, bind_new_wake, initialize_profiles, validate_profile, wake_profile,
+)
 
 
 FLOW_VERSION = "module-one/1"
@@ -69,6 +72,7 @@ DIRECT_CONTEXT_CONTRACT = "human-attested-direct-context/1"
 DIRECT_CONTEXT_MODE = "human_attested_direct"
 DIRECT_WRITE_SCOPES = frozenset(
     {
+        "memory_relations",
         "self_revision",
         "self_governance",
         "injection_control",
@@ -923,6 +927,7 @@ class ModuleOneOnboardingStore:
                     ON brain_direct_grants(opened_wake_id);
                 """
             )
+            initialize_profiles(connection)
             snapshot_columns = {
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(brain_context_snapshots)").fetchall()
@@ -1542,8 +1547,10 @@ class ModuleOneOnboardingStore:
         thread_id: str,
         source_kind: str,
         source_event_id: str,
+        execution_profile: str = DEFAULT_PROFILE,
     ) -> dict[str, Any]:
         """Idempotently issue one real wake for one stable external event key."""
+        execution_profile = validate_profile(execution_profile)
         owner_id = _require_text("owner_id", owner_id)
         model_id = _require_text("model_id", model_id)
         host_id = _require_text("host_id", host_id)
@@ -1582,8 +1589,12 @@ class ModuleOneOnboardingStore:
                 (owner_id, model_id, host_id, source_kind, source_event_id),
             ).fetchone()
             if existing is not None:
+                if wake_profile(connection, existing["wake_id"]) != execution_profile:
+                    raise OnboardingError("execution_profile_conflict")
                 result = self._derive_capability_result(existing)
                 result["reused"] = True
+                if execution_profile != DEFAULT_PROFILE:
+                    result["execution_profile"] = execution_profile
                 return result
 
             assert_no_running_executions(connection, owner_id=owner_id, model_id=model_id)
@@ -1646,6 +1657,7 @@ class ModuleOneOnboardingStore:
                     expires_at,
                 ),
             )
+            bind_new_wake(connection, wake_id, execution_profile)
             state = self._state_row(connection, owner_id, model_id)
             assert state is not None
             self._insert_event(
@@ -1672,6 +1684,8 @@ class ModuleOneOnboardingStore:
             assert row is not None
             result = self._derive_capability_result(row)
             result["reused"] = False
+            if execution_profile != DEFAULT_PROFILE:
+                result["execution_profile"] = execution_profile
             return result
 
     def record_human_objection(

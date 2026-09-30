@@ -75,7 +75,7 @@ class LocalServicesSmokeTests(unittest.TestCase):
         self.request("MCP", "/mcp", {"jsonrpc": "2.0", "method": "notifications/initialized"}, "STBRAIN_MCP_TOKEN")
         tools = self.request("MCP", "/mcp", {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}, "STBRAIN_MCP_TOKEN")
         names = {tool["name"] for tool in tools["result"]["tools"]}
-        self.assertEqual(44, len(names))
+        self.assertEqual(50, len(names))
         self.assertIn("stbrain_health", names)
         self.assertIn("remember_memory", names)
         self.assertIn("authorize_self_model", names)

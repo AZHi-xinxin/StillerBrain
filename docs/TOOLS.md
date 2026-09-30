@@ -2,7 +2,7 @@
 
 [首页](../README.md) · [日常指南](GUIDE.md) · [MCP 详细说明](../mcp_server/OPEN_RESPONSE.md)
 
-当前提供 **日常 7 入口**与**完整 44 项目录**两种呈现。`/mcp?tool_profile=daily` 显式选择日常档；默认 `/mcp` 或 `tool_profile=full` 保留完整目录。`simple-memory-v1` 和 `legacy` 是独立的访问配置：它们的完整目录数量相同，集合不同；前者提供 `authorize_self_model`，并收起专用 `revise_tool_guidance`，后者的旧调用仍保留校验与兼容。`public-tools/20` 是协议标签，不是工具数量。
+当前提供 **日常 7 入口**与**完整 50 项目录**两种呈现。`/mcp?tool_profile=daily` 显式选择日常档；默认 `/mcp` 或 `tool_profile=full` 保留完整目录。`simple-memory-v1` 和 `legacy` 是独立的访问配置：它们的完整目录数量相同，集合不同；前者提供 `authorize_self_model`，并收起专用 `revise_tool_guidance`，后者的旧调用仍保留校验与兼容。`public-tools/21` 是协议标签，不是工具数量。
 
 下面以 `simple-memory-v1` 为主。模块一首次激活后，普通读写由服务补入内部上下文和模块行版本；AI 使用查询返回的真实目标引用。黑匣子、模块一以及显式旧候选操作保留各自的授权和复核路径。
 
@@ -18,7 +18,7 @@
 | `stbrain_tools` | 无参数列分类，`category` 列操作，`action` 读准确参数 |
 | `stbrain_manage` | 用操作名和对应参数执行选定的 ST 功能 |
 
-当前 `simple-memory-v1` 分类工具箱包含 45 项操作，已包括常用能力及兼容的 `revise_tool_guidance`，不是额外增加 45 项。分类为 `system`、`memory`、`self`、`person`、`emotion`、`learning`、`tools`、`planning`、`diy`、`vault`。以当前分类回执为准。
+当前分类工具箱包含常用能力、工作记忆、记忆关联及兼容的 `revise_tool_guidance`；不是在完整目录之外再增加一套权限。分类包括 `system`、`memory`、`relations`、`self`、`person`、`work`、`emotion`、`learning`、`tools`、`planning`、`diy`、`vault`。以当前分类回执为准。
 
 例如，读取浮现开关可按需要查参数，再执行：
 
@@ -52,7 +52,22 @@
 
 ## 完整目录
 
-以下列出完整档的 44 个独立入口。使用日常档时，其余操作通过上面的分类工具箱调用。
+以下列出完整档的 50 个独立入口。使用日常档时，其余操作通过上面的分类工具箱调用。
+
+### 本版新增：工作记忆与关系 · 6 项
+
+| 工具 | 用途 |
+| --- | --- |
+| `remember_work_memory` | 显式保存工作正文与标签 |
+| `recall_work_memory` | 按查询或真实引用读取工作记录，支持分页与退役记录选择 |
+| `revise_work_memory` | 在读过的版本上修订正文、标签或 active/retired 生命周期 |
+| `attach_memory_relation` | 以真实情感、学习或规划引用建立关系 |
+| `read_memory_relations` | 在授权范围内读取一跳关系 |
+| `detach_memory_relation` | 解除一条已读关系，保留关系版本历史 |
+
+工作记忆使用 `work://…@版本` 引用，不走普通 `revise_memory`，也不自动参与召回或图谱展示；退役不是物理删除。它与换窗的有界短期缓存、供应商 token 缓存分别管理。模块激活、身份、学习作用域和执行授权仍需满足。
+
+关系目前支持情感、学习和规划，不涵盖工作记忆、自我定义或黑匣子。它记录显式联系，不自动改写端点正文、不让未授权内容进入结果；关系名称不能证明现实因果。具体参数通过 `stbrain_tools(action="attach_memory_relation")` 等当前目录取得。
 
 ### 1. 普通操作与帮助 · 5 项
 

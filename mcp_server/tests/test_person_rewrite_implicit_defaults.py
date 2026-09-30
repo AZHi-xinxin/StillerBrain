@@ -217,7 +217,8 @@ async def native_probe():
     real_connect = sqlite3.connect
 
     def connect(path, *args, **kwargs):
-        assert Path(path).resolve() in permitted, "only synthetic probe databases"
+        from tests.sqlite_fixture_guard import is_synthetic_sqlite_path
+        assert is_synthetic_sqlite_path(path, permitted, uri=kwargs.get("uri")), "outside_synthetic_database"
         return real_connect(path, *args, **kwargs)
 
     with ExitStack() as stack:

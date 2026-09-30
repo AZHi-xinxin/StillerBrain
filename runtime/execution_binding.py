@@ -22,12 +22,26 @@ import re
 import sqlite3
 from typing import Any, Iterator, Mapping, Sequence
 import uuid
+if __package__:
+    from .execution_profiles import profile_allows_tool, wake_profile
+else:
+    # Reviewed offline finalizers load this file directly from a frozen release.
+    # Resolve only its sibling, never sys.path or the process working directory.
+    import importlib.util
+    _profile_spec = importlib.util.spec_from_file_location(
+        "st_frozen_execution_profiles", Path(__file__).resolve().with_name("execution_profiles.py"))
+    _profile_module = importlib.util.module_from_spec(_profile_spec)
+    _profile_spec.loader.exec_module(_profile_module)
+    profile_allows_tool = _profile_module.profile_allows_tool
+    wake_profile = _profile_module.wake_profile
 
 
 EXECUTION_CONTRACT = "st-execution/1"
 EXECUTION_REF_FIELD = "execution_ref"
 EXECUTION_TOOLS = frozenset({
+    "attach_memory_relation", "detach_memory_relation", "read_memory_relations",
     "stbrain_manage",
+    "remember_work_memory", "recall_work_memory", "revise_work_memory",
     "stbrain_open", "remember_memory", "revise_memory", "advance_plan", "submit_self_model_candidate", "activate_self_model_candidate",
     "query_self_model", "preview_person_reference_rewrite", "confirm_person_reference_rewrite",
     "manage_person_reference_advisory",
@@ -233,6 +247,9 @@ class ExecutionStore:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             self._wake(connection, owner_id, model_id, wake_id, wake_capability)
+            profile = wake_profile(connection, wake_id)
+            if any(not profile_allows_tool(profile, call["canonical_tool"]) for call in validated):
+                raise ExecutionBindingError("execution_profile_denied")
             old = connection.execute("SELECT * FROM brain_execution_batches WHERE batch_id=?", (batch_id,)).fetchone()
             if old is not None:
                 if (old["request_hash"] != request_hash or old["deployment_epoch"] != self.deployment_epoch
@@ -289,6 +306,8 @@ class ExecutionStore:
             if row["status"] != "issued" or row["batch_status"] != "active":
                 raise ExecutionBindingError("execution_not_available")
             self._wake(connection, owner_id, model_id, row["wake_id"])
+            if not profile_allows_tool(wake_profile(connection, row["wake_id"]), tool_name, arguments):
+                raise ExecutionBindingError("execution_profile_denied")
             claim_id = uuid.uuid4().hex
             connection.execute("UPDATE brain_execution_calls SET status='running',claim_id=?,started_at=? WHERE ref_hash=?",
                                (claim_id, _now(), row["ref_hash"]))

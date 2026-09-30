@@ -92,7 +92,8 @@ async def probe(mode):
     attempts = []
 
     def only_synthetic(path, *args, **kwargs):
-        assert Path(path).resolve() in databases, 'outside_synthetic_database'
+        from tests.sqlite_fixture_guard import is_synthetic_sqlite_path
+        assert is_synthetic_sqlite_path(path, databases, uri=kwargs.get("uri")), "outside_synthetic_database"
         return real_connect(path, *args, **kwargs)
 
     def no_network(*args, **kwargs):
@@ -349,7 +350,7 @@ async def probe(mode):
 
         elif mode == 'canonical_schema':
             tools = server.mcp._tool_manager.list_tools()
-            assert len(tools) == 46  # Legacy44 plus compact discovery/dispatch.
+            assert len(tools) == 52  # Legacy44, three work tools, three relation tools, compact discovery/dispatch.
             def schema_types(value):
                 if isinstance(value, dict):
                     return ({value['type']} if isinstance(value.get('type'), str) else set()).union(

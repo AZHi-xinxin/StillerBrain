@@ -11,8 +11,10 @@ from typing import Any, Mapping
 MANAGE_TOOL = "stbrain_manage"
 DISCOVERY_TOOL = "stbrain_tools"
 CATEGORIES = {
+    "relations": ("真实记忆关系：显式连接、解除、一跳查询", ("attach_memory_relation", "detach_memory_relation", "read_memory_relations")),
     "system": ("状态与手册", ("stbrain_health", "stbrain_help", "stbrain_open", "stbrain_open_direct")),
     "memory": ("通用存入、查询与修改", ("remember_memory", "revise_memory", "advance_plan")),
+    "work": ("工作脑：仅主动查询的正文与标签", ("remember_work_memory", "recall_work_memory", "revise_work_memory")),
     "self": ("模块一自我定义", ("authorize_self_model", "query_self_model", "submit_self_model_candidate", "activate_self_model_candidate")),
     "person": ("人称、存前提醒与改写", ("manage_person_reference_advisory", "preview_person_reference_rewrite", "confirm_person_reference_rewrite")),
     "emotion": ("情感记忆与常驻", ("remember_emotional_memory", "recall_emotional_memory", "revise_emotional_memory", "integrate_emotional_memories", "manage_brain_pin", "veto_ephemeral_memory")),

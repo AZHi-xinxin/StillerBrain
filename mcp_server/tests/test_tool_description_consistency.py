@@ -25,8 +25,8 @@ class ToolDescriptionConsistencyTests(unittest.TestCase):
                 cls.functions[node.name] = node
         cls.docs = {name: ast.get_docstring(node) or "" for name, node in cls.functions.items()}
 
-    def test_tool_inventory_stays_45_and_all_descriptions_exist(self):
-        self.assertEqual(45, len(self.docs))
+    def test_tool_inventory_has_51_and_all_descriptions_exist(self):
+        self.assertEqual(51, len(self.docs))
         self.assertTrue(set(ORDINARY_TOOLS) <= set(self.docs))
         self.assertTrue(all(self.docs.values()))
 

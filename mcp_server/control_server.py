@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -33,6 +34,11 @@ from runtime import (
 from runtime.learning_memory import LearningMemoryStore
 from runtime.tool_guidance import ToolGuidanceStore
 from runtime.execution_binding import ExecutionBindingError, ExecutionStore
+from runtime.atlas_device_grants import (
+    AtlasDeviceGrants, AtlasGrantError, MAX_BODY as ATLAS_MAX_BODY,
+    capabilities as atlas_capabilities, from_env as atlas_from_env,
+    strict_object as atlas_strict_object,
+)
 
 
 MAX_BODY_BYTES = 64 * 1024
@@ -245,6 +251,7 @@ class ControlApplication:
         human_actor_id: str,
         direct_client_principal: str = "official-deepseek-direct",
         execution_store: ExecutionStore | None = None,
+        atlas_grants: AtlasDeviceGrants | None = None,
     ) -> None:
         if len(host_token) < 32 or len(human_token) < 32:
             raise ValueError("control-plane tokens must contain at least 32 characters")
@@ -258,6 +265,7 @@ class ControlApplication:
         self.human_actor_id = human_actor_id.strip()
         self.direct_client_principal = direct_client_principal.strip()
         self.execution_store = execution_store
+        self.atlas_grants = atlas_grants
         if (
             not self.owner_id
             or not self.model_id
@@ -267,6 +275,15 @@ class ControlApplication:
             raise ValueError(
                 "owner_id, model_id, human_actor_id, and direct_client_principal "
                 "must not be empty"
+            )
+        if atlas_grants is not None:
+            if (atlas_grants.owner_id, atlas_grants.model_id) != (self.owner_id, self.model_id):
+                raise ValueError("atlas_configuration_invalid")
+            # Defense in depth for direct constructor users; deployment adds
+            # all other service/upstream verifiers without forwarding secrets.
+            atlas_grants.forbidden = atlas_grants.forbidden | frozenset(
+                hashlib.sha256(value.encode("utf-8")).hexdigest()
+                for value in (host_token, human_token)
             )
         self.onboarding.ensure_state(owner_id=self.owner_id, model_id=self.model_id)
 
@@ -289,6 +306,8 @@ class ControlApplication:
         headers = headers or {}
         route = urlsplit(path).path
         method = method.upper()
+        if route.startswith("/v1/host/atlas/"):
+            return self._handle_atlas(method, path, headers, body)
 
         if route == "/health" and method == "GET":
             state = self.onboarding.state(owner_id=self.owner_id, model_id=self.model_id)
@@ -340,6 +359,63 @@ class ControlApplication:
             )
         return self._response(200, result)
 
+    def _handle_atlas(self, method: str, path: str, headers: Mapping[str, str],
+                      body: bytes) -> tuple[int, dict[str, Any]]:
+        """Narrow host-only delegation boundary; no raw device/gateway token."""
+        def error(status: int, code: str):
+            return self._response(status, {"error": {"code": code}})
+
+        paths = {"/v1/host/atlas/" + name for name in ("capabilities", "register", "snapshot", "revoke")}
+        if path not in paths:
+            return error(400, "invalid_request")
+        if method != "POST":
+            return error(405, "method_not_allowed")
+        # HTTPMessage.items() preserves duplicate field names. Pure router
+        # tests may also supply differently-cased duplicate keys in a mapping.
+        normalized: dict[str, list[str]] = {}
+        for key, value in headers.items():
+            normalized.setdefault(key.lower(), []).append(value)
+        if (any(len(values) != 1 for key, values in normalized.items()
+                if key in {"authorization", "content-type", "content-length"}) or
+                any(key in normalized for key in ("origin", "cookie", "transfer-encoding"))):
+            return error(400, "invalid_request")
+        authorization = normalized.get("authorization", [""])[0]
+        if not hmac.compare_digest(authorization.encode("utf-8"), ("Bearer " + self.host_token).encode("utf-8")):
+            return error(401, "unauthorized")
+        if normalized.get("content-type", [""])[0].lower() not in {
+            "application/json", "application/json; charset=utf-8",
+        }:
+            return error(415, "application_json_required")
+        if len(body) > ATLAS_MAX_BODY:
+            return error(413, "request_too_large")
+        try:
+            payload = atlas_strict_object(body)
+            if path.endswith("/capabilities"):
+                if payload:
+                    raise AtlasGrantError(400, "invalid_request")
+                return self._response(200, atlas_capabilities(
+                    self.atlas_grants is not None and self.atlas_grants.enabled))
+            if self.atlas_grants is None:
+                raise AtlasGrantError(403, "atlas_disabled")
+            if path.endswith("/register"):
+                result = self.atlas_grants.register(payload)
+            elif path.endswith("/snapshot"):
+                if (set(payload) != {"schema", "verifier"} or
+                        payload.get("schema") != "orbis.st.atlas-snapshot/1"):
+                    raise AtlasGrantError(400, "invalid_request")
+                result = self.atlas_grants.snapshot(payload["verifier"])
+            else:
+                if set(payload) != {"schema", "requestId", "verifier"}:
+                    raise AtlasGrantError(400, "invalid_request")
+                result = self.atlas_grants.revoke(payload["verifier"], {
+                    key: payload[key] for key in ("schema", "requestId")})
+            return self._response(200, result)
+        except AtlasGrantError as exc:
+            return error(exc.status, exc.code)
+        except Exception:
+            # Never serialize traceback, database path, identity or key text.
+            return error(503, "atlas_unavailable")
+
     def _dispatch(self, route: str, body: Mapping[str, Any]) -> dict[str, Any]:
         common = {"owner_id": self.owner_id, "model_id": self.model_id}
         if route.startswith("/v1/host/tool-executions/"):
@@ -373,6 +449,7 @@ class ControlApplication:
                 thread_id=_required_text(body, "thread_id"),
                 source_kind=_required_text(body, "source_kind"),
                 source_event_id=_required_text(body, "source_event_id"),
+                execution_profile=body.get("execution_profile", "default"),
             )
         if route == "/v1/host/context/prepare":
             # Preserve absent vs null. Old Control ignores the new offer field;
@@ -452,30 +529,75 @@ class ControlApplication:
 class _ControlHandler(BaseHTTPRequestHandler):
     server_version = "StillerBrainControl/0.1"
 
+    def _read_atlas_body(self, length: int) -> bytes:
+        # A total deadline, not a per-chunk timeout an arbitrarily slow sender
+        # can keep extending. read1 does at most one buffered/raw read per step.
+        deadline = time.monotonic() + 5.0
+        chunks = []
+        remaining = length
+        while remaining:
+            budget = deadline - time.monotonic()
+            if budget <= 0:
+                raise TimeoutError("atlas_body_deadline")
+            self.connection.settimeout(budget)
+            chunk = self.rfile.read1(remaining)
+            if not chunk:
+                raise OSError("atlas_body_incomplete")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        if time.monotonic() > deadline:
+            raise TimeoutError("atlas_body_deadline")
+        return b"".join(chunks)
+
     def _handle(self) -> None:
+        atlas_request = urlsplit(self.path).path.startswith("/v1/host/atlas/")
+        if atlas_request:
+            self.connection.settimeout(5)
+            self.close_connection = True
         length_text = self.headers.get("Content-Length", "0")
         try:
             length = int(length_text)
         except ValueError:
             length = -1
-        if length < 0:
+        if atlas_request and (
+            len(self.headers.get_all("Content-Length", [])) != 1 or
+            not re.fullmatch(r"0|[1-9][0-9]{0,5}", length_text) or
+            self.headers.get_all("Transfer-Encoding") or
+            len(self.headers.get_all("Authorization", [])) != 1 or
+            len(self.headers.get_all("Content-Type", [])) != 1
+        ):
+            status, payload = 400, {"error": {"code": "invalid_request"}}
+        elif atlas_request and length > ATLAS_MAX_BODY:
+            status, payload = 413, {"error": {"code": "request_too_large"}}
+        elif length < 0:
             status, payload = 400, {"error": "invalid_content_length"}
         elif length > MAX_BODY_BYTES:
             status, payload = 413, {"error": "request_too_large"}
         else:
-            body = self.rfile.read(length) if length else b""
-            status, payload = self.server.application.handle(  # type: ignore[attr-defined]
-                self.command,
-                self.path,
-                dict(self.headers.items()),
-                body,
-            )
-        encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            try:
+                body = (self._read_atlas_body(length) if atlas_request else self.rfile.read(length)) if length else b""
+            except (TimeoutError, OSError):
+                if not atlas_request:
+                    raise
+                body = b""
+            if atlas_request and len(body) != length:
+                status, payload = 400, {"error": {"code": "invalid_request"}}
+            else:
+                status, payload = self.server.application.handle(  # type: ignore[attr-defined]
+                    self.command,
+                    self.path,
+                    self.headers if atlas_request else dict(self.headers.items()),
+                    body,
+                )
+        encoded = json.dumps(payload, ensure_ascii=False,
+                             separators=(",", ":") if atlas_request else None).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(encoded)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        if atlas_request:
+            self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(encoded)
 
@@ -563,6 +685,8 @@ def build_application_from_env() -> ControlApplication:
             )
             if os.environ.get("STBRAIN_REQUIRE_EXECUTION_BINDING", "0") == "1" else None
         ),
+        atlas_grants=atlas_from_env(
+            database, _required_env("STBRAIN_OWNER_ID"), _required_env("STBRAIN_MODEL_ID")),
     )
 
 

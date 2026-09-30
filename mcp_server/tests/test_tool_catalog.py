@@ -13,6 +13,12 @@ import jsonschema
 
 
 EXPECTED_PUBLIC_TOOLS = {
+    "attach_memory_relation",
+    "detach_memory_relation",
+    "read_memory_relations",
+    "remember_work_memory",
+    "recall_work_memory",
+    "revise_work_memory",
     "stbrain_help",
     "remember_memory",
     "revise_memory",

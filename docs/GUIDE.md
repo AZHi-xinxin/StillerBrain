@@ -1,12 +1,12 @@
 # 安装与日常使用
 
-0.2 新增：[短期换窗交接设置与验收](SHORT-TERM-MEMORY.md)。正式聊天保留原模型，标题/回复建议等快速任务选择新增的 `--auxiliary-no-memory` 模型项；这不是改用另一家模型供应商。
+0.2 提供[短期换窗交接设置与验收](SHORT-TERM-MEMORY.md)。本次更新加入显式工作记忆、记忆关系、多模型路由及长工具流的独立预算。正式聊天保留原模型，标题/回复建议等快速任务选择 `--auxiliary-no-memory` 模型项；这不是改用另一家模型供应商。
 
 [首页](../README.md) · [新手安装](INSTALL.md) · [工具目录](TOOLS.md) · [缓存设置](CACHE.md) · [架构](ARCHITECTURE.md) · [启动、备份与导出](OPERATIONS.md)
 
 **第一次部署，请先跟着 [新手安装说明](INSTALL.md)运行向导。** 它准备独立环境、私有配置和本地服务；本页继续介绍客户端连接、AI 初始设置与日常操作。已经在使用的实例保留原配置，按对应维护流程操作。
 
-ST 可以部署在 Windows 电脑、Linux 电脑或 Linux VPS 上。Windows 与 Linux 服务均有实际验收；Linux 已验证环境为 Ubuntu 24.04 x64 / CPython 3.12.3，私人阿里云 VPS 上已有运行实例。先确认服务放在哪台设备，再选择该系统的安装命令；手机客户端连接现有实例时，直接使用部署者提供的地址与凭证。
+ST 可以部署在 Windows 电脑、Linux 电脑或 Linux VPS 上。Windows 与 Linux 服务均有实际验收；Linux 已验证环境包括 Ubuntu 24.04 x64 / CPython 3.12.3，具体范围见发布验证记录。先确认服务放在哪台设备，再选择该系统的安装命令；手机客户端连接现有实例时，直接使用部署者提供的地址与凭证。
 
 本页的日常读写采用 `simple-memory-v1` 配置。旧版 `legacy` 连接继续保留独立授权上下文；先读当前实例的帮助确认配置。日常档通过 `stbrain_manage(action="stbrain_help")` 读取，完整档可直接调用 `stbrain_help`。
 
@@ -47,7 +47,7 @@ ST 按接入能力适配模型与客户端。当前提供 OpenAI 兼容的 Chat 
 
 日常档提供 `stbrain_open`、`remember_memory`、`remember_tool_guidance`、`revise_memory`、`advance_plan`、`stbrain_tools`、`stbrain_manage`，其中 `stbrain_open` 排在首位，无必填参数。后两个入口让 AI 自行查分类、读参数和执行其余 ST 操作，详细用法见 [工具箱](TOOLS.md#日常七入口与分类工具箱)。
 
-默认 `/mcp` 仍是完整 44 项目录，升级不会自动切档。也可由客户端设置请求头 `X-STBrain-Tool-Profile: daily`；查询参数和请求头各只允许出现一次，同时提供时必须一致。它们按请求选择目录，与 `STBRAIN_ACCESS_PROFILE` 的访问权限配置独立。
+默认 `/mcp` 是完整 50 项目录，公开契约为 `public-tools/21`，升级不会自动切档。也可由客户端设置请求头 `X-STBrain-Tool-Profile: daily`；查询参数和请求头各只允许出现一次，同时提供时必须一致。它们按请求选择目录，与 `STBRAIN_ACCESS_PROFILE` 的访问权限配置独立。
 
 工具箱说明会随客户端发送的目录提供给模型，包括自写提醒、浮现开关和记忆整理等用途。模型不必等人类逐次切档；如果客户端禁用了整个 ST MCP 或工具箱入口，则仍以客户端许可为准。
 
@@ -93,8 +93,18 @@ python3.12 -B scripts/install_stiller.py
 | `STBRAIN_EXECUTION_EPOCH` | 本套部署的执行绑定标识 |
 | `STBRAIN_GATEWAY_CONTEXT_LAYOUT` | `legacy`、`anchored-v1` 或 `tail-context-v2`；详见缓存页 |
 | `STBRAIN_GATEWAY_TOOL_RESULT_WAIT_SECONDS` | 工具调用发出后的回包等待时间，默认 300 秒；不是模型生成时限 |
+| `STBRAIN_GATEWAY_MAX_REQUEST_BODY_BYTES` | 请求体默认 48 MiB，硬上界 48 MiB |
+| `STBRAIN_GATEWAY_MAX_BODY_BYTES` | 普通事件、待检查缓冲及非流式响应等默认 2 MiB |
+| `STBRAIN_GATEWAY_MAX_TOOL_TAIL_BYTES` | 暂扣的流式工具尾段默认及硬上界 32 MiB，包含 SSE 包装开销 |
+| `STBRAIN_GATEWAY_MAX_STREAM_BYTES` | 整段流式传输默认及硬上界 64 MiB |
+| `STBRAIN_GATEWAY_ROUTES_JSON` | 可选额外模型路由，密钥通过独立环境变量引用；不改变记忆身份 |
+| `STBRAIN_GATEWAY_MANAGEMENT_*` | 可选人类路由管理，默认关闭；独立 Token、私有状态目录与加密入口，见[管理说明](../rikkahub_gateway/ROUTE_MANAGEMENT.md) |
 
 省略访问配置或布局变量的旧配置继续沿用兼容路径和 `legacy` 布局；新模板的选择不会自动改写旧实例。保持执行绑定开启，并使用独立随机秘密。
+
+字节预算不是模型的 token 额度。工具批次完整校验前不释放，超限不截断或重放；提高尾段预算也不会放宽单事件与凭证检查。内存峰值还包含解析副本，需预留并发余量。
+
+当前 Control 与模型上游客户端都不继承环境代理或环境 CA，且不自动跟随上游重定向。依赖 `HTTP(S)_PROXY` 或私有 CA 的部署请先做兼容性核对；没有通用代理环境变量替代入口，不要关闭 TLS 验证。详细边界见[网关说明](../rikkahub_gateway/README.md)。
 
 ### 配置直连模块一密码
 
@@ -159,6 +169,14 @@ python -B scripts/stiller_ops.py start --config C:/stiller-private/stiller.env
 
 计划记录保留“打算做什么”和“进展如何”；实际执行由宿主的工具和任务循环完成。
 
+## 主动保留工作资料与记忆关系
+
+`remember_work_memory(content, tag)` 原样保存资料，正文最多 32768 字符且不超过 128 KiB UTF-8。`recall_work_memory` 按标签字面查询或确切版本读取，每页最多 5 条；`revise_work_memory` 修订并保留历史，也能用 `lifecycle="retired"` 退役、`lifecycle="active"` 恢复。退役内容需显式 `include_retired=true` 才能读回。工作记忆不参与日常自动浮现、四模块混合查询或星图；AI 主动读取时才将原文交给当前模型。
+
+`attach_memory_relation`、`read_memory_relations`、`detach_memory_relation` 为情感、学习和规划的现有记录建立可追溯关系。一跳查询只给引用、类型和已有标题，不递归读正文；不连接工作记忆或隔离匣，不自动开启联想注入。星图仅展示匿名结构，不展示自定义关系标签或记忆标题。
+
+这六个工具沿既有身份与权限检查，不创建独立自动任务。日常档通过 `stbrain_tools(category="work")` / `category="relations"` 与 `stbrain_manage` 使用；完整参数、幂等与恢复规则见 [OPEN_RESPONSE](../mcp_server/OPEN_RESPONSE.md)。
+
 ## 给 AI 自己写提醒
 
 | 想调整什么 | 入口 |
@@ -202,8 +220,12 @@ python -B scripts/stiller_ops.py start --config C:/stiller-private/stiller.env
 
 凭证保护会检查实际存入内容，包括中文口语中的密码、密钥和令牌赋值，并在写入前拒绝。普通轮换流程、变量名和存放位置可以记录；部署密码、API Key、Token 的真实值应留在部署者的私有配置中。
 
+**手机报 502，是否就是模型故障？**
+
+先确认这个模型实际指向哪台 ST，而不是只看模型名字。受控反向代理仍在线、后面的本地服务已停止时也可能返回 502。先检查部署状态与 `/health`，再核对鉴权模型目录；这些步骤不需要请求真实模型。不要清空记忆、重放旧工具队列或盲目连续重试。
+
 ## 维护与公开反馈
 
-升级前保留三库、私有配置和版本备份，等待工具链结束后再维护。源码检查、合成回归、实际服务验收和手机体验是不同范围；当前记录见 [UPDATE-VALIDATION](UPDATE-VALIDATION.md)。
+升级前保留三库、私有配置和版本备份；启用路由管理时还要单独备份其私有状态目录。等待工具链结束，按原生维护流程证明服务已停并处理执行登记，再切换版本；不要手工清空未完成队列或以旧库回灌代替恢复。源码检查、合成回归、实际服务验收和手机体验是不同范围；当前记录见 [UPDATE-VALIDATION](UPDATE-VALIDATION.md)。
 
 反馈使用合成示例和脱敏错误信息。运行库、聊天、附件、完整请求与凭证继续留在自己的受控目录。参见 [PRIVACY](../PRIVACY.md) 与 [SECURITY](../SECURITY.md)。

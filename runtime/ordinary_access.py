@@ -12,9 +12,11 @@ import uuid
 
 ORDINARY_SCOPES = frozenset({
     'emotional_memory', 'learning_memory', 'tool_guidance', 'planning_memory',
-    'self_governance', 'injection_control', 'shared_person_authoring',
+    'self_governance', 'injection_control', 'shared_person_authoring', 'memory_relations',
 })
 ORDINARY_TOOLS = {
+    **dict.fromkeys(('attach_memory_relation', 'detach_memory_relation', 'read_memory_relations'), 'memory_relations'),
+    **dict.fromkeys(('remember_work_memory', 'recall_work_memory', 'revise_work_memory'), 'learning_memory'),
     **dict.fromkeys(('remember_emotional_memory', 'revise_emotional_memory',
                     'integrate_emotional_memories', 'manage_brain_pin',
                     'veto_ephemeral_memory', 'recall_emotional_memory'), 'emotional_memory'),
@@ -40,6 +42,8 @@ ORDINARY_TOOLS = {
 # content or receipts. Rewrite previews persist authoring receipts, so they
 # deliberately remain writes. New ordinary tools default to write protection.
 ORDINARY_READ_TOOLS = frozenset({
+    'read_memory_relations',
+    'recall_work_memory',
     'recall_emotional_memory', 'recall_learning_memory', 'preview_learning_recall',
     'recall_tool_guidance', 'recall_planning_memory',
     'query_self_governance_profile', 'query_injection_control',

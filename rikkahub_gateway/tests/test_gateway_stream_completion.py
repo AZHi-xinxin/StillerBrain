@@ -19,7 +19,7 @@ def event(delta=None, finish=None):
 
 
 class StreamCompletionTests(unittest.TestCase):
-    def run_response(self, raw, *, protected=False):
+    def run_response(self, raw, *, protected=False, expected_requests=1):
         calls = []
         def upstream(request):
             calls.append(request)
@@ -50,7 +50,7 @@ class StreamCompletionTests(unittest.TestCase):
                     payload = json.loads(line[6:])
                     if "error" in payload:
                         code = payload["error"]["code"]
-        self.assertEqual(1, len(calls), "incomplete output must never auto-replay tools or a model request")
+        self.assertEqual(expected_requests, len(calls), "only a confirmed reasoning-only stop may retry the model once")
         self.assertIsNone(app._current_session)
         return code, handler.wfile.getvalue()
 
@@ -64,7 +64,7 @@ class StreamCompletionTests(unittest.TestCase):
         self.assertEqual("upstream_incomplete_stream", code)
 
     def test_reasoning_stop_without_answer_is_explicit_empty_error(self):
-        code, _ = self.run_response(event({"reasoning_content": "thinking only"}, "stop") + b"data: [DONE]\n\n")
+        code, _ = self.run_response(event({"reasoning_content": "thinking only"}, "stop") + b"data: [DONE]\n\n", expected_requests=2)
         self.assertEqual("upstream_empty_completion", code)
 
     def test_reasoning_length_without_answer_explains_budget(self):

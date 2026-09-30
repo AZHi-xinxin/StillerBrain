@@ -317,8 +317,8 @@ class UsageConsistencyTests(unittest.TestCase):
 
     def test_daily_contract_still_requires_only_module_and_content(self):
         functions = tool_functions()
-        self.assertEqual(44, len(functions))
-        self.assertEqual(44, len({node.name for node in functions}))
+        self.assertEqual(50, len(functions))
+        self.assertEqual(50, len({node.name for node in functions}))
         daily = next(node for node in functions if node.name == "remember_memory")
         required = len(daily.args.args) - len(daily.args.defaults)
         self.assertEqual(["module", "content"], [arg.arg for arg in daily.args.args[:required]])
@@ -383,7 +383,8 @@ class UsageConsistencyTests(unittest.TestCase):
         self.assertEqual(["module", "content"], result["daily_memory"]["required"])
         self.assertEqual(["emotional_memory", "learning_memory", "planning_memory"], result["daily_memory"]["modules"])
         serialized = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
-        self.assertLessEqual(len(serialized), 3500)
+        # L40 adds a 127-character explicit-only work-memory entry.
+        self.assertLessEqual(len(serialized), 3700)
         names = set(re.findall(r"\b(?:remember|recall|stbrain|preview|revise|advance)_[a-z_]+", serialized))
         names -= {field for fields in result['ordinary_revision']['allowed_fields'].values() for field in fields}
         self.assertTrue(names <= {node.name for node in tool_functions()})
@@ -400,8 +401,8 @@ class UsageConsistencyTests(unittest.TestCase):
 
     def test_document_current_route_and_historical_evidence_are_distinct(self):
         document = (MCP / "OPEN_RESPONSE.md").read_text(encoding="utf-8")
-        self.assertIn("public-tools/20 / brain-open/2", document.splitlines()[0])
-        self.assertIn("44 个公开工具", document)
+        self.assertIn("public-tools/21 / brain-open/2", document.splitlines()[0])
+        self.assertIn("50 个公开工具", document)
         self.assertIn('stbrain_open(view="recall", query="查询内容")', document)
         self.assertIn("官端直连 MCP 和网关注入模型均可写入、修改普通记忆", document)
         self.assertIn("不需要先 `stbrain_open`", document)

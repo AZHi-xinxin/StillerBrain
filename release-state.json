@@ -1,6 +1,6 @@
 {
   "format": "stiller-public-release-state/1",
-  "version": "0.2.0-preview.1",
+  "version": "0.2.0-preview.2",
   "scope": "production-readiness-not-source-archive-integrity",
   "source_frozen": true,
   "license_approved": true,
@@ -10,5 +10,5 @@
   "privacy_review_complete": false,
   "user_acceptance_complete": true,
   "publication_authorized": true,
-  "notes": "Source preview publication authorized after RikkaHub short-term/source-transition acceptance. Orbis remains unaccepted. See source-release-state.json and docs/UPDATE-VALIDATION.md for exact reruns; broader clean-machine, cross-platform, dependency and privacy certification gates remain separate. No production deployment this publication."
+  "notes": "Source preview authorized after specific live gateway acceptance; see source-release-state.json and docs/UPDATE-VALIDATION.md. Consultation end-to-end, all-provider cache behavior, clean machines, full dependency/history privacy certification remain separate. No live deployment this publication."
 }

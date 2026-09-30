@@ -48,6 +48,10 @@ from .hallucination_service import HallucinationVaultAccessService
 from .planning_service import PlanningMemoryAccessService
 from .daily_memory_service import DailyMemoryAccessService
 from .daily_revision_service import DailyRevisionAccessService
+from .work_memory_service import WorkMemoryAccessService
+from runtime.work_memory import WorkMemoryStore
+from runtime.memory_relations import MemoryRelationStore
+from .memory_relation_service import MemoryRelationAccessService
 from .execution_guard import install_execution_guard
 from .usage_guide import module_usage_guide, usage_guide
 from runtime.execution_binding import ExecutionStore
@@ -453,6 +457,17 @@ learning_service = LearningMemoryAccessService(
     owner_id=OWNER_ID,
 )
 
+# Separate storage, never supplied to onboarding, mixed recall or injection.
+# This uses ordinary learning-write authorization, not a new identity module.
+work_memory_service = WorkMemoryAccessService(
+    WorkMemoryStore(DATABASE), onboarding=onboarding, owner_id=OWNER_ID, model_id=MODEL_ID,
+    protected_values=(MCP_TOKEN, WAKE_SECRET),
+)
+memory_relation_service = MemoryRelationAccessService(
+    MemoryRelationStore(DATABASE), onboarding=onboarding, owner_id=OWNER_ID, model_id=MODEL_ID,
+    protected_values=(MCP_TOKEN, WAKE_SECRET),
+)
+
 
 def _catalog_provider(binding: Any | None = None) -> dict[str, Any] | None:
     if isinstance(binding, dict) and isinstance(binding.get("advertised_tools"), dict):
@@ -617,6 +632,148 @@ async def manage_person_reference_advisory(
     return authoring_rewrite_service.manage_advisory(
         action=action, text=text, write_context_ref=write_context_ref,
     )
+
+
+@mcp.tool()
+async def attach_memory_relation(
+    from_ref: Annotated[StrictStr, StringConstraints(min_length=1, max_length=300)],
+    to_ref: Annotated[StrictStr, StringConstraints(min_length=1, max_length=300)],
+    type: Literal["same_event", "continuation_of", "continues", "caused_by", "causes", "related_to", "custom"],
+    label: Annotated[StrictStr, StringConstraints(min_length=1, max_length=80)] | None = None,
+    reverse_label: Annotated[StrictStr, StringConstraints(min_length=1, max_length=80)] | None = None,
+    request_id: Annotated[StrictStr, StringConstraints(pattern=r"^[0-9a-f]{32}$")] | None = None,
+    write_context_ref: str | None = None,
+) -> dict[str, Any]:
+    """Explicitly connect two existing current emotion://, learning:// or plan:// refs.
+
+    No body rewrite or automatic recall. same_event and related_to are symmetric;
+    continuation_of/continues and caused_by/causes automatically reverse. Fixed
+    types omit labels. custom requires your own label; reverse_label is optional
+    and never invented. Edge versions are independent of body versions. Repeated
+    active pairs are idempotent. Direct callers may supply a fresh 32-hex request_id
+    and reuse it only for the identical uncertain retry; gateway supplies its own
+    operation identity. Explicit reattachment after detaching requires a new
+    request identity, never an old retry. No work-memory or quarantine endpoints.
+    In simple-memory-v1, modules remain read-only until first setup and activation;
+    after that direct MCP and gateway fill the internal context. No mechanical module
+    row counter or extra author confirmation field is required for a relation.
+    Legacy mode retains its authorized context and both endpoint scopes.
+    """
+    return memory_relation_service.attach(from_ref, to_ref, type, label, reverse_label, request_id, write_context_ref)
+
+
+@mcp.tool()
+async def detach_memory_relation(
+    edge_ref: Annotated[StrictStr, StringConstraints(min_length=1, max_length=80)],
+    request_id: Annotated[StrictStr, StringConstraints(pattern=r"^[0-9a-f]{32}$")] | None = None,
+    write_context_ref: str | None = None,
+) -> dict[str, Any]:
+    """Soft-disable the complete relation pair using its exact current edge_ref.
+
+    Appends an auditable edge version; never deletes a memory or edits a body.
+    A stale reference cannot disable a subsequently reattached edge. Direct
+    request_id is optional retry identity; gateway callers omit it.
+    In simple-memory-v1, modules remain read-only until first setup and activation;
+    after that direct MCP and gateway fill the internal context. No mechanical module
+    row counter or extra author confirmation field is required for a relation.
+    Legacy mode retains its authorized context and both endpoint scopes.
+    """
+    return memory_relation_service.detach(edge_ref, request_id, write_context_ref)
+
+
+@mcp.tool()
+async def read_memory_relations(
+    target_ref: Annotated[StrictStr, StringConstraints(min_length=1, max_length=300)],
+    limit: Annotated[StrictInt, Field(ge=1, le=50)] = 30,
+    offset: Annotated[StrictInt, Field(ge=0, le=100000)] = 0,
+) -> dict[str, Any]:
+    """Read one hop of active relations; targets expose title/type/ref, not bodies.
+
+    emotion has no title field, so target_title is null (not a generated summary).
+    Sensitive titles/custom labels are withheld; unavailable endpoints are omitted.
+    This explicit lookup does not traverse recursively or enable automatic recall.
+    Atlas tokens cannot call this MCP interface and receive no titles or labels.
+    The authenticated simple-memory-v1 profile permits this read before module-one activation.
+    """
+    return memory_relation_service.read(target_ref, limit, offset)
+
+
+@mcp.tool()
+async def remember_work_memory(
+    content: Annotated[StrictStr, StringConstraints(min_length=1, max_length=32768)],
+    tag: Annotated[StrictStr, StringConstraints(min_length=1, max_length=160)],
+    request_id: Annotated[StrictStr, StringConstraints(pattern=r"^[0-9a-f]{32}$")] | None = None,
+    write_context_ref: str | None = None,
+) -> dict[str, Any]:
+    """Save an original body and one editable tag to explicit-only work memory.
+
+    This storage never participates in automatic recall, daily gateway injection,
+    ordinary mixed search or the star atlas. No consultation workflow or external
+    action is executed. content is preserved exactly (<=32768 characters and
+    <=128KiB UTF-8); tag is 1–160 characters. Secrets cannot be stored.
+    In simple-memory-v1, the first module-one activation is required for writes;
+    before that the profile is read-only. After activation, direct MCP and gateway
+    callers omit internal context and mechanical module fields; no new author
+    confirmation is required. Legacy mode retains its authorized context.
+    Gateway execution is bound by the host; it must omit request_id. Direct
+    callers may use one 32-lowercase-hex request_id to retry the exact same
+    uncertain creation; changed content with that ID is rejected, not overwritten.
+    Use returned target_ref with recall_work_memory or revise_work_memory.
+    """
+    return work_memory_service.remember(content=content, tag=tag, request_id=request_id,
+                                        write_context_ref=write_context_ref)
+
+
+@mcp.tool()
+async def recall_work_memory(
+    query: Annotated[StrictStr, StringConstraints(max_length=160)] = "",
+    target_ref: Annotated[StrictStr, StringConstraints(max_length=80)] = "",
+    limit: Annotated[StrictInt, Field(ge=1, le=5)] = 5,
+    offset: Annotated[StrictInt, Field(ge=0, le=100000)] = 0,
+    include_retired: StrictBool = False,
+) -> dict[str, Any]:
+    """Explicitly read exact work-memory originals; never an automatic lookup.
+
+    query matches a literal substring of the author-written tag, not semantic
+    similarity or SQL wildcards. Empty query explicitly browses current records.
+    Use returned pagination to continue; at most 5 whole records/640KiB per page.
+    Alternatively copy an exact target_ref (work://<id>@<version>) to read that
+    saved version; query and target_ref cannot be combined. By default, retired
+    items are hidden, including old versions. Set include_retired=true to read
+    their retained originals and current_target_ref before deciding to restore.
+    Old versions remain readable by exact reference. Results contain original content and tag, never
+    a generated summary. Authenticated read needs no write context or password.
+    simple-memory-v1 permits this read before module-one activation.
+    """
+    return work_memory_service.recall(query=query, target_ref=target_ref, limit=limit, offset=offset,
+                                      include_retired=include_retired)
+
+
+@mcp.tool()
+async def revise_work_memory(
+    target_ref: Annotated[StrictStr, StringConstraints(min_length=1, max_length=80)],
+    content: Annotated[StrictStr, StringConstraints(min_length=1, max_length=32768)] | None = None,
+    tag: Annotated[StrictStr, StringConstraints(min_length=1, max_length=160)] | None = None,
+    write_context_ref: str | None = None,
+    lifecycle: Literal["active", "retired"] | None = None,
+) -> dict[str, Any]:
+    """Edit or reversibly retire one work item using its just-read current target_ref.
+
+    Supply at least one changed field; omitted fields keep their exact original.
+    lifecycle='retired' hides this item from default recall; lifecycle='active'
+    restores it. Both append versions without physical deletion. No bulk action
+    or cross-brain lifecycle permission is introduced. To find a retired item's
+    current reference, use recall_work_memory(include_retired=true).
+    A stale version is rejected without overwrite: explicitly reread and decide.
+    Earlier versions remain saved; editing does not enable automatic recall or
+    move content into ordinary learning memory. Same ordinary authorization as
+    creation. In simple-memory-v1, the first module-one activation is required;
+    before that the profile is read-only. After activation, direct MCP and gateway
+    callers omit internal context and mechanical module fields; no new author
+    confirmation is required. Legacy mode retains its authorized context.
+    """
+    return work_memory_service.revise(target_ref=target_ref, content=content, tag=tag, lifecycle=lifecycle,
+                                      write_context_ref=write_context_ref)
 
 
 @mcp.tool()

@@ -281,7 +281,8 @@ async def registered_probe():
     real_connect = sqlite3.connect
     allowed = {root / name for name in ("main.db", "ideas.db", "vault.db")}
     def only_synthetic(path, *args, **kwargs):
-        assert Path(path).resolve() in allowed, "database outside synthetic root"
+        from tests.sqlite_fixture_guard import is_synthetic_sqlite_path
+        assert is_synthetic_sqlite_path(path, allowed, uri=kwargs.get("uri")), "outside_synthetic_database"
         return real_connect(path, *args, **kwargs)
     with ExitStack() as guards:
         for target in ("socket.socket.connect", "socket.socket.connect_ex", "socket.socket.sendto", "socket.create_connection", "socket.getaddrinfo"):

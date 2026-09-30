@@ -125,7 +125,8 @@ async def probe(mode):
     attempts = []
 
     def only_synthetic(path, *args, **kwargs):
-        assert Path(path).resolve() in databases, 'outside_synthetic_database'
+        from tests.sqlite_fixture_guard import is_synthetic_sqlite_path
+        assert is_synthetic_sqlite_path(path, databases, uri=kwargs.get("uri")), "outside_synthetic_database"
         return real_connect(path, *args, **kwargs)
 
     def deny(*args, **kwargs):
@@ -147,7 +148,7 @@ async def probe(mode):
 
         common = {'owner_id': server.OWNER_ID, 'model_id': server.MODEL_ID}
         tools = server.mcp._tool_manager.list_tools()
-        assert len(tools) == 46  # Legacy44 plus compact discovery/dispatch.
+        assert len(tools) == 52  # Legacy44, three work tools, three relation tools, compact discovery/dispatch.
         schemas = {tool.name: copy.deepcopy(tool.parameters) for tool in tools}
         entries = [{'canonical_name': name, 'schema_hash': canonical_hash(schema)}
                    for name, schema in schemas.items()]

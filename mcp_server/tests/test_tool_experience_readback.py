@@ -38,12 +38,8 @@ def sqlite_guard(permitted):
     real_connect = sqlite3.connect
 
     def connect(path, *args, **kwargs):
-        value = str(path)
-        if value.startswith("file:"):
-            value = unquote(urlsplit(value).path)
-            if os.name == "nt" and re.match(r"^/[A-Za-z]:/", value):
-                value = value[1:]
-        assert Path(value).resolve() in permitted, "only this probe's synthetic databases"
+        from tests.sqlite_fixture_guard import is_synthetic_sqlite_path
+        assert is_synthetic_sqlite_path(path, permitted, uri=kwargs.get("uri")), "outside_synthetic_database"
         return real_connect(path, *args, **kwargs)
 
     return connect
@@ -320,12 +316,12 @@ async def native_probe():
             full = (await handler(types.ListToolsRequest(method="tools/list"))).root.tools
         with http_context(query="tool_profile=daily"):
             daily = (await handler(types.ListToolsRequest(method="tools/list"))).root.tools
-        assert len(full) == 44, len(full)
+        assert len(full) == 50, len(full)
         assert len(daily) == 7 and {tool.name for tool in daily} == EXPECTED_DAILY_NAMES
-        assert len(server.mcp._tool_manager.list_tools()) == 46
+        assert len(server.mcp._tool_manager.list_tools()) == 52
         for tool in daily:
             if tool.name in {"stbrain_tools", "stbrain_manage"}:
-                assert "45" in tool.description and "常用" in tool.description and "分类" in tool.description
+                assert "可按需访问 51 项操作" in tool.description and "常用" in tool.description and "分类" in tool.description
                 assert tool.inputSchema == server.mcp._tool_manager.get_tool(tool.name).parameters
         full_schema = next(tool for tool in full if tool.name == "recall_tool_guidance").inputSchema
         assert "experiences" in full_schema["properties"]["view"]["enum"]
@@ -386,7 +382,7 @@ async def native_probe():
         assert database_snapshot(databases, omit_execution_transport=True) == before
         assert server._execution_store.batch_status(**batch)["counts"]["completed"] == 1
         return {"decision": "PASS", "compact_direct_and_signed_readback": True,
-                "full_tools": 44, "daily_tools": 7, "real_model_calls": 0,
+                "full_tools": 50, "daily_tools": 7, "real_model_calls": 0,
                 "external_network_requests": 0, "real_database_access": 0}
 
 

@@ -215,7 +215,8 @@ async def native_probe():
     root = Path(os.environ["STBRAIN_DB_PATH"]).parent.resolve()
     real_connect = sqlite3.connect
     def connect(path, *args, **kwargs):
-        assert Path(path).resolve() in {root / x for x in ("main.db", "ideas.db", "vault.db")}
+        from tests.sqlite_fixture_guard import is_synthetic_sqlite_path
+        assert is_synthetic_sqlite_path(path, {root / x for x in ("main.db", "ideas.db", "vault.db")}, uri=kwargs.get("uri")), "outside_synthetic_database"
         return real_connect(path, *args, **kwargs)
     with ExitStack() as stack:
         for target in ("socket.create_connection", "socket.socket.connect", "subprocess.Popen"):
@@ -227,7 +228,7 @@ async def native_probe():
             assert json.loads(blocks[0].text) == result
             return result
         tools = {tool.name: tool for tool in await server.mcp.list_tools()}
-        assert len(tools) == 46  # Legacy44 plus compact discovery/dispatch.
+        assert len(tools) == 52  # Legacy44, three work tools, three relation tools, compact discovery/dispatch.
         preview_schema = tools["preview_person_reference_rewrite"].inputSchema
         confirm_schema = tools["confirm_person_reference_rewrite"].inputSchema
         assert set(preview_schema["required"]) == {"module", "draft_fields", "rewrite_targets"}

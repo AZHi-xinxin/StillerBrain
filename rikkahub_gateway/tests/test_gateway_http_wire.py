@@ -1819,7 +1819,7 @@ class GatewayServerBoundWriteWireTests(unittest.TestCase):
 
         opened = self.service.open_brain()
         opened_text = json.dumps(opened, ensure_ascii=False)
-        self.assertEqual("public-tools/20", opened["contract_version"])
+        self.assertEqual("public-tools/21", opened["contract_version"])
         self.assertEqual(
             "acknowledge",
             opened["current_action_contract"]["allowed_calls"][0]["intent"],

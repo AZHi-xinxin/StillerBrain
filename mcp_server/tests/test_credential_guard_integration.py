@@ -120,7 +120,8 @@ async def run_probe(mode):
     attempts = []
 
     def synthetic_connect(path, *args, **kwargs):
-        if not isinstance(path, (str, Path)) or Path(path).resolve() not in databases:
+        from tests.sqlite_fixture_guard import is_synthetic_sqlite_path
+        if not is_synthetic_sqlite_path(path, databases, uri=kwargs.get("uri")):
             raise AssertionError('non_synthetic_database_rejected')
         return real_connect(path, *args, **kwargs)
 

@@ -101,7 +101,7 @@ class ControlClientProxyTests(unittest.TestCase):
         self.assertEqual(len(requests), 1)
         self.assertEqual(requests[0].headers["Authorization"], "Bearer synthetic-token")
 
-    def test_host_and_human_control_ignore_env_but_upstream_policy_is_unchanged(self):
+    def test_all_default_transports_ignore_environment_proxies(self):
         settings = replace(config(), human_token="synthetic-human-token-at-least-32-characters", timeout_seconds=120.0)
         with patch("rikkahub_gateway.server.httpx.Client", side_effect=[sentinel.host, sentinel.human, sentinel.upstream]) as factory:
             app = GatewayApplication(settings)
@@ -111,7 +111,7 @@ class ControlClientProxyTests(unittest.TestCase):
         self.assertEqual(factory.call_args_list, [
             call(timeout=30.0, trust_env=False),
             call(timeout=30.0, trust_env=False),
-            call(timeout=120.0),
+            call(timeout=120.0, follow_redirects=False, trust_env=False),
         ])
 
 

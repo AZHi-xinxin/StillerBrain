@@ -87,7 +87,8 @@ async def probe():
     attempts = []
 
     def only_synthetic(path, *args, **kwargs):
-        assert Path(path).resolve() in databases, 'outside_synthetic_database'
+        from tests.sqlite_fixture_guard import is_synthetic_sqlite_path
+        assert is_synthetic_sqlite_path(path, databases, uri=kwargs.get("uri")), "outside_synthetic_database"
         return real_connect(path, *args, **kwargs)
 
     def no_network(*args, **kwargs):
@@ -114,7 +115,7 @@ async def probe():
             return result
 
         catalog = {tool.name: tool for tool in server.mcp._tool_manager.list_tools()}
-        assert len(catalog) == 46  # Registry includes two compact facades; full HTTP remains44.
+        assert len(catalog) == 52  # Registry includes two compact facades; full HTTP has50.
         assert ('revise_tool_guidance' in catalog) is (not server.SIMPLE_MEMORY_ACCESS)
         assert ('authorize_self_model' in catalog) is server.SIMPLE_MEMORY_ACCESS
         help_tool = catalog['stbrain_help']

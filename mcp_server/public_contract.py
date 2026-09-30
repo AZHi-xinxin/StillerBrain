@@ -18,7 +18,7 @@ from runtime.authoring import AUTHORING_SCHEMA_VERSIONS
 from .ordinary_revision_schema import install_ordinary_revision_schema
 
 
-PUBLIC_CONTRACT_VERSION = "public-tools/20"
+PUBLIC_CONTRACT_VERSION = "public-tools/21"
 PERSON_REWRITE_MODULE_SCHEMA_VERSION_DESCRIPTION = (
     "可省略；preview 由服务提供当前版本，confirm 从该预览的不可变上下文提供。显式提供时仍检查。目标记忆模块当前的 schema 版本；按 module 选择："
     + "；".join(f"{module}={version}" for module, version in AUTHORING_SCHEMA_VERSIONS.items())
@@ -40,6 +40,12 @@ BRAIN_MANUAL_MODULES = (
 )
 
 PUBLIC_TOOL_NAMES: tuple[str, ...] = (
+    "attach_memory_relation",
+    "detach_memory_relation",
+    "read_memory_relations",
+    "remember_work_memory",
+    "recall_work_memory",
+    "revise_work_memory",
     "stbrain_health",
     "stbrain_help",
     "remember_memory",

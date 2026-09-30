@@ -220,7 +220,8 @@ async def probe():
     dbs = {root / name for name in ('main.db', 'ideas.db', 'vault.db')}
     original_connect = sqlite3.connect
     def connect(path, *args, **kwargs):
-        assert Path(path).resolve() in dbs, 'outside_synthetic_store'
+        from tests.sqlite_fixture_guard import is_synthetic_sqlite_path
+        assert is_synthetic_sqlite_path(path, dbs, uri=kwargs.get("uri")), "outside_synthetic_database"
         return original_connect(path, *args, **kwargs)
     def deny(*args, **kwargs):
         raise AssertionError('network_forbidden')
@@ -252,7 +253,7 @@ async def probe():
             before = row_counts()
             listed = await server.mcp.list_tools()
             assert row_counts() == before, 'tools/list wrote synthetic store rows'
-            assert len(listed) == 46, 'registered tool count changed'
+            assert len(listed) == 52, 'registered tool count changed'
             for tool in listed:
                 assert tool.inputSchema == server.mcp._tool_manager.get_tool(tool.name).parameters
                 if tool.name in AUTHORING_RESULT_TOOLS:

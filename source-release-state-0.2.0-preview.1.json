@@ -1,0 +1,112 @@
+{
+  "format": "stiller-source-release-state/1",
+  "version": "0.2.0-preview.1",
+  "distribution": "source-available-development-preview",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "base_public_commit": "3d1e68ede1aab078658f5f2e8578512c27440f06",
+  "accepted_functional_revisions": "L37-source-r2 on existing preview.5",
+  "exact_accepted_incremental_files": [
+    {
+      "path": "rikkahub_gateway/server.py",
+      "previous_sha256": "c9357b2fb878d0dc06e6fe8f4d00e9ef354ef9f5f99d42199005f75d3af87067",
+      "sha256": "5bda28ab19ff5fd3061b81711c01c8175714696cf0d880d594f22cd48e1d39a2"
+    },
+    {
+      "path": "rikkahub_gateway/short_term.py",
+      "previous_sha256": null,
+      "sha256": "596d6afab9a3c2c06d3c4d52483bacebb97d87dc8e674ea37b356d0d896089ca"
+    },
+    {
+      "path": "rikkahub_gateway/short_term_wire.py",
+      "previous_sha256": null,
+      "sha256": "0b3fd31457d9591fa4285684ec3bc108dd1f770fd547ce8b47d52f3059ce7093"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_auxiliary_isolation.py",
+      "previous_sha256": null,
+      "sha256": "277215071eafc974637ebaf2ea56de074f9b71b2019369508b96054e75468295"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_gateway_interruption_recovery.py",
+      "previous_sha256": "acb3473592a1e39250173cdc3974abb079a3aa0429e2da7596ef81852041a6cb",
+      "sha256": "abddcbc6f7e406c13d42884c0b6a5ff5b9d88a94ab5b27bdf0974536510590b3"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_short_term_integration.py",
+      "previous_sha256": null,
+      "sha256": "ced3761a21131b5e63ce468094c47879479c63b148181d632edbf0bfd870d72e"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_short_term_review.py",
+      "previous_sha256": null,
+      "sha256": "c390ccb59a5bd4073248015dd9c1c6de6f46198579c92cf8778ff6694e71ba3d"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_source_transition.py",
+      "previous_sha256": null,
+      "sha256": "b15a440c3334aa00200c782722f71e565f83bc5e7678e9cd4129531bf62ea858"
+    },
+    {
+      "path": "runtime/onboarding.py",
+      "previous_sha256": "8195076bf1bc49124b5fb7f1ec94276e49bdb957360359475aad32bd54e945c9",
+      "sha256": "a63bb9092d32f017fcb59694f3b66ed749f9cdcf467adc4ba3f34f1a965f48c7"
+    },
+    {
+      "path": "tests/test_gateway_short_term.py",
+      "previous_sha256": null,
+      "sha256": "a1b62485d3938becdcfdb3bf6ea100eca22ebf83bff7c5f38babdda0a21a5d2c"
+    }
+  ],
+  "retained_public_ast_test": "tests/test_usage_consistency_r4h34.py",
+  "historical_public_state": "source-release-state-preview.5.json",
+  "user_acceptance": {
+    "RikkaHub_same_identity_window_switch": "passed_user_report",
+    "same_window_no_replay": "passed_user_report",
+    "Orbis_cross_frontend": "not_accepted_missing_source_adaptation"
+  },
+  "synthetic_only_this_publication": true,
+  "real_model_calls_this_publication": 0,
+  "live_service_changes_this_publication": false,
+  "production_readiness_certified": false,
+  "linux_new_installer_end_to_end_verified_this_publication": false,
+  "catalog": {
+    "default_full": 44,
+    "explicit_daily": 7,
+    "simple_profile_discoverable_actions": 45
+  },
+  "validation_details": "docs/UPDATE-VALIDATION.md",
+  "integrity_check": "python -B scripts/check_source_package.py",
+  "integrity_manifest": "SOURCE-PACKAGE-MANIFEST.json",
+  "github_publication_authorized": true,
+  "production_gate": "python -B scripts/check_release.py",
+  "current_candidate_regression": [
+    {
+      "group": "tests",
+      "returncode": 0,
+      "tests": 747,
+      "skipped": 0,
+      "seconds": 102.98
+    },
+    {
+      "group": "mcp_server/tests",
+      "returncode": 0,
+      "tests": 483,
+      "skipped": 0,
+      "seconds": 292.57
+    },
+    {
+      "group": "rikkahub_gateway/tests",
+      "returncode": 0,
+      "tests": 479,
+      "skipped": 0,
+      "seconds": 95.17
+    },
+    {
+      "group": "packaging_tests",
+      "returncode": 0,
+      "tests": 117,
+      "skipped": 3,
+      "seconds": 25.07
+    }
+  ]
+}

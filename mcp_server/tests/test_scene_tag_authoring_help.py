@@ -60,7 +60,7 @@ class SceneTagAuthoringHelpTests(unittest.TestCase):
         self.assertIsInstance(fn.body[0], ast.Return)
         literal = ast.literal_eval(fn.body[0].value)
         self.assertEqual(usage_guide(), literal)
-        self.assertLessEqual(len(json.dumps(literal, ensure_ascii=False, separators=(",", ":"))), 3500)
+        self.assertLessEqual(len(json.dumps(literal, ensure_ascii=False, separators=(",", ":"))), 3700)
         self.assertEqual(simple_usage_guide()["wording_guide"]["wording"], literal["wording_guide"]["wording"])
 
     def test_initial_and_first_notice_expose_spoken_tag_direction(self):
@@ -170,7 +170,8 @@ def catalog_probe():
     databases = {root / name for name in ("main.db", "ideas.db", "vault.db")}
     real_connect = sqlite3.connect
     def connect(path, *args, **kwargs):
-        assert Path(path).resolve() in databases, "non_synthetic_database"
+        from tests.sqlite_fixture_guard import is_synthetic_sqlite_path
+        assert is_synthetic_sqlite_path(path, databases, uri=kwargs.get("uri")), "outside_synthetic_database"
         return real_connect(path, *args, **kwargs)
     def deny(*args, **kwargs):
         raise AssertionError("network_or_service_creation_forbidden")

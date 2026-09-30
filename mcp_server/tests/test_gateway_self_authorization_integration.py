@@ -99,7 +99,8 @@ async def run_probe(mode):
     network_attempts = []
 
     def synthetic_connect(path, *args, **kwargs):
-        require(isinstance(path, (str, Path)) and Path(path).resolve() in databases,
+        from tests.sqlite_fixture_guard import is_synthetic_sqlite_path
+        require(is_synthetic_sqlite_path(path, databases, uri=kwargs.get("uri")),
                 'non_synthetic_database_rejected')
         return real_connect(path, *args, **kwargs)
 

@@ -48,7 +48,7 @@ async def synthetic_probe() -> dict:
 
         opened = await call("stbrain_open", {})
         assert opened["view"] == "summary"
-        assert opened["contract_version"] == "public-tools/20"
+        assert opened["contract_version"] == "public-tools/21"
         assert opened["write_context_available"] is True
         assert opened["continuation"] is None
         assert opened["review_material_presented"] is False

@@ -70,7 +70,8 @@ async def probe(mode):
     attempts = []
 
     def only_synthetic(path, *args, **kwargs):
-        assert Path(path).resolve() in allowed
+        from tests.sqlite_fixture_guard import is_synthetic_sqlite_path
+        assert is_synthetic_sqlite_path(path, allowed, uri=kwargs.get("uri")), "outside_synthetic_database"
         return real_connect(path, *args, **kwargs)
 
     def no_network(*args, **kwargs):

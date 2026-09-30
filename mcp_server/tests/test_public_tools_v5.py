@@ -51,7 +51,7 @@ def self_model_content(*, with_reference: bool = False) -> dict:
 
 class PublicContractV9Tests(unittest.TestCase):
     def test_candidate_contract_is_only_content_and_reason(self) -> None:
-        self.assertEqual("public-tools/20", PUBLIC_CONTRACT_VERSION)
+        self.assertEqual("public-tools/21", PUBLIC_CONTRACT_VERSION)
         for intent in ("submit", "revise"):
             schema = PUBLIC_INTENT_PAYLOAD_SCHEMAS[intent]
             self.assertFalse(schema["additionalProperties"])
@@ -156,7 +156,7 @@ class PublicFacadeV9Tests(unittest.TestCase):
 
     def open(self) -> dict:
         result = self.service.open_brain()
-        self.assertEqual("public-tools/20", result["contract_version"])
+        self.assertEqual("public-tools/21", result["contract_version"])
         self.assertTrue(result["write_context_available"])
         return result
 

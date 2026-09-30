@@ -159,8 +159,8 @@ class LongStreamLimitTests(unittest.TestCase):
     def test_tool_tail_cannot_exceed_its_buffer_limit(self):
         first = event({"tool_calls": [{"index": 0, "id": "synthetic-call-1", "type": "function", "function": {"name": "stbrain_health", "arguments": "{"}}]})
         additions = b"".join(event({"tool_calls": [{"index": 0, "function": {"arguments": " " * 120}}]}) for _ in range(10))
-        code, writer, _ = self.run_stream(Chunks(1, tail=first + additions + event({"tool_calls": [{"index": 0, "function": {"arguments": "}"}}]}, "tool_calls") + DONE), cfg=replace(config(), max_body_bytes=1024), tools=True)
-        self.assertEqual("upstream_buffer_limit_reached", code)
+        code, writer, _ = self.run_stream(Chunks(1, tail=first + additions + event({"tool_calls": [{"index": 0, "function": {"arguments": "}"}}]}, "tool_calls") + DONE), cfg=replace(config(), max_body_bytes=1024, max_tool_tail_bytes=1024), tools=True)
+        self.assertEqual("upstream_tool_buffer_limit_reached", code)
         self.assertNotIn(b"synthetic-call-1", writer.tail)
 
     def test_quarantine_buffer_cannot_accumulate_unbounded(self):

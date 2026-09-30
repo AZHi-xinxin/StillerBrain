@@ -39,12 +39,12 @@ class StEntryHelpTests(unittest.TestCase):
         self.assertIs(help_["state_changed"], False)
         self.assertEqual("daily-memory/1", help_["contract_version"])
         serialized = json.dumps(help_, ensure_ascii=False, separators=(",", ":"))
-        self.assertLessEqual(len(serialized), 3500)
+        self.assertLessEqual(len(serialized), 3700)  # L40 explicit work-memory entry.
         mentioned = set(re.findall(
             r"\b(?:remember|recall|stbrain|query|preview|revise|advance)_[a-z_]+", serialized))
         mentioned -= {field for fields in help_['ordinary_revision']['allowed_fields'].values() for field in fields}
         self.assertTrue(mentioned <= public_names(), mentioned - public_names())
-        self.assertEqual(44, len(public_names()))
+        self.assertEqual(50, len(public_names()))
         self.assertFalse({"breath", "stbrain_breath"} & public_names())
         self.assertNotIn("stbrain_breath", serialized)
 

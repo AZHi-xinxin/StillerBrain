@@ -199,6 +199,7 @@ def simple_usage_guide() -> dict[str, Any]:
     """Test profile help matches its actual access policy, not the legacy gate."""
     return {
         "contract_version": "simple-memory/1", "access_profile": "simple-memory-v1",
+        "work_memory": "工作脑只存原文与标签；remember_work_memory 保存，recall_work_memory 查询，revise_work_memory 修改。仅主动调用，不自动浮现/混合查询/进星图；权限沿用当前学习脑。",
         "state_changed": False,
         "module_help": {"tool": "stbrain_help", "parameter": "module", "modules": list(BRAIN_MANUAL_MODULES),
                         "instruction": "传 module 单独读取该模块的静态使用说明；查询实际状态用 stbrain_health。"},
@@ -261,6 +262,7 @@ def simple_usage_guide() -> dict[str, Any]:
 def usage_guide() -> dict[str, Any]:
     return {
         "contract_version": "daily-memory/1", "state_changed": False,
+        "work_memory": "工作脑只存原文与标签；remember_work_memory 保存，recall_work_memory 查询，revise_work_memory 修改。仅主动调用，不自动浮现/混合查询/进星图；权限沿用当前学习脑。",
         "module_help": {"tool": "stbrain_help", "parameter": "module", "modules": [
                             "self_revision", "emotional_memory", "learning_memory", "tool_guidance",
                             "planning_memory", "self_governance_profile", "injection_control",

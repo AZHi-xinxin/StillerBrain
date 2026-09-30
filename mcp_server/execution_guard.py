@@ -10,11 +10,15 @@ from runtime.execution_binding import (
 from .daily_revision_service import parse_revision_target
 
 READ_ONLY_TOOLS = frozenset({
+    "read_memory_relations",
+    "recall_work_memory",
     "query_self_model", "recall_emotional_memory", "recall_learning_memory",
     "preview_learning_recall", "recall_tool_guidance", "query_self_governance_profile",
     "query_injection_control", "recall_planning_memory", "open_hallucination_vault",
 })
 _DIRECT_SCOPES = {
+    **dict.fromkeys(("attach_memory_relation", "detach_memory_relation"), "memory_relations"),
+    **dict.fromkeys(("remember_work_memory", "revise_work_memory"), "learning_memory"),
     **dict.fromkeys(("submit_self_model_candidate", "activate_self_model_candidate"), "self_revision"),
     **dict.fromkeys(("preview_person_reference_rewrite", "confirm_person_reference_rewrite", "manage_person_reference_advisory"), "shared_person_authoring"),
     **dict.fromkeys(("remember_emotional_memory", "revise_emotional_memory", "integrate_emotional_memories", "manage_brain_pin", "veto_ephemeral_memory"), "emotional_memory"),

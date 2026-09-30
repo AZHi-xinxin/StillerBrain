@@ -8,11 +8,11 @@
 
 新的示例配置采用 `STBRAIN_ACCESS_PROFILE=simple-memory-v1`。旧配置省略此变量时沿用兼容路径；升级采用哪种配置由部署者明确选择。
 
-当前 `public-tools/20` 是公开契约标签。默认 `/mcp` 返回完整 44 项目录；显式使用 `/mcp?tool_profile=daily` 返回日常 7 入口，也可使用 `X-STBrain-Tool-Profile: daily` 请求头。选择器按请求生效，与访问配置独立；两个选择器各最多一次，同时提供时必须一致。升级不会自动切档，修改连接后须重连、刷新工具列表，从新回合使用。
+当前 `public-tools/21` 是公开契约标签。默认 `/mcp` 返回完整 50 项目录；显式使用 `/mcp?tool_profile=daily` 返回日常 7 入口，也可使用 `X-STBrain-Tool-Profile: daily` 请求头。选择器按请求生效，与访问配置独立；两个选择器各最多一次，同时提供时必须一致。升级不会自动切档，修改连接后须重连、刷新工具列表，从新回合使用。
 
-`simple-memory-v1` 与 `legacy` 的完整目录均为 44 项，集合有一处替换：前者提供 `authorize_self_model`，并把工具卡修改统一放进 `revise_memory`；旧 `revise_tool_guidance` 调用仍兼容，保留相同授权与校验。
+`simple-memory-v1` 与 `legacy` 的完整目录均为 50 项，集合有一处替换：前者提供 `authorize_self_model`，并把工具卡修改统一放进 `revise_memory`；旧 `revise_tool_guidance` 调用仍兼容，保留相同授权与校验。
 
-日常档按顺序提供 `stbrain_open`、`remember_memory`、`remember_tool_guidance`、`revise_memory`、`advance_plan`、`stbrain_tools`、`stbrain_manage`。`stbrain_tools` 按分类列操作或按操作名返回完整参数；`stbrain_manage(action=操作名, arguments=参数对象)` 沿原授权与校验路径执行。当前 `simple-memory-v1` 分类工具箱有 45 项操作，包含常用及兼容能力。已有帮助或回执提到未独立列出的操作名时，通过该入口调用，无需请人切档。
+日常档按顺序提供 `stbrain_open`、`remember_memory`、`remember_tool_guidance`、`revise_memory`、`advance_plan`、`stbrain_tools`、`stbrain_manage`。`stbrain_tools` 按分类列操作或按操作名返回完整参数；`stbrain_manage(action=操作名, arguments=参数对象)` 沿原授权与校验路径执行。分类工具箱包含常用及兼容能力，包括新增的 `work` 与 `relations`。已有帮助或回执提到未独立列出的操作名时，通过该入口调用，无需请人切档。
 
 ### 日常操作
 
@@ -23,6 +23,8 @@
 | 搜索或浏览四个普通模块 | `stbrain_open(view="recall", query=...)` |
 | 修改四个普通模块 | `revise_memory(target_ref, changes)` |
 | 记录计划进度 | `advance_plan(...)` |
+| 保存、查阅、修订或退役工作资料 | `remember_work_memory`、`recall_work_memory`、`revise_work_memory` |
+| 建立、查询或解除记忆关系 | `attach_memory_relation`、`read_memory_relations`、`detach_memory_relation` |
 | 查用法 | `stbrain_open(view="manual", module=...)`；静态帮助用 `stbrain_help` 操作 |
 | 查分类与准确参数 | `stbrain_tools(category=...)` 或 `stbrain_tools(action=...)` |
 | 使用其余能力 | `stbrain_manage(action=操作名, arguments=参数对象)` |
@@ -32,6 +34,14 @@
 普通原文与摘要等作者字段可修改，历史版本保留。情感类型默认未分类，普通记忆来源和可信度省略时显示未标注，由作者补充。工具卡可信度可填 0–100，有效期可选；实际执行权限单独校验。
 
 工具经验用 `recall_tool_guidance(view="experiences", card_id=...)` 读回包括成功、部分成功在内的结果，支持按经验 ID 或文本筛选，最多返回 5 条并说明总数与截断状态。日常档通过 `stbrain_manage` 调用。`failures` 仍只读非成功结果，`history` 仍读卡片版本；自报经验不会因可信度 100 自动成为独立核验。
+
+## 工作资料与关系的边界
+
+工作记忆逐条保留原文与标签，正文最多 32768 字符且不超过 128 KiB UTF-8；按标签字面查询，单页最多 5 条，也可读取确切历史引用。修改保留旧版，`lifecycle="retired"` 可逆退役；用 `include_retired=true` 读回当前引用后可恢复。它不进入四模块混合查询、日常自动注入或星图，只在显式调用时交给模型。
+
+关系只连接当前可访问的情感、学习、规划记录，不连接工作记忆或隔离匣。边有独立版本，一跳读取返回引用、类型与已有标题，不返回正文、不递归扩展。自定义关系标签由作者填写；星图不接收标签或标题。创建关系不会改写正文，也不会开启自动联想注入。
+
+两组新工具仍经过身份、凭证保护、执行绑定与版本检查。简化配置在模块一首次激活前只读，激活后开放相应普通写入；兼容配置保留学习权限或关系及两端模块权限。详细参数、直连重试身份和恢复用法见 [OPEN_RESPONSE](OPEN_RESPONSE.md)。
 
 ## 模块一：由作者准备、复核和激活
 
@@ -70,6 +80,14 @@
 | 人类控制 | `/v1/human/objections`、`/v1/human/rollback`、`/v1/human/direct-grants` |
 
 宿主绑定真实外部轮次与本轮上下文；人类控制处理异议、回退到已有批准版本和限定授权。自我正文仍由作者工具提交、复核与批准。部署 Token、唤醒秘密与数据库保存在源码外。
+
+### 可选星图设备委托
+
+控制面另提供宿主专用的 `POST /v1/host/atlas/capabilities`、`register`、`snapshot`、`revoke`，不是模型 MCP 工具。设备委托限定为 `atlas.metadata.read`：匿名节点与关系结构，不包含记忆正文、标题、自定义关系标签或凭证；不能拿星图凭证调用普通脑工具。
+
+未配置时保持关闭，不新建星图存储。部署者显式配置 `STBRAIN_ATLAS_BOOTSTRAP_ENABLED`、独立的 `STBRAIN_ATLAS_ID_KEY` 和 `STBRAIN_ATLAS_FORBIDDEN_VERIFIERS_JSON` 后才可使用；三项须作为一套受保护配置校验，不能只添加开关。ID key 为 64 位小写十六进制，禁止复用其他秘密；禁止列表包含该 key 文本的 SHA-256 及应排除的凭证 verifier。不要在前端保存宿主 Token，也不要把 ID key 或 verifier 列表放入公开反馈。
+
+设备令牌的登记、撤销与匿名快照需要配套宿主适配器。此接口的存在不代表任意客户端已经接好星图，开启匿名可视化也不会开启记忆正文读取或自动写入。
 
 ## 启动与验收
 

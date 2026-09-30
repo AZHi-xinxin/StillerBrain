@@ -134,7 +134,7 @@ async def probe(mode):
             assert result['state_changed'] is False
             return result
 
-        assert len(server.mcp._tool_manager.list_tools()) == 46  # Includes compact facades.
+        assert len(server.mcp._tool_manager.list_tools()) == 52  # Includes work tools, relation tools and compact facades.
         empty = await recall()
         assert empty['items'] == [] and empty['exhaustive'] and not empty['partial'], empty
         # Reading before first activation does not grant ordinary writes or open core review.

@@ -216,7 +216,8 @@ async def native_probe():
     allowed = {root / name for name in ("main.db", "ideas.db", "vault.db")}
     real_connect = sqlite3.connect
     def checked_connect(path, *args, **kwargs):
-        assert Path(path).resolve() in allowed, "only synthetic three databases are permitted"
+        from tests.sqlite_fixture_guard import is_synthetic_sqlite_path
+        assert is_synthetic_sqlite_path(path, allowed, uri=kwargs.get("uri")), "outside_synthetic_database"
         return real_connect(path, *args, **kwargs)
     with ExitStack() as stack:
         stack.enter_context(patch("socket.create_connection", side_effect=AssertionError("offline synthetic probe")))

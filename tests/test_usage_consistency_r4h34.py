@@ -315,31 +315,33 @@ class UsageConsistencyTests(unittest.TestCase):
                 self.assertEqual(REVIEWED_NON_DOCUMENTATION_SHA256["service.py"],
                                  non_documentation_hash("service.py", parsed))
 
-    def test_daily_contract_still_requires_only_module_and_content(self):
+    def test_daily_contract_requires_only_content(self):
         functions = tool_functions()
-        self.assertEqual(50, len(functions))
-        self.assertEqual(50, len({node.name for node in functions}))
+        self.assertEqual(55, len(functions))  # 54 public actions plus host-only image transport.
+        self.assertEqual(55, len({node.name for node in functions}))
         daily = next(node for node in functions if node.name == "remember_memory")
         required = len(daily.args.args) - len(daily.args.defaults)
-        self.assertEqual(["module", "content"], [arg.arg for arg in daily.args.args[:required]])
+        self.assertEqual(["content"], [arg.arg for arg in daily.args.args[:required]])
         annotation = daily.args.args[0].annotation
         self.assertIsInstance(annotation, ast.Subscript)
-        self.assertEqual(("emotional_memory", "learning_memory", "planning_memory"), ast.literal_eval(annotation.slice))
+        self.assertEqual("Annotated", annotation.value.id)
+        self.assertEqual("module", daily.args.args[1].arg)
+        self.assertEqual("auto", ast.literal_eval(daily.args.defaults[0]))
         self.assertNotIn("expected_row_version", [arg.arg for arg in daily.args.args])
-        self.assertIn("No preliminary stbrain_open", ast.get_docstring(daily))
+        self.assertIn("只需 content", ast.get_docstring(daily))
 
     def test_all_daily_manuals_recommend_the_existing_one_call_entry(self):
         for module in ("emotional_memory", "learning_memory"):
             filename = "emotional_service.py" if module == "emotional_memory" else "learning_service.py"
             instruction = literal_field(filename, "tools")["remember_memory"]
             with self.subTest(module=module):
-                self.assertIn("module=" + module, instruction)
+                self.assertIn(module, instruction)
                 self.assertIn("content=", instruction)
                 self.assertIn("一次保存", instruction)
-                self.assertIn("无需先 open、手填版本或另轮审核", instruction)
+                self.assertIn("无需先open、手填版本或另轮审核", instruction.replace("先 open", "先open"))
         entry = literal_field("planning_service.py", "ordinary_entry")
         self.assertEqual("remember_memory", entry["tool"])
-        self.assertEqual(["module", "content"], entry["required_arguments"])
+        self.assertEqual(["content"], entry["required_arguments"])
         self.assertIn("不用先开脑", entry["instruction"])
 
     def test_old_module_rules_are_limited_to_advanced_writes(self):
@@ -367,7 +369,7 @@ class UsageConsistencyTests(unittest.TestCase):
     def test_global_workflow_does_not_turn_daily_saving_into_personality_review(self):
         workflow = literal_field("service.py", "public_workflow")
         self.assertLessEqual(len(workflow), 5)
-        self.assertIn("remember_memory(module, content)", workflow[0])
+        self.assertIn("remember_memory(content=原文)", workflow[0])
         self.assertIn("无需先 open", workflow[0])
         text = " ".join(workflow)
         self.assertIn("view='manual'", text)
@@ -380,7 +382,7 @@ class UsageConsistencyTests(unittest.TestCase):
         result = guide()
         self.assertEqual("daily-memory/1", result["contract_version"])
         self.assertIs(result["state_changed"], False)
-        self.assertEqual(["module", "content"], result["daily_memory"]["required"])
+        self.assertEqual(["content"], result["daily_memory"]["required"])
         self.assertEqual(["emotional_memory", "learning_memory", "planning_memory"], result["daily_memory"]["modules"])
         serialized = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
         # L40 adds a 127-character explicit-only work-memory entry.
@@ -402,10 +404,10 @@ class UsageConsistencyTests(unittest.TestCase):
     def test_document_current_route_and_historical_evidence_are_distinct(self):
         document = (MCP / "OPEN_RESPONSE.md").read_text(encoding="utf-8")
         self.assertIn("public-tools/21 / brain-open/2", document.splitlines()[0])
-        self.assertIn("50 个公开工具", document)
+        self.assertIn("54 个公开工具", document)
         self.assertIn('stbrain_open(view="recall", query="查询内容")', document)
         self.assertIn("官端直连 MCP 和网关注入模型均可写入、修改普通记忆", document)
-        self.assertIn("不需要先 `stbrain_open`", document)
+        self.assertIn("不需要每次先 `stbrain_open`", document)
         self.assertIn("原 public-tools/16（39 工具）", document)
         self.assertIn("不是手机成功回执", document)
         self.assertIn("仅用于专用高级工具", document)

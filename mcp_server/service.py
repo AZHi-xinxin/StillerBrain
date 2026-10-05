@@ -1075,7 +1075,7 @@ class SelfModelAccessService:
                 "它提供跨唤醒连续性线索，但不把这些文本宣称为不间断主观意识或不可质疑的事实。"
             ),
             "public_workflow": [
-                "模块一首次完成并激活后，普通情感、学习、规划新增直接用 remember_memory(module, content)；正常网关及 simple-memory-v1 自动绑定，无需先 open、手填模块版本或另轮审核。说明用 stbrain_help。",
+                "模块一首次完成并激活后，日常记忆直接用 remember_memory(content=原文)，只填正文，module默认auto；正常网关及 simple-memory-v1 自动绑定，无需先 open、手填模块版本或另轮审核。随手记用 remember_work_memory(content=原文)，不自动长期召回；旧直连仍需原授权。说明按需用 stbrain_help。",
                 "普通内容修订用 revise_memory(target_ref, changes)：按模块修改原文 original_text 或 current_understanding、摘要、情绪、来源、标签等作者字段，保留旧版本。计划进度用 advance_plan，保留已读目标版本、事件序号和真实证据，不手填模块行版本。",
                 "跨脑主动查找用 stbrain_open(view='recall', query=查询词)；query为空查看四普通脑完整分页目录，按返回的cursor续页，按detail_lookup查看原文。各recall_*精确读取仍保留；活动自我与审计历史用query_self_model。",
                 "高级操作需要说明或复核材料时，用 stbrain_open(view='manual', module=对应模块)；默认 summary 仅返回上下文摘要与版本，不是已读候选的证明。",

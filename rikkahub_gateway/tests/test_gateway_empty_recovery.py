@@ -282,6 +282,41 @@ class EmptyRecoveryTests(unittest.TestCase):
         self.assertEqual(5,r.calls[0].extensions['timeout']['read'])
         self.assertEqual(1,r.calls[1].extensions['timeout']['read'])
 
+    def test_timer_closed_normal_eof_is_timeout_even_before_monotonic_deadline(self):
+        # Deterministically model the Windows timer waking slightly before the
+        # shared monotonic clock crosses its deadline. No sleep/timing lottery.
+        for protected, before_iteration in ((False, False), (True, False), (False, True), (True, True)):
+            with self.subTest(protected=protected, before_iteration=before_iteration):
+                timers = []
+                class EarlyTimer:
+                    daemon = True
+                    def __init__(self, interval, callback):
+                        self.callback = callback; timers.append(self)
+                    def start(self):
+                        if before_iteration and len(timers) == 2: self.callback()
+                    def cancel(self): pass
+                class ClosedEofStream(httpx.SyncByteStream):
+                    def __init__(self): self.closed = False
+                    def __iter__(self):
+                        if not before_iteration: timers[-1].callback()
+                        assert self.closed, 'synthetic early timer must have closed second response'
+                        if False: yield b''
+                    def close(self): self.closed = True
+                stream = ClosedEofStream()
+                with patch('rikkahub_gateway.server.threading.Timer', EarlyTimer), \
+                     patch('rikkahub_gateway.server.time.monotonic', return_value=10.0):
+                    result = self.invoke([EMPTY, stream], protected=protected,
+                        custom_config=replace(config(), timeout_seconds=5))
+                self.assertEqual('upstream_unavailable', result.code)
+                self.assertEqual(2, len(result.calls))
+                self.assertTrue(stream.closed)
+                self.assertEqual(1, result.raw.count(DONE))
+
+    def test_normal_empty_second_eof_without_timer_is_still_invalid_stream(self):
+        result = self.invoke([EMPTY, b''])
+        self.assertEqual('upstream_invalid_stream', result.code)
+        self.assertEqual(2, len(result.calls))
+
     def test_after_failed_tool_continuation_new_user_can_start_without_replaying_tool(self):
         r=self.invoke([EMPTY,EMPTY],continuation=True)
         wire=json.loads(r.calls[-1].content)

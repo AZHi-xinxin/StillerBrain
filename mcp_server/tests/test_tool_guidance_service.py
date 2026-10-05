@@ -233,29 +233,24 @@ class ToolGuidanceAccessServiceTests(unittest.TestCase):
         self.assertEqual("directory", result["lookup_guidance"]["arguments"]["view"])
         self.assertFalse(result["state_changed"])
 
-    def test_risk_rejections_explain_high_floor_without_changing_cards(self) -> None:
+    def test_author_risk_and_confirmation_are_stored_without_execution(self) -> None:
         self.onboarding.allowed = True
         self.onboarding.add_wake("ref:one", "wake:one", 1)
-        before = self.service.status()
-        for risk, confirmation in (
+        for index, (risk, confirmation) in enumerate((
             ("low", "explicit_each_time"),
             ("medium", "explicit_each_time"),
             ("high", "contextual"),
             ("critical", "contextual"),
-        ):
+        )):
             with self.subTest(risk=risk, confirmation=confirmation):
-                result = self.remember(risk_level=risk, confirmation_policy=confirmation)
-                self.assertEqual(["risk_below_runtime_floor"], result["reason_codes"])
-                self.assertEqual("high", result["repair_guidance"]["real_world_action_minimum_risk_level"])
-                self.assertFalse(result["repair_guidance"]["critical_required"])
-                self.assertEqual("none", result["repair_guidance"]["permission_authority"])
-                self.assertFalse(result["state_changed"])
+                result = self.remember(expected=index, operation_key=f"author_choice_{index}",
+                                       risk_level=risk, confirmation_policy=confirmation)
+                self.assertEqual("stored", result["decision"])
+                self.assertEqual(risk, result["card"]["content"]["risk_level"])
+                self.assertEqual(confirmation, result["card"]["content"]["confirmation_policy"])
                 self.assertFalse(result["execution_performed"])
-                self.assertEqual(before, self.service.status())
-
-        stored = self.remember(risk_level="high", confirmation_policy="explicit_each_time")
-        self.assertEqual("stored", stored["decision"])
-        self.assertEqual("high", stored["card"]["content"]["risk_level"])
+                readback = self.service.recall(card_id=result["card"]["card_id"], view="card")
+                self.assertEqual(result["card"]["content"], readback["results"][0]["content"])
 
     def test_control_character_tag_rejection_keeps_natural_language_tags_visible(self) -> None:
         self.onboarding.allowed = True
@@ -267,7 +262,7 @@ class ToolGuidanceAccessServiceTests(unittest.TestCase):
         self.assertIn("中文", rejected["repair_guidance"]["message"])
         self.assertEqual(before, self.service.status())
         manual = self.service.manual()
-        self.assertIn("high", manual["authoring_constraints"]["real_world_action"])
+        self.assertIn("不按动作类别或关键词设置风险下限", manual["authoring_constraints"]["real_world_action"])
         self.assertIn("中文", manual["authoring_constraints"]["scenario_tags"])
 
         stored = self.remember(

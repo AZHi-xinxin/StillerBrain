@@ -13,6 +13,11 @@ import jsonschema
 
 
 EXPECTED_PUBLIC_TOOLS = {
+    "stage_memory_image_upload",  # Discoverable transport capability, excluded from model catalogs.
+    "store_memory_image",
+    "list_memory_images",
+    "read_memory_image",
+    "remove_memory_image",
     "attach_memory_relation",
     "detach_memory_relation",
     "read_memory_relations",

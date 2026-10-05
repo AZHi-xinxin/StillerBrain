@@ -25,7 +25,7 @@ from mcp_server.tool_catalog_profile import (
 
 
 EXPECTED_DAILY_NAMES = {
-    "remember_memory", "remember_tool_guidance", "stbrain_open",
+    "remember_memory", "remember_work_memory", "remember_tool_guidance", "stbrain_open",
     "revise_memory", "advance_plan", "stbrain_tools", "stbrain_manage",
 }
 FACADES = {"stbrain_tools", "stbrain_manage"}
@@ -103,7 +103,7 @@ class ToolCatalogProfileTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("revise_tool_guidance", self.names(baseline))
         self.assertEqual([], self.calls)
 
-    async def test_daily_has_seven_compact_tools_without_mutating_sdk_contracts(self):
+    async def test_daily_has_eight_compact_tools_without_mutating_sdk_contracts(self):
         self.assertEqual(EXPECTED_DAILY_NAMES, set(DAILY_TOOL_NAMES))
         baseline = await self.original_handler(types.ListToolsRequest(method="tools/list"))
         original = {tool.name: tool for tool in baseline.root.tools}
@@ -114,7 +114,7 @@ class ToolCatalogProfileTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.subTest(options=options), http_context(**options):
                 result = await self.listed()
-                self.assertEqual(7, len(result.root.tools))
+                self.assertEqual(8, len(result.root.tools))
                 self.assertEqual("stbrain_open", result.root.tools[0].name)
                 self.assertEqual(EXPECTED_DAILY_NAMES, self.names(result))
                 for tool in result.root.tools:
@@ -128,6 +128,33 @@ class ToolCatalogProfileTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn(phrase, DAILY_CATALOG_NAVIGATION)
         self.assertEqual(self.legacy(baseline).model_dump(by_alias=True), (await self.listed()).model_dump(by_alias=True))
         self.assertEqual([], self.calls)
+
+    async def test_scratchpad_is_already_registered_and_daily_only_adds_visibility(self):
+        baseline_count = len(self.manager.list_tools())
+        with http_context(query="tool_profile=daily"):
+            directory = await self.listed()
+            note = next(tool for tool in directory.root.tools if tool.name == "remember_work_memory")
+            self.assertIn("只填 content", note.description)
+            self.assertIn("不自动混入长期回忆", note.description)
+            result = await self.manager.call_tool("remember_work_memory", {"value": "synthetic-note"})
+        self.assertEqual({"value": "synthetic-note"}, result)
+        self.assertEqual(baseline_count, len(self.manager.list_tools()))
+        self.assertEqual(["synthetic-note"], self.calls)
+
+    async def test_host_upload_capability_is_discoverable_but_not_a_daily_action(self):
+        from runtime.memory_image_uploads import UPLOAD_CONTRACT, UPLOAD_TOOL
+        async def host_only(protocol: str) -> dict:
+            return {"contract": protocol}
+        self.mcp.add_tool(host_only, name=UPLOAD_TOOL, meta={
+            "stbrain/hostOnly": True, "stbrain/contract": UPLOAD_CONTRACT})
+        with http_context(query="tool_profile=daily"):
+            result = await self.listed()
+        self.assertEqual(EXPECTED_DAILY_NAMES | {UPLOAD_TOOL}, self.names(result))
+        capability = next(t for t in result.root.tools if t.name == UPLOAD_TOOL)
+        self.assertEqual(True, capability.meta["stbrain/hostOnly"])
+        self.assertNotIn(UPLOAD_TOOL, DAILY_TOOL_NAMES)
+        from runtime.compact_tool_routes import ACTION_CATEGORIES
+        self.assertNotIn(UPLOAD_TOOL, ACTION_CATEGORIES)
 
     async def test_daily_keeps_existing_author_preference_and_original_tool_objects(self):
         with http_context(query="tool_profile=daily"):

@@ -136,12 +136,12 @@ class ColloquialPersistenceTests(unittest.TestCase):
                     self.bound.return_value = replace(self.claim, call_id=f"reject-{index}-{variant}")
                     result = self.daily.remember(module, text)
                     self.assertEqual("reject", result["decision"])
-                    expected_reason = (
-                        "credential_content_rejected"
-                        if module == "planning_memory"
-                        else "credential_or_secret_detected"
-                    )
+                    # The unified facade screens the complete raw input before
+                    # per-module persistence, so all ordinary modules now use
+                    # the same fixed credential rejection code.
+                    expected_reason = "credential_or_secret_detected"
                     self.assertEqual([expected_reason], result["reason_codes"])
+                    self.assertEqual(expected_reason, result["reason_code"])
                     self.assertNotIn(_VALUE, json.dumps(result))
                     self.assertEqual(before, self.counts())
         for table in ("learning_versions", "planning_versions", "planning_events", "planning_change_candidates"):

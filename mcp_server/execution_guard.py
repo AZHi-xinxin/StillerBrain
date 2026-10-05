@@ -10,6 +10,7 @@ from runtime.execution_binding import (
 from .daily_revision_service import parse_revision_target
 
 READ_ONLY_TOOLS = frozenset({
+    "list_memory_images", "read_memory_image",
     "read_memory_relations",
     "recall_work_memory",
     "query_self_model", "recall_emotional_memory", "recall_learning_memory",
@@ -82,7 +83,10 @@ def install_execution_guard(mcp: Any, *, store: ExecutionStore, onboarding: Any,
 
     def is_direct(name: str, args: dict[str, Any]) -> bool:
         ref = args.get("write_context_ref")
-        scope = args.get("module") if name == "remember_memory" else _DIRECT_SCOPES.get(name)
+        scope = _DIRECT_SCOPES.get(name)
+        if name in {"remember_memory", "store_memory_image", "remove_memory_image"}:
+            from runtime.ordinary_access import tool_scope
+            scope = tool_scope(name, args)
         if name in {"revise_memory", "advance_plan"}:
             try:
                 scope, _, _ = parse_revision_target(args.get("target_ref"))
@@ -124,6 +128,19 @@ def install_execution_guard(mcp: Any, *, store: ExecutionStore, onboarding: Any,
         ref = args.pop("execution_ref", None)
         if not supplied_ref:
             from runtime.ordinary_access import tool_scope
+            if ordinary_authenticated and name == "remember_memory":
+                from runtime.daily_memory_input import DailyMemoryInputError, resolve_daily_memory_module
+                try:
+                    resolve_daily_memory_module(args)
+                except DailyMemoryInputError:
+                    # A bad optional module is not a request for broader
+                    # authority. Give a fixed, non-echoing correction without
+                    # creating a context, consuming a lease, or writing data.
+                    result = {"decision": "reject", "reason_code": "invalid_module",
+                              "reason_codes": ["invalid_module"], "state_changed": False,
+                              "message": "日常记忆不认识这个模块，本次未写入。",
+                              "next_action": "普通存入只需 content，可省略 module；自我定义与黑匣子请使用各自入口。"}
+                    return tool.fn_metadata.convert_result(result) if convert_result else result
             ordinary = ordinary_authenticated and tool_scope(name, args) is not None
             recall_only = name == "stbrain_open" and args.get("view") == "recall"
             if recall_only or ordinary or not required or (name in READ_ONLY_TOOLS and not args.get("write_context_ref")) or is_direct(name, args):

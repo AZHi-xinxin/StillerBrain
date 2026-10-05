@@ -40,7 +40,7 @@ class KeywordTypeGuidanceTests(unittest.TestCase):
         self.assertEqual(0, completed.returncode, completed.stderr)
         proof = json.loads(completed.stdout.strip().splitlines()[-1])
         self.assertEqual('PASS', proof['decision'])
-        self.assertEqual(9, proof['supported_shape_writes'])
+        self.assertEqual(18, proof['supported_shape_writes'])
         self.assertEqual(6, proof['keyword_type_rejections'])
         self.assertEqual(0, proof['network_attempts'])
         self.assertTrue(proof['other_error_contracts_preserved'])
@@ -89,6 +89,8 @@ async def probe():
         guidance_keys = {'expected_type', 'example', 'next_action'}
         basic_error_keys = {'decision', 'reason_code', 'state_changed', 'message',
                             'allowed_fields', 'required_fields', 'field_errors'}
+        daily_error_keys = {'module', 'decision', 'stored', 'count', 'state_changed',
+                            'reason_code', 'reason_codes', 'message', 'next_step', 'field'}
         base = {'module': 'learning_memory', 'content': 'Synthetic keyword guidance.'}
         blocked = await unchanged_rejection('remember_memory', {**base, 'keywords': 'synthetic-string'})
         assert blocked['reason_code'] == 'module_one_required'
@@ -102,10 +104,12 @@ async def probe():
         plan_ref = None
         secret_value = 'SYNTHETIC_PRIVATE_KEYWORD_VALUE_98A'
         for module in ('emotional_memory', 'learning_memory', 'planning_memory'):
-            for shape in ('list', 'null', 'omitted'):
+            shapes = {'list': ['合成标签', '课堂'], 'null': None, 'omitted': None,
+                      'empty': '', 'whitespace': ' \t ', 'text': '合成标签，课堂'}
+            for shape, value in shapes.items():
                 arguments = {'module': module, 'content': f'Synthetic supported {module} {shape}.'}
                 if shape != 'omitted':
-                    arguments['keywords'] = ['合成标签', '课堂'] if shape == 'list' else None
+                    arguments['keywords'] = value
                 saved = await call('remember_memory', arguments)
                 assert saved['decision'] == 'stored', 'supported_shape_failed'
                 assert not (guidance_keys & set(saved)), 'guidance_changed_success'
@@ -114,29 +118,34 @@ async def probe():
                     plan_ref = saved['ref']
             for value in ('["' + secret_value + '",]', json.dumps({'label': secret_value})):
                 rejected = await unchanged_rejection('remember_memory', {**base, 'module': module, 'keywords': value})
-                assert rejected['reason_code'] == 'invalid_tool_arguments'
-                assert rejected['field_errors'] == [{'field': 'keywords', 'issue': 'list_type'}]
-                assert set(rejected) == basic_error_keys | guidance_keys
-                assert rejected['expected_type'] == 'array<string> | null'
-                assert rejected['example'] == ['标签一', '标签二']
-                assert '["标签一", "标签二"]' in rejected['next_action']
-                assert '省略' in rejected['next_action'] and 'null' in rejected['next_action']
+                # The real entry accepts text, then its bounded facade rejects
+                # malformed contents; this is not an SDK array-type failure.
+                assert rejected['reason_code'] == 'invalid_keywords'
+                assert rejected['field'] == 'keywords'
+                assert set(rejected) == daily_error_keys
+                assert '修正标出的字段' in rejected['next_step']
+                assert rejected['stored'] is False and rejected['count'] == 0
+                assert not (guidance_keys & set(rejected)), 'obsolete_array_only_guidance'
                 assert secret_value not in json.dumps(rejected, ensure_ascii=False), 'input_value_echoed'
                 failures += 1
 
         unknown_key = 'SYNTHETIC_UNKNOWN_ARGUMENT_NAME_67B'
         extra = await unchanged_rejection('remember_memory', {**base, 'keywords': ['合成'], unknown_key: secret_value})
-        assert set(extra) == basic_error_keys, 'other_error_contract_changed'
+        assert set(extra) == basic_error_keys | {'next_action'}, 'other_error_contract_changed'
+        assert '普通存入只需 content' in extra['next_action']
         assert extra['field_errors'] == [{'field': 'unrecognized_field', 'issue': 'extra_forbidden'}]
         assert unknown_key not in json.dumps(extra) and secret_value not in json.dumps(extra)
 
         mixed = await unchanged_rejection('remember_memory', {**base, 'keywords': '["' + secret_value + '",]', unknown_key: secret_value})
-        assert mixed['expected_type'] == 'array<string> | null'
+        # Unknown fields fail argument validation before keyword parsing. No
+        # false array-only correction or submitted field/value is disclosed.
+        assert set(mixed) == basic_error_keys | {'next_action'}
+        assert 'expected_type' not in mixed and 'example' not in mixed
         assert unknown_key not in json.dumps(mixed) and secret_value not in json.dumps(mixed)
         assert {'field': 'unrecognized_field', 'issue': 'extra_forbidden'} in mixed['field_errors']
 
         element = await unchanged_rejection('remember_memory', {**base, 'keywords': [123]})
-        assert set(element) == basic_error_keys, 'non_list_type_contract_changed'
+        assert set(element) == basic_error_keys | {'next_action'}, 'non_list_type_contract_changed'
         assert element['field_errors'] == [{'field': 'keywords', 'issue': 'string_type'}]
 
         other_list = await unchanged_rejection('advance_plan', {'target_ref': plan_ref, 'expected_event_seq': 0,

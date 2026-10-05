@@ -74,7 +74,7 @@ def module_usage_guide(module: str, *, simple: bool) -> dict[str, Any]:
             "read": [{"tool": "recall_emotional_memory", "use": "query 搜索；使用返回的 memory_id 查询原文和版本。"}],
             "write_tools": ["remember_memory", "revise_memory", "remember_emotional_memory",
                             "revise_emotional_memory", "integrate_emotional_memories", "manage_brain_pin", "veto_ephemeral_memory"],
-            "example": {"tool": "remember_memory", "arguments": {"module": "emotional_memory", "content": "一次值得记住的交流。", "keywords": ["交流", "感受"]}},
+            "example": {"tool": "remember_memory", "arguments": {"content": "一次值得记住的交流。"}},
             "workflow": ["普通新增可用 remember_memory。来源与可信度可省略，分别保存为 unmarked 和 null，表示未标注；填写的来源和0–100可信度保留作者选择。", "普通修订使用 revise_memory，附刚查询到的 target_ref 和 changes；原文用 changes.original_text，类型用 changes.memory_type，来源时间用 changes.source_timestamp，修改后保留旧版本。", "revise_emotional_memory 接收其工具顶层公布的摘要、情绪、来源等字段；原文修改走上述 revise_memory。revise_memory 的 changes.confidence=null 表示清除评分，省略字段保留原值。", "整合、固定条目或否决临时记忆时，使用对应工具 schema 和真实目标。"],
         },
         "learning_memory": {
@@ -199,18 +199,18 @@ def simple_usage_guide() -> dict[str, Any]:
     """Test profile help matches its actual access policy, not the legacy gate."""
     return {
         "contract_version": "simple-memory/1", "access_profile": "simple-memory-v1",
-        "work_memory": "工作脑只存原文与标签；remember_work_memory 保存，recall_work_memory 查询，revise_work_memory 修改。仅主动调用，不自动浮现/混合查询/进星图；权限沿用当前学习脑。",
+        "work_memory": "随手记只需 remember_work_memory(content=原文)，tag可省略，默认“随手记”；recall_work_memory 显式查询，revise_work_memory 整理。仅主动调用，不自动混入长期回忆/日常浮现/混合查询/星图；权限沿用当前学习脑。",
         "state_changed": False,
         "module_help": {"tool": "stbrain_help", "parameter": "module", "modules": list(BRAIN_MANUAL_MODULES),
                         "instruction": "传 module 单独读取该模块的静态使用说明；查询实际状态用 stbrain_health。"},
         "ordinary_access": "模块一首次完成设置并激活前，其他普通模块只读，可查询已有内容。激活后官端 MCP 与网关均可直接存、查、改普通记忆；服务负责内部绑定。",
         "remember": {
-            "tool": "remember_memory", "required": ["module", "content"],
+            "tool": "remember_memory", "required": ["content"],
             "modules": ["emotional_memory", "learning_memory", "planning_memory"],
-            "optional": "标题、摘要、关键词、重要度等由 AI 按需填写；来源与可信度省略时分别保存 unmarked 和 null，显示未标注。情感 kind 省略时为 unclassified（未分类），分类由 AI 自选。",
+            "optional": "只填content即可，module默认auto；没有明确元数据线索时为emotional_memory/unclassified。kind/emotion/importance/keywords可省略、null或留空；moment兼容事件，未知分类保守默认并提示，不猜正文、不编标签。来源与可信度未填为unmarked/null，情绪other、重要度50；明确提供的合法字段保留。",
             "keywords_example": ["学习", "方法"],
-            "before_store": "先看存入工具说明中的人称与标签提醒，再组织参数；AI 自选，普通存入仍一次调用。人称自写/关闭以最新管理结果为准，客户端缓存工具说明时刷新 MCP 目录。",
-            "keywords_format": "keywords 优先填 JSON 字符串数组，如 [\"学习\",\"方法\"]；直连 MCP 接收端兼容单个短语、逗号/顿号/分号/换行分隔文本及合法 JSON 数组字符串。网关调用请使用真实数组。含分隔标点的完整关键词放在真实数组内，数组元素按原样处理。",
+            "before_store": "人称与标签提醒只是可选偏好，采用与否由 AI 自选；无需先查 help 或组织标签，普通存入只填 content、一次调用即可。已修改或关闭的人称提醒以最新管理结果为准，客户端缓存工具说明时可刷新 MCP 目录。",
+            "keywords_format": "remember_memory 的 keywords 可省略、留空或 null，不必为了存入编标签；直连与网关均可按其 schema 填短语数组或兼容字符串（单个短语、逗号/顿号/分号/换行分隔文本、合法 JSON 数组字符串）。含分隔标点的完整关键词放在真实数组内。其他专用工具仍按各自 schema，网关要求数组的入口继续填真实数组。",
         },
         "wording_guide": _recall_wording_guide(),
         "read": {
@@ -262,16 +262,16 @@ def simple_usage_guide() -> dict[str, Any]:
 def usage_guide() -> dict[str, Any]:
     return {
         "contract_version": "daily-memory/1", "state_changed": False,
-        "work_memory": "工作脑只存原文与标签；remember_work_memory 保存，recall_work_memory 查询，revise_work_memory 修改。仅主动调用，不自动浮现/混合查询/进星图；权限沿用当前学习脑。",
+        "work_memory": "随手记：remember_work_memory(content=原文)，tag默认“随手记”；recall_work_memory读取，revise_work_memory整理。仅主动查阅，不参与长期回忆、网关注入、混合查询或星图；沿用学习脑权限。",
         "module_help": {"tool": "stbrain_help", "parameter": "module", "modules": [
                             "self_revision", "emotional_memory", "learning_memory", "tool_guidance",
                             "planning_memory", "self_governance_profile", "injection_control",
                             "hallucination_vault", "shared_person_authoring"],
                         },
         "daily_memory": {
-            "tool": "remember_memory", "required": ["module", "content"],
+            "tool": "remember_memory", "required": ["content"],
             "modules": ["emotional_memory", "learning_memory", "planning_memory"],
-            "instruction": "普通新增仅需 module 和真实 content，一次调用；不用先 open、手填版本或另轮审核。",
+            "instruction": "普通新增仅需真实content，一次调用；module默认auto，无明确元数据线索时为emotional_memory/unclassified，不猜正文。无需为存入先查目录、open、手填版本或另轮审核；旧直连仍保留其真实上下文授权。",
             "result": "真实 stored=保存；回执不完整先核查，不自动重试。",
             "uncertainty": "来源/可信度默认unmarked/null（未标注），不代表已独立核实；情感kind默认unclassified（未分类）。",
             "plan_effect": "计划active，不授权或自动执行外部操作。",

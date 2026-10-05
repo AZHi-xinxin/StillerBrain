@@ -74,7 +74,7 @@ class SimplifiedToolGuidanceTests(unittest.TestCase):
         self.assertEqual("general", content["operation_key"])
         self.assertEqual([], content["scenario_tags"])
         self.assertEqual("", content["call_notes"])
-        self.assertEqual(("real_world_action", "high", "explicit_each_time"),
+        self.assertEqual(("real_world_action", "medium", "none"),
             tuple(content[k] for k in ("capability_class", "risk_level", "confirmation_policy")))
         envelope = self.recall()["envelopes"][0]
         self.assertEqual(content["reminder"], envelope["content"]["scene_summary"])
@@ -231,10 +231,17 @@ class SimplifiedToolGuidanceTests(unittest.TestCase):
                 catalog=advertised, current_user_intent=intent, authorization_verified=auth, current_confirmation=confirm)
             self.assertNotEqual("allowed_to_attempt", result["decision"])
             self.assertFalse(result["execution_performed"])
-        before = self.counts()
-        with self.assertRaisesRegex(ToolGuidanceError, "risk_below_runtime_floor"):
-            self.revise(card, risk_level="low", confirmation_policy="none")
-        self.assertEqual(before, self.counts())
+        changed = self.revise(card, risk_level="low", confirmation_policy="none")["card"]
+        self.assertEqual("low", changed["content"]["risk_level"])
+        self.assertEqual("none", changed["content"]["confirmation_policy"])
+        history = self.store.recall(owner_id=self.owner, model_id=self.model,
+            card_id=card["card_id"], view="history")["versions"]
+        self.assertEqual(card["content_hash"], history[1]["content_hash"])
+        gate = self.store.execution_gate(owner_id=self.owner, model_id=self.model,
+            card_id=card["card_id"], catalog=catalog(), current_user_intent=True,
+            authorization_verified=False, current_confirmation=True)
+        self.assertEqual("denied", gate["decision"])
+        self.assertFalse(gate["execution_performed"])
 
     def test_secret_rejected_before_version_or_audit_write(self):
         card = self.create()["card"]

@@ -2,23 +2,24 @@
 
 [首页](../README.md) · [日常指南](GUIDE.md) · [MCP 详细说明](../mcp_server/OPEN_RESPONSE.md)
 
-当前提供 **日常 7 入口**与**完整 50 项目录**两种呈现。`/mcp?tool_profile=daily` 显式选择日常档；默认 `/mcp` 或 `tool_profile=full` 保留完整目录。`simple-memory-v1` 和 `legacy` 是独立的访问配置：它们的完整目录数量相同，集合不同；前者提供 `authorize_self_model`，并收起专用 `revise_tool_guidance`，后者的旧调用仍保留校验与兼容。`public-tools/21` 是协议标签，不是工具数量。
+`0.2.0-preview.3` 提供 **日常 8 入口**与**完整模型目录 54 项**两种呈现，包含 4 个图片操作。完整传输 `tools/list` 另含 1 项 host-only 图片运输能力，共 55 项；宿主须过滤运输项，不发给模型。`/mcp?tool_profile=daily` 显式选择日常档；默认 `/mcp` 或 `tool_profile=full` 保留完整目录。`simple-memory-v1` 和 `legacy` 是独立的访问配置：它们的完整目录数量相同，集合不同；前者提供 `authorize_self_model`，并收起专用 `revise_tool_guidance`，后者的旧调用仍保留校验与兼容。`public-tools/21` 是协议标签，不是工具数量。
 
-下面以 `simple-memory-v1` 为主。模块一首次激活后，普通读写由服务补入内部上下文和模块行版本；AI 使用查询返回的真实目标引用。黑匣子、模块一以及显式旧候选操作保留各自的授权和复核路径。
+下面以 `simple-memory-v1` 为主。模块一首次完成并激活后，普通读写无需每次先 `open`，由服务补入内部上下文和模块行版本；AI 使用查询返回的真实目标引用。`legacy` 仍需真实授权上下文。黑匣子、模块一以及显式旧候选操作保留各自的授权和复核路径。
 
-## 日常七入口与分类工具箱
+## 日常八入口与分类工具箱
 
 | 入口 | 用途 |
 | --- | --- |
 | `stbrain_open` | 首选读取入口，无必填参数；`recall` 搜索，`manual` 按模块展开说明 |
-| `remember_memory` | 保存普通经历、知识或计划 |
+| `remember_memory` | 只填 `content` 即可保存；可选分类指明经历、知识或计划 |
+| `remember_work_memory` | 只填 `content` 暂存碎片或工作资料；默认标签“随手记”，仅显式读取 |
 | `remember_tool_guidance` | 保存工具或 MCP 服务用途 |
 | `revise_memory` | 修改四个普通模块的作者字段 |
 | `advance_plan` | 记录计划进展 |
 | `stbrain_tools` | 无参数列分类，`category` 列操作，`action` 读准确参数 |
 | `stbrain_manage` | 用操作名和对应参数执行选定的 ST 功能 |
 
-当前分类工具箱包含常用能力、工作记忆、记忆关联及兼容的 `revise_tool_guidance`；不是在完整目录之外再增加一套权限。分类包括 `system`、`memory`、`relations`、`self`、`person`、`work`、`emotion`、`learning`、`tools`、`planning`、`diy`、`vault`。以当前分类回执为准。
+当前分类工具箱包含常用能力、工作记忆、记忆关联、图片附件及兼容的 `revise_tool_guidance`；不是在完整目录之外再增加一套权限。分类包括 `system`、`memory`、`relations`、`images`、`self`、`person`、`work`、`emotion`、`learning`、`tools`、`planning`、`diy`、`vault`。以当前分类回执为准。
 
 例如，读取浮现开关可按需要查参数，再执行：
 
@@ -32,7 +33,7 @@
 
 已知参数时可直接执行，不要求每次先查目录。工具箱说明随当前 MCP 目录提供，具体操作参数按需加载；详细校验、模块激活和授权规则保持原样。
 
-下文表格、帮助和 `detail_lookup` 返回的操作名，如果不在当前独立工具目录中，填入 `stbrain_manage.action`，其原参数放入内层 `arguments`。例如日常档使用 `stbrain_manage(action="stbrain_help", arguments={"module":"learning_memory"})` 读学习说明。直接调用七个入口时，各业务参数仍平铺填写，不额外套一层业务 `arguments`。
+下文表格、帮助和 `detail_lookup` 返回的操作名，如果不在当前独立工具目录中，填入 `stbrain_manage.action`，其原参数放入内层 `arguments`。例如日常档使用 `stbrain_manage(action="stbrain_help", arguments={"module":"learning_memory"})` 读学习说明。直接调用八个入口时，各业务参数仍平铺填写，不额外套一层业务 `arguments`。
 
 客户端需重连、刷新目录后从新回合使用日常档；旧会话已发送的说明不会自动消失。目录选择不改变权限，客户端仍可禁用或要求审批工具箱入口。
 
@@ -41,24 +42,27 @@
 | 需求 | 调用 |
 | --- | --- |
 | 按模块了解用法 | `stbrain_open(view="manual", module=...)`；静态帮助用 `stbrain_help` 操作 |
-| 新增经历、知识、计划 | `remember_memory(module, content)` |
+| 新增一条普通记忆 | `remember_memory(content=...)`；`module`、分类和其他元数据可省略 |
+| 暂存碎片或工作资料 | `remember_work_memory(content=...)`；标签可省略，仅显式读取 |
 | 新增工具卡 | `remember_tool_guidance(tool_name, purpose)` |
 | 跨普通模块搜索或浏览 | `stbrain_open(view="recall", query=...)`；空 query 为目录 |
 | 修改四个普通模块 | `revise_memory(target_ref, changes)` |
 | 查询自写提醒 | `query_self_governance_profile(view="status", include_content=true)` |
 | 自写或清空提醒 | `manage_self_governance_profile(action="set"/"clear", scope=...)` |
 
+`remember_memory` 的 `content` 是唯一必填项。只有正文时保存为情感脑的未分类记录；自动模块选择只依据明确元数据，不猜正文语义。情感分类 `moment`/`event` 兼容为 `shared_event`；不认识的分类或情绪用默认值并返回固定警告，不丢正文。未知模块、来源与可信度等字段仍严格校验；已确认的人称校对回执要求精确模块和原样最终字段。细节见 [普通保存](../mcp_server/OPEN_RESPONSE.md#1-普通保存)。
+
 正文示例是调用意图说明。真实参数结构以连接实例的工具 Schema 为准；把 JSON 放进普通聊天框仍是聊天文字。
 
 ## 完整目录
 
-以下列出完整档的 50 个独立入口。使用日常档时，其余操作通过上面的分类工具箱调用。
+以下列出完整模型目录的 54 个独立入口，不含 host-only 运输项。使用日常档时，其余操作通过上面的分类工具箱调用。
 
-### 本版新增：工作记忆与关系 · 6 项
+### 工作记忆与关系 · 6 项
 
 | 工具 | 用途 |
 | --- | --- |
-| `remember_work_memory` | 显式保存工作正文与标签 |
+| `remember_work_memory` | 显式保存碎片或工作正文；只有 `content` 必填，标签省略为“随手记” |
 | `recall_work_memory` | 按查询或真实引用读取工作记录，支持分页与退役记录选择 |
 | `revise_work_memory` | 在读过的版本上修订正文、标签或 active/retired 生命周期 |
 | `attach_memory_relation` | 以真实情感、学习或规划引用建立关系 |
@@ -68,6 +72,17 @@
 工作记忆使用 `work://…@版本` 引用，不走普通 `revise_memory`，也不自动参与召回或图谱展示；退役不是物理删除。它与换窗的有界短期缓存、供应商 token 缓存分别管理。模块激活、身份、学习作用域和执行授权仍需满足。
 
 关系目前支持情感、学习和规划，不涵盖工作记忆、自我定义或黑匣子。它记录显式联系，不自动改写端点正文、不让未授权内容进入结果；关系名称不能证明现实因果。具体参数通过 `stbrain_tools(action="attach_memory_relation")` 等当前目录取得。
+
+### 本版新增：记忆图片附件 · 4 项
+
+| 工具 | 用途 |
+| --- | --- |
+| `store_memory_image` | 给已有且可访问的情感、学习或规划记忆附上真实图片原字节与描述 |
+| `list_memory_images` | 分页列出同一记忆的图片描述和编号，不取原图 |
+| `read_memory_image` | 默认读取元数据；明确 `include_data=true` 才返回原图 |
+| `remove_memory_image` | 软删除同一记忆的图片附件，不删除原记忆或擦除备份 |
+
+日常档从 `stbrain_tools(category="images")` / `stbrain_manage` 使用。图片不自动进入召回、星图或模型请求；不是自动识图服务，敏感目标另有拒绝边界。大小、权限和隐私限制见 [图片附件](MEMORY-IMAGES.md)。
 
 ### 1. 普通操作与帮助 · 5 项
 
@@ -125,6 +140,8 @@
 工具卡修改统一使用 `revise_memory`。`tool_name` 可写 MCP 服务大名，`operation_key` 可省略；`purpose` 写用途，`reminder` 可写至多 100 字符的短提醒。中文场景标签可用，具体调用细节按需保存和读取。
 
 可信度由 AI 在 0–100 内填写，来源单独记录。有效期可选：创建时省略或 null 表示不设置到期；后续统一修改时 `expires_at:null` 清除日期。工具经验的作者判断与真实执行器确认分开表示。
+
+保存工具卡只是记录用法，不执行工具。`risk_level` 与 `confirmation_policy` 可省略或独立填写，不再因为写操作、设备/发送等关键词或高风险标签拒绝存卡。新卡默认 `medium` / `none`，仅为未另行设置的元数据、不给卡片额外增加逐次确认要求，不是安全评级或执行授权。已有卡片不自动改写；作者明确选择的 `explicit_each_time` 保留。实际调用仍由调用端与目标工具按当前授权处理。
 
 读回成功、部分成功及其他结果，使用 `recall_tool_guidance(view="experiences", card_id=真实卡编号)`。`query` 可填精确经验 ID，或尝试、教训、原因和结果类型中的文本；`limit` 最多 5 条，查看 `total` 与 `truncated` 判断是否还有匹配记录。日常档示例：
 

@@ -633,10 +633,18 @@ class ToolGuidanceStoreTests(unittest.TestCase):
         self.assertFalse(hasattr(self.store, "execute_tool"))
         self.assertFalse(hasattr(self.store, "call_any_tool"))
 
-    def test_runtime_risk_floor_rejects_device_control_downgrade(self) -> None:
-        with self.assertRaisesRegex(ToolGuidanceError, "risk_below_runtime_floor"):
-            self.remember(risk_level="low", confirmation_policy="none")
-        self.assertEqual(0, self.version())
+    def test_authored_device_control_risk_is_not_an_execution_permission(self) -> None:
+        saved = self.remember(risk_level="low", confirmation_policy="none")
+        self.assertEqual("low", saved["card"]["content"]["risk_level"])
+        self.assertEqual("none", saved["card"]["content"]["confirmation_policy"])
+        self.assertFalse(saved["execution_performed"])
+        gate = self.store.execution_gate(
+            owner_id=self.owner, model_id=self.model, card_id=saved["card"]["card_id"],
+            catalog=self.live_catalog, current_user_intent=True,
+            authorization_verified=False, current_confirmation=True,
+        )
+        self.assertEqual("denied", gate["decision"])
+        self.assertFalse(gate["execution_performed"])
 
     def test_schema_accepts_card_and_does_not_force_grammatical_person(self) -> None:
         stored = self.remember(

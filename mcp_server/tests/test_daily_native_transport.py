@@ -25,9 +25,9 @@ async def probe():
         fixture.bootstrap_live()
         common = {"owner_id": server.OWNER_ID, "model_id": server.MODEL_ID}
         tools = server.mcp._tool_manager.list_tools()
-        assert len(tools) == 52  # 44 legacy, three work tools, three relation tools and two compact facades.
+        assert len(tools) == 57  # Existing public operations plus the host-only image transport.
         tool = server.mcp._tool_manager.get_tool("remember_memory")
-        assert tool.parameters["required"] == ["module", "content"]
+        assert tool.parameters["required"] == ["content"]
         assert "execution_ref" in tool.parameters["properties"]
         entries = [{"canonical_name": t.name, "schema_hash": canonical_hash(t.parameters)} for t in tools]
         catalog = {"contract": "advertised-tools/1", "catalog_complete": True,
@@ -114,7 +114,7 @@ async def probe():
                     "expected_event_seq": sequence, "event_type": "resume", "note": "Stale resume"}, "stale-event")
                 assert stale_event["decision"] == "reject" and stale_event["state_changed"] is False, stale_event
             results.append(module)
-        return {"decision": "PASS", "modules": results, "registered_tool_count": 52,
+        return {"decision": "PASS", "modules": results, "registered_tool_count": 57,
                 "single_native_call_per_memory": True, "replays_rejected": True,
                 "single_revision_per_module": True, "stale_targets_rejected": True,
                 "plan_event_cas_verified": True,

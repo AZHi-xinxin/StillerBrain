@@ -8,17 +8,18 @@
 
 新的示例配置采用 `STBRAIN_ACCESS_PROFILE=simple-memory-v1`。旧配置省略此变量时沿用兼容路径；升级采用哪种配置由部署者明确选择。
 
-当前 `public-tools/21` 是公开契约标签。默认 `/mcp` 返回完整 50 项目录；显式使用 `/mcp?tool_profile=daily` 返回日常 7 入口，也可使用 `X-STBrain-Tool-Profile: daily` 请求头。选择器按请求生效，与访问配置独立；两个选择器各最多一次，同时提供时必须一致。升级不会自动切档，修改连接后须重连、刷新工具列表，从新回合使用。
+当前 `public-tools/21` 是公开契约标签，对应 `0.2.0-preview.3`。默认 `/mcp` 的完整模型目录为 54 项（含 4 个图片操作）；显式使用 `/mcp?tool_profile=daily` 选择日常 8 入口，也可使用 `X-STBrain-Tool-Profile: daily` 请求头。传输层另列 1 项 host-only 图片运输能力，所以完整 `tools/list` 为 55 项；宿主须过滤运输项，不发给模型。选择器按请求生效，与访问配置独立；两个选择器各最多一次，同时提供时必须一致。升级不会自动切档，修改连接后须重连、刷新工具列表，从新回合使用。
 
-`simple-memory-v1` 与 `legacy` 的完整目录均为 50 项，集合有一处替换：前者提供 `authorize_self_model`，并把工具卡修改统一放进 `revise_memory`；旧 `revise_tool_guidance` 调用仍兼容，保留相同授权与校验。
+`simple-memory-v1` 与 `legacy` 的完整模型目录均为 54 项，集合有一处替换：前者提供 `authorize_self_model`，并把工具卡修改统一放进 `revise_memory`；旧 `revise_tool_guidance` 调用仍兼容，保留相同授权与校验。
 
-日常档按顺序提供 `stbrain_open`、`remember_memory`、`remember_tool_guidance`、`revise_memory`、`advance_plan`、`stbrain_tools`、`stbrain_manage`。`stbrain_tools` 按分类列操作或按操作名返回完整参数；`stbrain_manage(action=操作名, arguments=参数对象)` 沿原授权与校验路径执行。分类工具箱包含常用及兼容能力，包括新增的 `work` 与 `relations`。已有帮助或回执提到未独立列出的操作名时，通过该入口调用，无需请人切档。
+日常档按顺序提供 `stbrain_open`、`remember_memory`、`remember_work_memory`、`remember_tool_guidance`、`revise_memory`、`advance_plan`、`stbrain_tools`、`stbrain_manage`。`stbrain_tools` 按分类列操作或按操作名返回完整参数；`stbrain_manage(action=操作名, arguments=参数对象)` 沿原授权与校验路径执行。分类工具箱包含常用及兼容能力，包括 `work`、`relations` 和 `images`。已有帮助或回执提到未独立列出的操作名时，通过该入口调用，无需请人切档。
 
 ### 日常操作
 
 | 需求 | 入口 |
 | --- | --- |
-| 保存经历、知识或计划 | `remember_memory(module, content)` |
+| 保存普通记忆 | `remember_memory(content=...)`；分类与其他元数据均可省略 |
+| 暂存碎片或工作资料 | `remember_work_memory(content=...)`；默认标签“随手记”，仅显式读取 |
 | 保存工具或 MCP 服务经验 | `remember_tool_guidance(tool_name, purpose)` |
 | 搜索或浏览四个普通模块 | `stbrain_open(view="recall", query=...)` |
 | 修改四个普通模块 | `revise_memory(target_ref, changes)` |
@@ -29,7 +30,9 @@
 | 查分类与准确参数 | `stbrain_tools(category=...)` 或 `stbrain_tools(action=...)` |
 | 使用其余能力 | `stbrain_manage(action=操作名, arguments=参数对象)` |
 
-模块一首次完成并激活后，`simple-memory-v1` 的直连与网关调用均可直接使用普通读写入口。内部上下文和模块行版本由服务取得；AI 只需使用已查询到的目标引用和本次修改内容。普通模块首次激活前为只读，已有内容仍可按读取规则查询。
+模块一首次完成并激活后，`simple-memory-v1` 的直连与网关调用均可直接使用普通读写入口，不必每次先 `open`。内部上下文和模块行版本由服务取得；AI 只需使用已查询到的目标引用和本次修改内容。普通模块首次激活前为只读，已有内容仍可按读取规则查询。`legacy` 仍需真实授权上下文，选择日常目录不会自动取得权限。
+
+`remember_memory` 只有 `content` 必填；缺省 `module="auto"` 只按明确元数据选择模块，只有正文时为情感脑未分类记录。`kind`、`emotion`、`importance`、`keywords` 可省略、留空或填 null；未识别的分类或情绪会用默认值并在 `input_warnings` 说明，正文不截断。情感分类 `moment`/`event` 兼容为 `shared_event`。未知模块、来源、可信度与权限字段不会自动纠正；已确认的 `rewrite_receipt` 仍须精确模块和原样最终字段。完整规则见 [普通保存](OPEN_RESPONSE.md#1-普通保存)。
 
 普通原文与摘要等作者字段可修改，历史版本保留。情感类型默认未分类，普通记忆来源和可信度省略时显示未标注，由作者补充。工具卡可信度可填 0–100，有效期可选；实际执行权限单独校验。
 
@@ -37,7 +40,7 @@
 
 ## 工作资料与关系的边界
 
-工作记忆逐条保留原文与标签，正文最多 32768 字符且不超过 128 KiB UTF-8；按标签字面查询，单页最多 5 条，也可读取确切历史引用。修改保留旧版，`lifecycle="retired"` 可逆退役；用 `include_retired=true` 读回当前引用后可恢复。它不进入四模块混合查询、日常自动注入或星图，只在显式调用时交给模型。
+工作记忆只需 `remember_work_memory(content=...)`；`tag` 省略为“随手记”，明确填写时须为 1–160 字符。逐条保留原文，正文最多 32768 字符且不超过 128 KiB UTF-8；按标签字面查询，单页最多 5 条，也可读取确切历史引用。修改保留旧版，`lifecycle="retired"` 可逆退役；用 `include_retired=true` 读回当前引用后可恢复。它不进入四模块混合查询、日常自动注入或星图，只在显式读取时交给模型，不替代自动长期记忆。
 
 关系只连接当前可访问的情感、学习、规划记录，不连接工作记忆或隔离匣。边有独立版本，一跳读取返回引用、类型与已有标题，不返回正文、不递归扩展。自定义关系标签由作者填写；星图不接收标签或标题。创建关系不会改写正文，也不会开启自动联想注入。
 
@@ -85,7 +88,7 @@
 
 控制面另提供宿主专用的 `POST /v1/host/atlas/capabilities`、`register`、`snapshot`、`revoke`，不是模型 MCP 工具。设备委托限定为 `atlas.metadata.read`：匿名节点与关系结构，不包含记忆正文、标题、自定义关系标签或凭证；不能拿星图凭证调用普通脑工具。
 
-未配置时保持关闭，不新建星图存储。部署者显式配置 `STBRAIN_ATLAS_BOOTSTRAP_ENABLED`、独立的 `STBRAIN_ATLAS_ID_KEY` 和 `STBRAIN_ATLAS_FORBIDDEN_VERIFIERS_JSON` 后才可使用；三项须作为一套受保护配置校验，不能只添加开关。ID key 为 64 位小写十六进制，禁止复用其他秘密；禁止列表包含该 key 文本的 SHA-256 及应排除的凭证 verifier。不要在前端保存宿主 Token，也不要把 ID key 或 verifier 列表放入公开反馈。
+新安装向导默认生成 `STBRAIN_ATLAS_BOOTSTRAP_ENABLED=1`、独立的 `STBRAIN_ATLAS_ID_KEY` 和完整 `STBRAIN_ATLAS_FORBIDDEN_VERIFIERS_JSON`。旧配置未设置时仍关闭，不访问星图表；显式 `0` 不被升级覆盖。启用时三项须作为一套受保护配置校验，不能只添加开关。ID key 为 64 位小写十六进制，禁止复用其他秘密；禁止列表包含该 key 文本的 SHA-256 及应排除的凭证 verifier。不要在前端保存宿主 Token，也不要把 ID key 或 verifier 列表放入公开反馈。已有安装可按 [星图维护说明](../docs/ATLAS.md) 生成私有候选，命令不会应用配置或更改运行服务。
 
 设备令牌的登记、撤销与匿名快照需要配套宿主适配器。此接口的存在不代表任意客户端已经接好星图，开启匿名可视化也不会开启记忆正文读取或自动写入。
 

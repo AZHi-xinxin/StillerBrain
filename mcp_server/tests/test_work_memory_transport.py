@@ -42,9 +42,11 @@ async def probe():
             return [line for line in db.iterdump() if "work_memory_" not in line]
 
     tools = server.mcp._tool_manager.list_tools()
-    check(len(tools) == 52, "work and relation tools registered without replacing existing tools")
+    check(len(tools) == 57, "host image transport added without replacing existing tools")
     required = server.mcp._tool_manager.get_tool("remember_work_memory").parameters.get("required", [])
-    check(set(required) == {"content", "tag"}, "minimal public write schema")
+    check(set(required) == {"content"}, "content-only scratchpad write schema")
+    check(server.mcp._tool_manager.get_tool("remember_work_memory").parameters["properties"]["tag"]["default"] == "随手记",
+          "scratchpad has a real default tag")
     empty = await call("recall_work_memory", {})
     check(empty.get("decision") == "recalled" and empty["results"] == [], "authenticated empty read before activation")
     denied = await call("remember_work_memory", {"content": "Synthetic body", "tag": "synthetic"})

@@ -186,8 +186,22 @@ def catalog_probe():
         for phrase in (*SPOKEN_PHRASES, "人类", "casefold", "预算", "系统事件标记"):
             assert phrase in schema and phrase in tool.description, "scene_guidance_missing"
         remember = server.mcp._tool_manager.get_tool("remember_memory")
-        for phrase in ("奶奶家", "小王", "下雨", "Tasker", "keywords", "scene_tags", "情感分类", "命中只是候选"):
-            assert phrase in remember.description, "wording_map_missing"
+        assert remember.parameters['required'] == ['content'], "daily_entry_not_content_only"
+        for phrase in ("只需 content", "stbrain_help", "可选偏好", "不是存入前置步骤",
+                       "AI 自选", "keywords", "scene_tags"):
+            assert phrase in remember.description, "optional_help_direction_missing"
+        assert len(remember.description.split('\n\n', 1)[0]) < 120, "daily_intro_not_short"
+        # Detailed maps remain available on demand, not a required parameter
+        # planning checklist in every advertised remember_memory description.
+        simple = os.environ['STBRAIN_ACCESS_PROFILE'] == 'simple-memory-v1'
+        guide = (simple_usage_guide() if simple else usage_guide())["wording_guide"]
+        examples = json.dumps(guide, ensure_ascii=False)
+        for phrase in ("奶奶家", "小王", "下雨", "Tasker", "想念", "零食",
+                       "keywords", "scene_tags", "emotion", "命中只是候选"):
+            assert phrase in examples, "on_demand_wording_map_missing"
+        for module in ("emotional_memory", "learning_memory", "tool_guidance", "planning_memory"):
+            assert module_usage_guide(module, simple=simple)["wording_guide"]["wording"] == guide["wording"], \
+                "module_wording_examples_changed"
         return {"decision": "PASS", "network_calls": 0, "real_brain_used": False}
 
 

@@ -101,12 +101,38 @@ class CompactCatalogSchemaTests(unittest.TestCase):
         self.assertEqual(["fact", "task"], compact["properties"]["kind"]["enum"])
         self.assertEqual({"type": "integer", "minimum": 1, "maximum": 5}, compact["properties"]["count"])
 
-    def test_only_five_known_entrypoints_are_projected(self):
-        self.assertEqual({"remember_memory", "remember_tool_guidance", "revise_memory", "advance_plan", "stbrain_open"},
+    def test_only_six_known_entrypoints_are_projected(self):
+        self.assertEqual({"remember_memory", "remember_work_memory", "remember_tool_guidance", "revise_memory", "advance_plan", "stbrain_open"},
                          set(COMPACT_ORDINARY_TOOL_NAMES))
         other = types.Tool(name="submit_self_model_candidate", description="Preserve strict original",
                            inputSchema={"type": "object", "properties": {}})
         self.assertIs(other, project_compact_tool(other))
+
+    def test_content_only_memory_and_scratchpad_contracts_keep_defaults_and_limits(self):
+        for name, limit in (("remember_memory", 2000), ("remember_work_memory", 32768)):
+            properties = {"content": {"type": "string", "minLength": 1, "maxLength": limit}}
+            if name == "remember_memory":
+                properties["module"] = {"anyOf": [{"type": "string"}, {"type": "null"}], "default": "auto"}
+            else:
+                properties["tag"] = {"type": "string", "minLength": 1, "maxLength": 160, "default": "随手记"}
+            tool = types.Tool(name=name, description="Original", inputSchema={
+                "type": "object", "properties": properties, "required": ["content"], "additionalProperties": False,
+            })
+            original = tool.model_dump(by_alias=True)
+            compact = project_compact_tool(tool)
+            self.assertEqual(["content"], compact.inputSchema["required"])
+            self.assertFalse(compact.inputSchema["additionalProperties"])
+            self.assertEqual(limit, compact.inputSchema["properties"]["content"]["maxLength"])
+            self.assertIn("只填 content", compact.description)
+            self.assertIn("首次激活前只读", compact.description)
+            self.assertIn("旧模式保留原授权", compact.description)
+            if name == "remember_work_memory":
+                self.assertIn("不自动混入长期回忆", compact.description)
+                self.assertEqual("随手记", compact.inputSchema["properties"]["tag"]["default"])
+            else:
+                self.assertIn("moment", compact.description)
+                self.assertEqual("auto", compact.inputSchema["properties"]["module"]["default"])
+            self.assertEqual(original, tool.model_dump(by_alias=True))
 
     def test_property_only_clients_retain_required_and_constraint_fields(self):
         tool = revision_tool()

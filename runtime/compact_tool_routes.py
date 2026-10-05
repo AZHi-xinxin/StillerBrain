@@ -11,6 +11,7 @@ from typing import Any, Mapping
 MANAGE_TOOL = "stbrain_manage"
 DISCOVERY_TOOL = "stbrain_tools"
 CATEGORIES = {
+    "images": ("记忆图片：真实原图与描述，显式存取，不自动浮现", ("store_memory_image", "list_memory_images", "read_memory_image", "remove_memory_image")),
     "relations": ("真实记忆关系：显式连接、解除、一跳查询", ("attach_memory_relation", "detach_memory_relation", "read_memory_relations")),
     "system": ("状态与手册", ("stbrain_health", "stbrain_help", "stbrain_open", "stbrain_open_direct")),
     "memory": ("通用存入、查询与修改", ("remember_memory", "revise_memory", "advance_plan")),

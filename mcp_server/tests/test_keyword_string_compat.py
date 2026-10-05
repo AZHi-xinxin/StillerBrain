@@ -4,7 +4,8 @@ Every probe uses newly activated synthetic stores. Network/service startup and
 non-fixture SQLite connections are blocked. Neither normalization nor the
 credential detector, execution store or ordinary policy is mocked.
 The signed probe tests the MCP post-claim boundary only, not the gateway host's
-schema validation. Actual gateway callers continue to supply canonical arrays.
+schema validation. remember_memory advertises both arrays and compatible text;
+dedicated tools retain their existing canonical-array gateway schemas.
 """
 from __future__ import annotations
 
@@ -80,7 +81,7 @@ class KeywordStringCompatibilityTests(unittest.TestCase):
         """MCP post-claim behavior only; no HostExecutionBoundary is exercised."""
         self.run_probe('gateway_raw_claim')
 
-    def test_public_metadata_still_recommends_canonical_arrays(self):
+    def test_public_metadata_matches_daily_union_and_dedicated_array_contracts(self):
         self.run_probe('canonical_schema')
 
 
@@ -189,7 +190,7 @@ async def probe(mode):
 
         if mode == 'positive':
             shapes = (
-                (['甲', '乙'], ['甲', '乙']), (None, []),
+                (['甲', '乙'], ['甲', '乙']), (None, []), ('', []), ('  \t ', []),
                 (' 单个标签 ', ['单个标签']), (' Alpha beta ', ['Alpha beta']),
                 ('["甲,乙","丙；丁","戊、己"]', ['甲,乙', '丙；丁', '戊、己']),
                 (' 甲,乙，丙、丁;戊；己\r\n庚\n辛\r壬 ', list('甲乙丙丁戊己庚辛壬')),
@@ -212,7 +213,7 @@ async def probe(mode):
                 assert len(boundary) == 32768
                 saved = await save('learning_memory', boundary)
                 assert current_keywords('learning_memory', saved) == []
-                await rejected('remember_memory', {**base, 'keywords': boundary + ' '}, 'invalid_tool_arguments')
+                await rejected('remember_memory', {**base, 'keywords': boundary + ' '}, 'invalid_keywords')
 
         elif mode == 'nested_and_tools':
             for module in ('emotional_memory', 'learning_memory', 'planning_memory'):
@@ -244,18 +245,16 @@ async def probe(mode):
             assert revised.get('card', {}).get('content', {}).get('keywords') == ['分类,整理', '测试']
 
         elif mode == 'invalid_formats':
-            values = ('', '  \t ', '[', '["SYNTHETIC_BAD_VALUE_746",]', '{"x":"SYNTHETIC_BAD_VALUE_746"}',
+            values = ('[', '["SYNTHETIC_BAD_VALUE_746",]', '{"x":"SYNTHETIC_BAD_VALUE_746"}',
                       '["甲",1]', '[null]', '[["甲"]]', '[""]', '["   "]', '"甲"', "['甲']",
                       ',甲', '甲,', '甲,,乙', '甲\r\n\n乙', ']甲', '}甲', '[' + ' ' * 32768)
             for value in values:
-                result = await rejected('remember_memory', {**base, 'keywords': value}, 'invalid_tool_arguments')
-                assert result.get('expected_type') == 'array<string> | null'
-                assert result.get('example') == ['标签一', '标签二']
-                assert result.get('field_errors') == [{'field': 'keywords', 'issue': 'list_type'}]
+                result = await rejected('remember_memory', {**base, 'keywords': value}, 'invalid_keywords')
+                assert result.get('field') == 'keywords'
                 assert 'SYNTHETIC_BAD_VALUE_746' not in json.dumps(result)
             # Decode at most once: a JSON-quoted array string is not a string array.
             twice = json.dumps(json.dumps(['甲']))
-            await rejected('remember_memory', {**base, 'keywords': twice}, 'invalid_tool_arguments')
+            await rejected('remember_memory', {**base, 'keywords': twice}, 'invalid_keywords')
 
         elif mode == 'credentials':
             values = ('token：SYNTHETIC_PRIVATE_VALUE_747',
@@ -311,7 +310,8 @@ async def probe(mode):
         elif mode == 'gateway_raw_claim':
             # Issue a real ledger entry directly to isolate the receiving MCP's
             # raw-claim ordering. Gateway HostExecutionBoundary is intentionally
-            # not called: its canonical schema rejects these string arguments.
+            # not called here; its acceptance is tested separately against the
+            # daily entry's now-advertised string/array union.
             tools = server.mcp._tool_manager.list_tools()
             entries = [{'canonical_name': tool.name, 'schema_hash': canonical_hash(tool.parameters)} for tool in tools]
             catalog = {'contract': 'advertised-tools/1', 'catalog_complete': True,
@@ -350,7 +350,7 @@ async def probe(mode):
 
         elif mode == 'canonical_schema':
             tools = server.mcp._tool_manager.list_tools()
-            assert len(tools) == 52  # Legacy44, three work tools, three relation tools, compact discovery/dispatch.
+            assert len(tools) == 57  # Includes the host-only image transport.
             def schema_types(value):
                 if isinstance(value, dict):
                     return ({value['type']} if isinstance(value.get('type'), str) else set()).union(
@@ -363,8 +363,14 @@ async def probe(mode):
                 schema = server.mcp._tool_manager.get_tool(name).parameters['properties']['keywords']
                 assert 'array' in schema_types(schema), 'canonical_array_metadata_removed'
                 serialized = json.dumps(schema, ensure_ascii=False)
-                assert '优先填写字符串数组' in schema.get('description', '')
-                assert '直连 MCP 接收端' in serialized and '网关调用请使用真实数组' in serialized
+                if name == 'remember_memory':
+                    assert {'array', 'string', 'null'} <= schema_types(schema)
+                    assert '可省略' in schema.get('description', '')
+                    assert '不自动编造检索标签' in schema.get('description', '')
+                    assert '网关调用请使用真实数组' not in serialized
+                else:
+                    assert '优先填写字符串数组' in schema.get('description', '')
+                    assert '直连 MCP 接收端' in serialized and '网关调用请使用真实数组' in serialized
             assert 'keywords' not in server.mcp._tool_manager.get_tool('advance_plan').parameters['properties']
 
         assert rows('SELECT * FROM self_model_revisions ORDER BY revision_id') == original_core

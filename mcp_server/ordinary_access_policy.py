@@ -77,7 +77,14 @@ def install_ordinary_access_policy(mcp, *, onboarding, owner_id, model_id, servi
             # The outer guard has already checked the original signed payload.
             # Compatibility changes only our copy, after the activation gate.
             try:
-                args, keyword_errors = normalize_keyword_arguments(name, args, fields)
+                if name == 'remember_memory':
+                    # Its real public signature accepts optional string/list
+                    # keywords. The daily facade checks the complete raw input
+                    # for secrets before treating empty metadata as omitted.
+                    # In particular, do not rewrite confirmed receipt fields.
+                    keyword_errors = []
+                else:
+                    args, keyword_errors = normalize_keyword_arguments(name, args, fields)
             except KeywordCredentialError:
                 result = {
                     'decision': 'reject', 'reason_code': 'credential_or_secret_detected',
@@ -127,7 +134,7 @@ def install_ordinary_access_policy(mcp, *, onboarding, owner_id, model_id, servi
                         'field': error['loc'][0] if error['loc'] and error['loc'][0] in fields else 'unrecognized_field',
                         'issue': error['type'],
                     }
-                    if safe_error not in keyword_errors:
+                    if safe_error not in field_errors:
                         field_errors.append(safe_error)
             if field_errors:
                 result = {
@@ -162,6 +169,9 @@ def install_ordinary_access_policy(mcp, *, onboarding, owner_id, model_id, servi
                 if name in {'advance_plan', 'record_planning_event'}:
                     result['next_action'] = ('advance_plan 使用 target_ref/expected_event_seq/event_type/note；'
                                              'record_planning_event 使用自己的 plan_id 等字段。请重新读取计划和当前 schema。')
+                if name == 'remember_memory':
+                    result['next_action'] = ('普通存入只需 content，分类、情绪、重要度和关键词都可省略。'
+                                             '请仅修正 field_errors 指出的字段；不要重复提交已经确认存入的内容。')
                 return tool.fn_metadata.convert_result(result) if convert_result else result
             return await original(name, args, context=context, convert_result=convert_result)
     manager.call_tool = ordinary
@@ -189,6 +199,12 @@ def install_ordinary_access_policy(mcp, *, onboarding, owner_id, model_id, servi
                     '显式填写时将严格检查；不要猜版本或用 null 表示“自动”。'
                 )
         if 'keywords' in tool.parameters.get('properties', {}):
+            if name == 'remember_memory':
+                tool.parameters['properties']['keywords']['description'] = (
+                    '可省略、null或空；优先使用短语数组，也支持单个短语、分隔文本或 JSON 数组字符串。'
+                    '直连与网关均使用同一兼容规则，不自动编造检索标签。数组元素内部标点保留，数量与长度仍有界。'
+                )
+                continue
             tool.parameters['properties']['keywords']['description'] = (
                 '优先填写字符串数组，例如 ["学习", "经验"]。'
                 '直连 MCP 接收端兼容单个短语、逗号/顿号/分号/换行分隔文本及合法 JSON 数组字符串；'

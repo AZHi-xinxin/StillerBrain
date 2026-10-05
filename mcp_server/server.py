@@ -18,6 +18,7 @@ from pydantic import (
     AfterValidator,
     Field,
     StrictBool,
+    StrictFloat,
     StrictInt,
     StrictStr,
     StringConstraints,
@@ -52,6 +53,9 @@ from .work_memory_service import WorkMemoryAccessService
 from runtime.work_memory import WorkMemoryStore
 from runtime.memory_relations import MemoryRelationStore
 from .memory_relation_service import MemoryRelationAccessService
+from runtime.memory_images import MemoryImageStore, MAX_BASE64, MAX_MCP_REQUEST_BYTES
+from runtime.memory_image_uploads import UPLOAD_REF_PATTERN
+from .memory_image_service import MemoryImageAccessService
 from .execution_guard import install_execution_guard
 from .usage_guide import module_usage_guide, usage_guide
 from runtime.execution_binding import ExecutionStore
@@ -467,6 +471,10 @@ memory_relation_service = MemoryRelationAccessService(
     MemoryRelationStore(DATABASE), onboarding=onboarding, owner_id=OWNER_ID, model_id=MODEL_ID,
     protected_values=(MCP_TOKEN, WAKE_SECRET),
 )
+memory_image_service = MemoryImageAccessService(
+    MemoryImageStore(DATABASE), onboarding=onboarding, owner_id=OWNER_ID, model_id=MODEL_ID,
+    protected_values=(MCP_TOKEN, WAKE_SECRET),
+)
 
 
 def _catalog_provider(binding: Any | None = None) -> dict[str, Any] | None:
@@ -481,6 +489,7 @@ tool_guidance_service = ToolGuidanceAccessService(
     model_id=MODEL_ID,
     owner_id=OWNER_ID,
     catalog_provider=_catalog_provider,
+    protected_values=(MCP_TOKEN, WAKE_SECRET),
 )
 authoring_rewrite_service = AuthoringRewriteAccessService(
     authoring_store,
@@ -502,6 +511,7 @@ planning_service = PlanningMemoryAccessService(
 )
 daily_service = DailyMemoryAccessService(
     onboarding, emotional_service, learning_service, planning_service, OWNER_ID, MODEL_ID,
+    protected_values=(MCP_TOKEN, WAKE_SECRET),
 )
 daily_revision_service = DailyRevisionAccessService(
     onboarding, emotional_service, learning_service, planning_service, OWNER_ID, MODEL_ID,
@@ -534,7 +544,8 @@ mcp = FastMCP(
     "StillerBrainSelfModel",
     instructions=(
         "StillerBrain simple-memory-v1: 模块一首次完成设置并激活前，其他普通模块为只读，可查询已有内容。"
-        "模块一激活后，官端与网关均可直接写入和修改普通记忆。remember_memory 存入；"
+        "模块一激活后，官端与网关均可直接写入和修改普通记忆。remember_memory(content=...) 存入，"
+        "只填正文即可；remember_work_memory(content=...) 随手记，不自动混入长期回忆。"
         "simple-memory-v1 的普通专用工具同样由服务补入内部上下文与模块行版本；"
         "调用者保留已读目标版本、hash 与自主确认。高级治理旧候选和黑匣子按各自授权规则处理。"
         "recall_* 按关键词、编号查询列表，再读详情；revise_memory 修改内容并保留版本历史。"
@@ -550,7 +561,8 @@ mcp = FastMCP(
         "网关的 execution_ref 由宿主填入。保存工具提醒与计划只是记录，实际外部操作使用当前工具权限。"
         if SIMPLE_MEMORY_ACCESS else (
         f"{PUBLIC_CONTRACT_VERSION}: StillerBrain is optional memory for this AI. "
-        "For ordinary emotional, learning or planning memories, use remember_memory(module, content). "
+        "For ordinary memories, remember_memory(content=...) is enough; module defaults to auto. "
+        "remember_work_memory(content=...) saves an explicit-only note, not automatic long-term recall. "
         "After the required module access is authorized, gateway calls need no preliminary open, "
         "manual version, candidate or later-wake review for that route. "
         "Use stbrain_help for short static instructions, and recall_* tools to read saved memories. "
@@ -576,6 +588,9 @@ mcp = FastMCP(
     streamable_http_path="/mcp",
     stateless_http=True,
     json_response=True,
+    # 4 MiB original bytes expand to ~5.34 MiB base64. Keep an explicit finite
+    # transport ceiling before parsing; per-tool fields retain stricter limits.
+    max_request_body_size=MAX_MCP_REQUEST_BYTES,
     transport_security=transport_security,
 )
 
@@ -632,6 +647,96 @@ async def manage_person_reference_advisory(
     return authoring_rewrite_service.manage_advisory(
         action=action, text=text, write_context_ref=write_context_ref,
     )
+
+
+@mcp.tool(meta={"stbrain/hostOnly": True, "stbrain/contract": "memory-image-upload/1"})
+async def stage_memory_image_upload(
+    protocol: Literal["memory-image-upload/1"],
+    upload_ref: Annotated[StrictStr, StringConstraints(pattern=UPLOAD_REF_PATTERN)],
+    mime_type: Literal["image/png", "image/jpeg", "image/webp"],
+    sha256: Annotated[StrictStr, StringConstraints(pattern=r"^[0-9a-f]{64}$")],
+    data_base64: Annotated[StrictStr, StringConstraints(min_length=1, max_length=MAX_BASE64)],
+) -> dict[str, Any]:
+    """宿主图片运输能力：仅真实客户端提供原件，不提供给模型生成参数。
+
+    经 MCP 认证，将原件暂存当前 owner/model 的有界内存，15分钟或进程重启失效。
+    upload_ref 由客户端用256位安全随机数预先生成；同引用同原件重试不延长期限。
+    不保存正式记忆、不取得模块授权。正式存图仍须原 store_memory_image 调用获准，
+    参数引用不变且通过原执行绑定。不要把宿主能力加入模型工具目录。
+    """
+    return memory_image_service.stage_upload(protocol, upload_ref, mime_type, sha256, data_base64)
+
+
+@mcp.tool()
+async def store_memory_image(
+    target_ref: Annotated[StrictStr, StringConstraints(min_length=1, max_length=300)],
+    description: Annotated[StrictStr, StringConstraints(min_length=1, max_length=2000)],
+    mime_type: Literal["image/png", "image/jpeg", "image/webp"],
+    data_base64: Annotated[StrictStr, StringConstraints(min_length=1, max_length=MAX_BASE64)] | None = None,
+    request_id: Annotated[StrictStr, StringConstraints(pattern=r"^[0-9a-f]{32}$")] | None = None,
+    write_context_ref: str | None = None,
+    upload_ref: Annotated[StrictStr, StringConstraints(pattern=UPLOAD_REF_PATTERN)] | None = None,
+) -> dict[str, Any]:
+    """为已有 emotion/learning/plan 记忆附上真实图片原字节和作者描述。
+
+    图片必须来自人类选择的文件或宿主提供的真实字节，不要凭空编造 base64。
+    有客户端图片引用时只填 upload_ref，不填 data_base64；没有引用的旧客户端仍可
+    提交真实 data_base64。两项恰选一项；宿主在工具获准后上传原件，不能改写本调用参数。
+    不接受 URL 或服务器路径；PNG/JPEG/WebP 单帧，最多 4 MiB、2000 万像素。
+    原图与 EXIF 原样保留，描述不是自动视觉识别。勿上传密钥截图或不愿留存的定位信息。
+    不加入日常浮现或模型常驻上下文。按需 list/read_memory_image 取回。
+    simple-memory-v1 激活后沿用目标原模块权限；legacy 保留该模块真实授权上下文。
+    首版不支持敏感原图确认：intimate/restricted 或原文策略 never 的目标统一拒绝。
+    不改原记忆或旧图片。同一 request_id 仅用于同一不确定重试；已移除的旧请求不会复活。
+    """
+    return memory_image_service.put(target_ref, description, mime_type, data_base64, request_id, write_context_ref, upload_ref)
+
+
+@mcp.tool()
+async def list_memory_images(
+    target_ref: Annotated[StrictStr, StringConstraints(min_length=1, max_length=300)],
+    limit: Annotated[StrictInt, Field(ge=1, le=20)] = 20,
+    offset: Annotated[StrictInt, Field(ge=0, le=2000)] = 0,
+) -> dict[str, Any]:
+    """按已有记忆 ref 列图片描述、尺寸和 image_ref，不返回图像字节或公开链接。
+
+    只限同 owner/model 的可访问原记忆；隐藏、删除或异主记忆不可借附件读取。
+    Authenticated simple-memory-v1 permits this read before module-one activation.
+    敏感原图确认尚不支持，受限记忆不返回图片列表或描述。
+    本操作不自动读取其他记忆，不发送给识图模型，也不启用自动浮现。
+    """
+    return memory_image_service.list(target_ref, limit, offset)
+
+
+@mcp.tool()
+async def read_memory_image(
+    target_ref: Annotated[StrictStr, StringConstraints(min_length=1, max_length=300)],
+    image_ref: Annotated[StrictStr, StringConstraints(min_length=1, max_length=80)],
+    include_data: StrictBool = False,
+) -> dict[str, Any]:
+    """按记忆 ref 和 image_ref 读取一张受权图片，默认仅元数据。
+
+    明确需要原图时 include_data=true，返回有界 data_uri、mime_type、sha256；
+    这是显式读取的原图附件，不是公开网址，不保证每个 MCP 客户端会显示/理解图片。
+    可由本机 memory_images CLI 导出成新文件。字节不进入 ST 常驻记忆上下文。
+    Authenticated simple-memory-v1 permits this read before module-one activation.
+    include_data 仅选择字节，不是敏感授权；受限目标仍拒绝原图与描述。
+    """
+    return memory_image_service.read(target_ref, image_ref, include_data)
+
+
+@mcp.tool()
+async def remove_memory_image(
+    target_ref: Annotated[StrictStr, StringConstraints(min_length=1, max_length=300)],
+    image_ref: Annotated[StrictStr, StringConstraints(min_length=1, max_length=80)],
+    write_context_ref: str | None = None,
+) -> dict[str, Any]:
+    """从原记忆的日常图片列表移除一个附件；不删记忆，备份中的原图仍保留。
+
+    这是可审计的软删除，不承诺安全擦除，旧上传请求不会使其复活。
+    simple-memory-v1 激活后沿用目标模块权限；legacy 仍需该模块真实授权上下文。
+    """
+    return memory_image_service.remove(target_ref, image_ref, write_context_ref)
 
 
 @mcp.tool()
@@ -701,11 +806,16 @@ async def read_memory_relations(
 @mcp.tool()
 async def remember_work_memory(
     content: Annotated[StrictStr, StringConstraints(min_length=1, max_length=32768)],
-    tag: Annotated[StrictStr, StringConstraints(min_length=1, max_length=160)],
+    tag: Annotated[StrictStr, StringConstraints(min_length=1, max_length=160)] = "随手记",
     request_id: Annotated[StrictStr, StringConstraints(pattern=r"^[0-9a-f]{32}$")] | None = None,
     write_context_ref: str | None = None,
 ) -> dict[str, Any]:
-    """Save an original body and one editable tag to explicit-only work memory.
+    """随手记：只填 content，原文保存在 ST 独立工作记录；tag 默认“随手记”。
+
+    simple-memory-v1 完成首次激活后，只填正文即可；旧模式保留原有真实授权上下文。
+    不自动混入长期回忆、网关注入或普通检索。需要时用 recall_work_memory
+    显式查看，revise_work_memory 整理；日常目录可通过 stbrain_tools 找到这两个操作，
+    再用 stbrain_manage 调用。已激活的 simple 模式不必为了随手记先查询目录或打开记忆。
 
     This storage never participates in automatic recall, daily gateway injection,
     ordinary mixed search or the star atlas. No consultation workflow or external
@@ -778,17 +888,30 @@ async def revise_work_memory(
 
 @mcp.tool()
 async def remember_memory(
-    module: Literal["emotional_memory", "learning_memory", "planning_memory"],
     content: Annotated[StrictStr, StringConstraints(min_length=1, max_length=2000)],
-    title: str | None = None, summary: str | None = None, kind: str | None = None,
-    track: str = "internal", keywords: list[str] | None = None,
-    importance: StrictInt = 50, emotion: str = "other", source_basis: LearningSourceBasis = "unmarked",
+    module: StrictStr | None = "auto",
+    title: str | None = None, summary: str | None = None, kind: StrictStr | None = None,
+    track: str = "internal", keywords: list[StrictStr] | StrictStr | None = None,
+    importance: StrictInt | StrictFloat | StrictStr | None = 50,
+    emotion: StrictStr | None = "other", source_basis: LearningSourceBasis = "unmarked",
     confidence: JsonPercent | None = None, reason: str | None = None,
     write_context_ref: str | None = None, parent_ref: str | None = None,
     due_at: str | None = None, timezone: str = "UTC",
     rewrite_receipt: StrictStr | None = None,
 ) -> dict[str, Any]:
-    """Save one ordinary memory with one call. Only module and content are required.
+    """日常存入：remember_memory(content="想留下的原文")，只需 content。
+
+    simple-memory-v1 完成首次激活后，以及已获授权的普通网关调用，
+    module 默认 auto，无需先 stbrain_open、查目录或填审核表；旧直连模式保留真实授权上下文。
+    正文原样保存，
+    不会由分类器改写。kind/emotion/importance/keywords 可省略、留空或 null；
+    moment 等日常分类不会仅因非标准名称而拒绝正文。自动分类只看明确字段线索，
+    不猜正文含义；需指定时可填 emotional_memory / learning_memory / planning_memory。
+    未标注的情绪为 other、重要度为 50，来源 unmarked、可信度 null，
+    不表示独立核验或把普通片段判成重要对话。以回执的 module、ref 和 input_warnings 核对结果。
+    keywords 可给短语数组或兼容字符串；不必为了存入临时编一组标签。
+
+    Save one ordinary memory with one call. Only content is required.
 
     In simple-memory-v1 ordinary modules are read-only before module one's first
     completed activation. After activation, direct MCP and gateway writes omit
@@ -797,10 +920,9 @@ async def remember_memory(
     No preliminary stbrain_open, manual version, candidate or later-wake review
     is needed for ordinary gateway and activated simple-profile calls.
     content is preserved as supplied; optional title/summary organize it. For emotional
-    memory title is used as summary only when summary is omitted. kind is optional;
-    defaults: unclassified / fact / task respectively. Unknown facts default
-    to unmarked, confidence=null (未标注); explicit 0–100 remains authored. A planning
-    record becomes active, but grants no external execution permission. Core self
+    memory title is used as summary only when summary is omitted. Defaults are
+    unclassified / fact / task respectively. A planning record becomes active,
+    but grants no external execution permission. Core self
     modification still uses its separate review tools. Do not supply write_context_ref
     on the gateway path. In simple-memory-v1 both direct and gateway callers omit
     write_context_ref; legacy direct mode uses its separately authorized context.
@@ -808,7 +930,7 @@ async def remember_memory(
 
     人称由 AI 自选；stbrain_help 提供当前可修改、可关闭的人称弱提醒，
     manage_person_reference_advisory 管理该提醒，小说和角色叙事可按需关闭。
-    存入前，先参考本工具说明中的当前人称提醒和标签选词建议，再组织参数；采用与否由 AI 自选。
+    人称与标签提醒都是可选偏好，不是存入前置步骤；采用与否由 AI 自选。
     工具目录是读取时的快照；本轮已修改或关闭提醒时，以最新管理结果为准，刷新 MCP 目录可更新说明。
     保存成功的工具结果同时返回当前人称提醒与简短选词建议，供 AI 自行决定是否采用；
     这是存入后的回执提示，不自动改写刚保存的内容，也不要求再调用一次保存。
@@ -818,16 +940,9 @@ async def remember_memory(
     /preceding_context_summary 在本入口固定为空；需要非空前置上下文请用专用学习工具。
     字段须与确认预览完全相同。规划不支持此回执；省略时保持普通存入路径。
 
-    选词可由 AI 按真实内容考虑原词＋近义表达＋语义相关话题＋情感语境关联：
-    奶奶家 → 奶奶家 / 奶奶 / 家里的近况 / 家人牵挂。
-    小王 → 小王 / 同事 / 上班 / 零食；情感语境：生气或委屈。
-    下雨 → 下雨 / 雨天 / 带伞；情感语境：想念。
-    Tasker → Tasker / 自动化 / 配置 / 不会用了 / 修好了。
-    本入口用 keywords 提供内容检索线索；scene_tags 或 scenario_tags 仅在公布该字段的
-    专用工具填写，字段名称以各工具 schema 为准。其中治理轻提醒的
-    普通标签匹配本轮人类自然话语。情感分类另按当前 schema 填写，中文感受可写入
-    正文或摘要；这些映射不是所有模块通用的自由情绪枚举，也不是系统自动扩写。
-    命中只是候选，实际依已有记录、模式、预算与授权决定；它不规定固定回复或自动存入。
+    如需补充 keywords，可按真实内容选原词、近义表达、相关话题；scene_tags /
+    scenario_tags 仍只用于公布这些字段的专用工具。自动召回受已有记录、模式、
+    预算与授权限制；存入不保证每轮浮现，也不强制任何模型优先使用 ST。
     """
     return daily_service.remember(
         module=module, content=content, title=title, summary=summary, kind=kind,
@@ -2041,8 +2156,8 @@ async def remember_tool_guidance(
     operation_key: NonEmptyJsonString = "general",
     display_label: StrictStr | None = None,
     capability_class: ToolCapabilityClass = "real_world_action",
-    risk_level: ToolRiskLevel = "high",
-    confirmation_policy: ToolConfirmationPolicy = "explicit_each_time",
+    risk_level: ToolRiskLevel = "medium",
+    confirmation_policy: ToolConfirmationPolicy = "none",
     completion_rule: StrictStr = "",
     critical_preconditions: list[StrictStr] | None = None,
     use_when: list[NonEmptyJsonString] | None = None,
@@ -2851,6 +2966,8 @@ async def review_hallucination_restore(
 from .person_reference_surface import install_person_reference_advisory_surface
 install_person_reference_advisory_surface(mcp, authoring_rewrite_service)
 install_public_tool_input_contracts(mcp)
+from .memory_image_upload_contract import install_memory_image_upload_contract
+install_memory_image_upload_contract(mcp)
 
 if SIMPLE_MEMORY_ACCESS:
     from .ordinary_access_policy import install_ordinary_access_policy

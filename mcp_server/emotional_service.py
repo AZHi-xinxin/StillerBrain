@@ -55,7 +55,7 @@ class EmotionalMemoryAccessService:
                 "30 分钟短期内容不会自动晋升为长期记忆，我可以随时否决并清空正文。",
             ],
             "tools": {
-                "remember_memory": "普通新增首选：module=emotional_memory，content=实际原文；一次保存，无需先 open、手填版本或另轮审核。",
+                "remember_memory": "日常新增只填content=实际原文即可；module默认auto，无明确元数据线索时存emotional_memory/unclassified，也可显式指定本模块。激活后的普通调用一次保存，无需先open、手填版本或另轮审核；旧直连仍按原授权。",
                 "revise_memory": "普通修订：用已读版本的 target_ref 修改 original_text、memory_type、source_timestamp、summary 等作者字段；保留旧版本，模块版本与绑定由宿主处理。",
                 "remember_emotional_memory": "高级新建：显式设置情绪、来源、浮现策略等字段，保存作者正文及当前解释，后续修订保留各版本。",
                 "recall_emotional_memory": "精准查询摘要、原文、版本与整合来源。",

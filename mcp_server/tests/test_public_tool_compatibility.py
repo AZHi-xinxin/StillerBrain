@@ -308,7 +308,8 @@ class PublicToolCompatibilityTests(unittest.TestCase):
         for name in ("remember_tool_guidance", "revise_tool_guidance"):
             properties = self.schemas[name]["properties"]
             self.assertIn("high", properties["risk_level"]["description"])
-            self.assertIn("不是一律要求 critical", properties["risk_level"]["description"])
+            self.assertIn("不按动作类别或关键词设存卡下限", properties["risk_level"]["description"])
+            self.assertIn("不表示已获执行授权", properties["confirmation_policy"]["description"])
             self.assertIn("explicit_each_time", properties["confirmation_policy"]["description"])
             for risk in ("low", "medium", "high", "critical"):
                 self.assertTrue(Draft202012Validator(properties["risk_level"]).is_valid(risk))

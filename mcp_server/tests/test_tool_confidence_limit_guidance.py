@@ -373,11 +373,12 @@ async def probe(mode):
                          'invalid_tool_arguments')
             updated = await revise(card, purpose='SYNTHETIC_PRIVATE_CAS_CONTROL')
             await reject('revise_tool_guidance', target(card, confidence=86), 'tool_card_version_conflict')
-            await reject('revise_tool_guidance', target(updated, risk_level='low'), 'risk_below_runtime_floor')
-            await reject('remember_tool_guidance', {**fields(), 'risk_level': 'low'},
-                         'risk_below_runtime_floor')
-            assert updated['content']['risk_level'] == 'high'
-            assert updated['content']['confirmation_policy'] == 'explicit_each_time'
+            lowered = await revise(updated, risk_level='low', confirmation_policy='none')
+            assert lowered['content']['risk_level'] == 'low'
+            assert lowered['content']['confirmation_policy'] == 'none'
+            explicit = await create(risk_level='low', confirmation_policy='explicit_each_time')
+            assert explicit['content']['risk_level'] == 'low'
+            assert explicit['content']['confirmation_policy'] == 'explicit_each_time'
 
         elif mode == 'expiry':
             from jsonschema import Draft202012Validator, FormatChecker
@@ -424,7 +425,8 @@ async def probe(mode):
                 wake_id='synthetic-execution-check',
                 expected_row_version=native_store.status(owner_id=server.OWNER_ID, model_id=server.MODEL_ID)['row_version'],
                 reason='Synthetic optional expiry gate fixture.', catalog=catalog(),
-                tool_name='HomeControl', purpose='Synthetic device advice.', confidence=100)['card']
+                tool_name='HomeControl', purpose='Synthetic device advice.', confidence=100,
+                confirmation_policy='explicit_each_time')['card']
             gate_args = dict(owner_id=server.OWNER_ID, model_id=server.MODEL_ID,
                 card_id=native['card_id'], catalog=catalog(), current_user_intent=True,
                 authorization_verified=True, current_confirmation=True)

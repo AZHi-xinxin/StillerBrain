@@ -51,6 +51,7 @@ from .tool_execution import (
     ToolExecutionBoundaryError,
     ToolExecutionPolicyAdapter,
     advertised_schemas,
+    without_host_only_image_transport,
     canonical_hash,
     normalize_validation_diagnostic,
     parse_arguments,
@@ -581,6 +582,7 @@ def _advertised_tool_catalog(payload: Mapping[str, Any]) -> dict[str, Any]:
     as incomplete instead of being silently treated as an authoritative list.
     """
 
+    payload = without_host_only_image_transport(payload)
     entries: list[dict[str, str]] = []
     complete = True
     definitions: list[Any] = []
@@ -1138,6 +1140,7 @@ class GatewayApplication:
         self._balance_slots = threading.BoundedSemaphore(2)
         self.atlas = AtlasGateway(config.control_url, config.host_token,
                                   protected_values=self._server_secrets,
+                                  protected_values_provider=self._atlas_protected_values,
                                   transport=atlas_transport)
         self.execution_boundary = HostExecutionBoundary(
             config.host_token.encode("utf-8"),
@@ -1161,6 +1164,12 @@ class GatewayApplication:
         self._short_term_stop = threading.Event()
         # Fixed, content-free counters only; no prompts, IDs, keys or bodies.
         self._short_term_diagnostics: Counter[str] = Counter()
+
+    def _atlas_protected_values(self):
+        # RouteStore is authoritative even between a management commit and its
+        # route-map refresh. It retains retired secrets for this process too.
+        return (self._server_secrets if self.route_store is None else
+                self._server_secrets | self.route_store.protected())
 
     def refresh_managed_routes(self):
         if self.route_store is not None:
@@ -2716,7 +2725,7 @@ class GatewayApplication:
         input_origin = _input_origin(headers)
         if input_origin != "human_message" and profile != DEFAULT_PROFILE:
             raise GatewayError(400, "input_origin_profile_conflict")
-        payload = self._profile_payload(payload, profile)
+        payload = self._profile_payload(without_host_only_image_transport(payload), profile)
         normalized_headers = _normalize_headers(headers)
         if self.is_auxiliary(payload):
             # Even internal callers cannot accidentally open a normal wake.
@@ -3428,6 +3437,7 @@ class GatewayApplication:
         unmarked/non-ST schema. A past tool absent from the current catalog is
         deliberately not guessed to be host-managed.
         """
+        payload = without_host_only_image_transport(payload)
         if not self.config.require_execution_binding:
             return payload
         managed = {name for name, schema in advertised_schemas(payload).items()
@@ -4273,8 +4283,8 @@ def _deadline_stream(app: GatewayApplication, exchange: _StreamRetryExchange):
         timer.daemon = True
         timer.start()
         try:
-            yield response
-        except (httpx.HTTPError, OSError):
+            yield response, expired
+        except (httpx.HTTPError, httpx.StreamError, OSError):
             if expired.is_set():
                 raise GatewayError(502, "upstream_unavailable") from None
             raise
@@ -4886,7 +4896,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             # request. A harmless SSE comment also makes recovery observable.
             if exchange.attempt:
                 write_sse(b": st-gateway reasoning-only-stop recovery attempt 2\n\n")
-            with _deadline_stream(self.app, exchange) as response:
+            with _deadline_stream(self.app, exchange) as (response, deadline_expired):
                 if performance is not None:
                     performance.note_upstream_headers(response.status_code)
 
@@ -4907,6 +4917,12 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                         # for more tokens before yielding the first SSE event.
                         for offset in range(0, len(chunk), 16 * 1024):
                             yield chunk[offset:offset + 16 * 1024]
+                    # Closing a blocked transport may return normal EOF rather
+                    # than raising. Timer/monotonic clocks can differ slightly
+                    # on Windows; its latched close reason outranks empty-SSE
+                    # classification even just before the monotonic deadline.
+                    if deadline_expired.is_set() or time.monotonic() >= exchange.deadline:
+                        raise GatewayError(502, "upstream_unavailable")
 
                 raw_buffer = bytearray()
                 if response.status_code >= 400:

@@ -153,6 +153,63 @@ class AtlasTransportTests(unittest.TestCase):
             self.assertEqual((401, "unauthorized"), (raised.exception.status, raised.exception.code))
             self.assertEqual([], self.requests)
 
+    def test_new_protected_secret_after_construction_denied_on_every_route(self):
+        current, requests = [], []
+        gateway = AtlasGateway("http://control.test", "synthetic-host", protected_values_provider=lambda: current,
+                               transport=httpx.MockTransport(lambda request: requests.append(request)))
+        current.append(TOKEN)
+        for route in (REGISTER, SNAPSHOT, REVOKE):
+            with self.subTest(route=route), self.assertRaises(AtlasGrantError) as caught:
+                gateway.request(route, INTENT)
+            self.assertEqual((401, "unauthorized"), (caught.exception.status, caught.exception.code))
+        self.assertEqual([], requests)
+
+    def test_protected_provider_failure_never_uses_stale_snapshot(self):
+        for provider in (lambda: "not-a-collection", lambda: [None], lambda: [""],
+                         lambda: (_ for _ in ()).throw(RuntimeError("synthetic-secret"))):
+            requests = []
+            gateway = AtlasGateway("http://control.test", "synthetic-host", protected_values_provider=provider,
+                                   transport=httpx.MockTransport(lambda request: requests.append(request)))
+            with self.assertRaises(AtlasGrantError) as caught:
+                gateway.request(REGISTER, INTENT)
+            self.assertEqual((503, "atlas_unavailable"), (caught.exception.status, caught.exception.code))
+            self.assertNotIn("synthetic-secret", str(caught.exception))
+            self.assertEqual([], requests)
+
+    def test_secret_added_during_control_call_denied_before_result_delivery(self):
+        for route, result in ((REGISTER, REGISTERED), (SNAPSHOT, GRAPH), (REVOKE, REVOKED)):
+            current = []
+            def handle(request):
+                current.append(TOKEN)
+                return response(result)
+            gateway = AtlasGateway("http://control.test", "synthetic-host", protected_values_provider=lambda: current,
+                                   transport=httpx.MockTransport(handle))
+            with self.subTest(route=route), self.assertRaises(AtlasGrantError) as caught:
+                gateway.request(route, INTENT)
+            self.assertEqual((401, "unauthorized"), (caught.exception.status, caught.exception.code))
+
+    def test_new_secret_in_shape_valid_result_is_redacted(self):
+        current = []
+        def handle(request):
+            current.append("a" * 64)  # A synthetically atlas-shaped API key.
+            return response(GRAPH)
+        gateway = AtlasGateway("http://control.test", "synthetic-host", protected_values_provider=lambda: current,
+                               transport=httpx.MockTransport(handle))
+        with self.assertRaises(AtlasGrantError) as caught:
+            gateway.request(SNAPSHOT, {"verifier": VERIFIER})
+        self.assertEqual((503, "atlas_unavailable"), (caught.exception.status, caught.exception.code))
+
+    def test_request_entry_secrets_retained_if_provider_changes_during_call(self):
+        current = ["a" * 64]
+        def handle(request):
+            current.clear()
+            return response(GRAPH)
+        gateway = AtlasGateway("http://control.test", "synthetic-host", protected_values_provider=lambda: current,
+                               transport=httpx.MockTransport(handle))
+        with self.assertRaises(AtlasGrantError) as caught:
+            gateway.request(SNAPSHOT, {"verifier": VERIFIER})
+        self.assertEqual("atlas_unavailable", caught.exception.code)
+
     def test_registration_identity_response_mismatch_and_extra_fields_rejected(self):
         for changes in ({"requestId": "f" * 32}, {"grantId": "x"}, {"expiresAt": "tomorrow"},
                         {"scope": "all"}, {"owner": "private"}, {"status": "pending"}):

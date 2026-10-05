@@ -1,0 +1,62 @@
+{
+  "format": "stiller-source-release-state/1",
+  "version": "0.2.0-preview.2",
+  "distribution": "source-available-development-preview",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "base_public_commit": "a77854bae330c077a4ff2929fc09bfc475b2e878",
+  "historical_public_state": "source-release-state-0.2.0-preview.1.json",
+  "accepted_functional_revisions": "L45 gateway and accepted cumulative runtime/MCP source",
+  "preserved_public_regressions": [
+    "strict cross-Python AST serialization",
+    "control-client proxy isolation"
+  ],
+  "synthetic_only_this_publication": true,
+  "real_model_calls_this_publication": 0,
+  "live_service_changes_this_publication": false,
+  "production_readiness_certified": false,
+  "linux_new_installer_end_to_end_verified_this_publication": false,
+  "user_acceptance": {
+    "specific_Orbis_long_code_tool": "passed_user_report",
+    "consultation_end_to_end": "pending",
+    "all_provider_cache_hit_issues_resolved": false
+  },
+  "catalog": {
+    "default_full": 50,
+    "explicit_daily": 7
+  },
+  "validation_details": "docs/UPDATE-VALIDATION.md",
+  "integrity_manifest": "SOURCE-PACKAGE-MANIFEST.json",
+  "integrity_check": "python -B scripts/check_source_package.py",
+  "github_publication_authorized": true,
+  "production_gate": "python -B scripts/check_release.py",
+  "current_candidate_regression": [
+    {
+      "group": "tests",
+      "returncode": 0,
+      "tests": 864,
+      "skipped": 0,
+      "seconds": 132.389
+    },
+    {
+      "group": "mcp_server/tests",
+      "returncode": 0,
+      "tests": 549,
+      "skipped": 0,
+      "seconds": 395.326
+    },
+    {
+      "group": "rikkahub_gateway/tests",
+      "returncode": 0,
+      "tests": 701,
+      "skipped": 1,
+      "seconds": 155.102
+    },
+    {
+      "group": "packaging_tests",
+      "returncode": 0,
+      "tests": 117,
+      "skipped": 1,
+      "seconds": 36.064
+    }
+  ]
+}

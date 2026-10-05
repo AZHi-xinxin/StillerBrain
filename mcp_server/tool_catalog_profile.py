@@ -7,6 +7,7 @@ from mcp import types
 from mcp.shared.exceptions import McpError
 from .compact_catalog_schema import project_compact_tool
 from runtime.compact_tool_routes import DISCOVERY_TOOL, MANAGE_TOOL
+from runtime.memory_image_uploads import UPLOAD_TOOL
 
 
 TOOL_PROFILE_HEADER = "x-stbrain-tool-profile"
@@ -14,6 +15,7 @@ TOOL_PROFILE_QUERY = "tool_profile"
 DAILY_TOOL_NAMES = (
     "stbrain_open",
     "remember_memory",
+    "remember_work_memory",
     "remember_tool_guidance",
     "revise_memory",
     "advance_plan",
@@ -22,7 +24,8 @@ DAILY_TOOL_NAMES = (
 )
 _DAILY_TOOL_NAMES = frozenset(DAILY_TOOL_NAMES)
 DAILY_CATALOG_NAVIGATION = (
-    "当前为精简日常档：通用存入/修改/查询和计划推进直接调用；"
+    "当前为精简日常8入口：remember_memory(content=...) 存日常记忆，"
+    "remember_work_memory(content=...) 随手记（不自动长期召回）；修改/查询和计划推进直接调用。"
     "查询用 stbrain_open(view='recall',query=...)，可选 module。"
     "其余功能用 stbrain_tools 按分类找、stbrain_manage 按操作名执行。"
     "模块一、人称、DIY 提醒和浮现开关均可由你在原权限内自主操作，无需请人切档。"
@@ -78,7 +81,7 @@ def install_tool_catalog_profile(mcp: Any) -> None:
         profile = _request_tool_profile(mcp)
         result = await original_handler(request)
         if profile == "full":
-            # Keep the legacy full44 contract byte-for-byte; the SDK internal
+            # Keep the existing full catalog unchanged; the SDK internal
             # cache (request=None) still includes both compact native facades.
             return result.model_copy(update={"root": result.root.model_copy(update={
                 "tools": [tool for tool in result.root.tools
@@ -94,6 +97,9 @@ def install_tool_catalog_profile(mcp: Any) -> None:
         selected = [tool.model_copy(update={
             "description": DAILY_CATALOG_NAVIGATION + "\n\n" + (tool.description or ""),
         }) if tool.name == "stbrain_open" else tool for tool in selected]
+        # Transport capability discovery, not a ninth model tool. Hosts and the
+        # ST gateway must omit this marked operation from model tool catalogs.
+        selected.extend(tool for tool in result.root.tools if tool.name == UPLOAD_TOOL)
         return result.model_copy(update={
             "root": result.root.model_copy(update={"tools": selected}),
         })

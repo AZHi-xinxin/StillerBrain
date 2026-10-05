@@ -113,13 +113,37 @@ def project_response(route, value, request):
 
 
 class AtlasGateway:
-    def __init__(self, control_url, host_token, *, protected_values=(), transport=None):
+    def __init__(self, control_url, host_token, *, protected_values=(),
+                 protected_values_provider=None, transport=None):
         self._url = control_url.rstrip("/")
         self._host_token = host_token
         self._protected = tuple(v for v in (*protected_values, host_token) if v)
-        self._forbidden = frozenset(hashlib.sha256(v.encode()).hexdigest() for v in self._protected)
+        self._protected_values_provider = protected_values_provider
         self._transport = transport
         self._slots = threading.BoundedSemaphore(2)
+
+    def _protected_snapshot(self):
+        try:
+            current = (() if self._protected_values_provider is None
+                       else self._protected_values_provider())
+            if not isinstance(current, (tuple, list, set, frozenset)):
+                raise ValueError()
+            if any(not isinstance(value, str) or not value for value in current):
+                raise ValueError()
+            return frozenset((*self._protected, *current))
+        except Exception:
+            # The source is local only. Never disclose a provider exception or
+            # fall back to a stale permissive snapshot when it cannot be read.
+            raise _unavailable() from None
+
+    @staticmethod
+    def _check_verifier(route, payload, protected):
+        if route in {REGISTER, SNAPSHOT, REVOKE}:
+            verifier = payload.get("verifier")
+            if not isinstance(verifier, str) or not HEX64.fullmatch(verifier):
+                raise AtlasGrantError(400, "invalid_request")
+            if verifier in {hashlib.sha256(value.encode()).hexdigest() for value in protected}:
+                raise AtlasGrantError(401, "unauthorized")
 
     async def _post(self, route, payload):
         limit = 1024 * 1024 if route == SNAPSHOT else 4096
@@ -163,9 +187,6 @@ class AtlasGateway:
                         raise AtlasGrantError(response.status_code, error["code"])
                     raise _unavailable()
                 result = project_response(route, result, payload)
-                encoded = json.dumps(result, ensure_ascii=False)
-                if any(secret in encoded for secret in self._protected):
-                    raise _unavailable()
                 return result
 
     def request(self, route, payload):
@@ -173,18 +194,22 @@ class AtlasGateway:
             raise _unavailable()
         if not isinstance(payload, dict):
             raise AtlasGrantError(400, "invalid_request")
-        if route in {REGISTER, SNAPSHOT, REVOKE}:
-            verifier = payload.get("verifier")
-            if not isinstance(verifier, str) or not re.fullmatch(r"[0-9a-f]{64}", verifier):
-                raise AtlasGrantError(400, "invalid_request")
-            if verifier in self._forbidden:
-                raise AtlasGrantError(401, "unauthorized")
+        protected = self._protected_snapshot()
+        self._check_verifier(route, payload, protected)
         if not self._slots.acquire(blocking=False):
             raise _unavailable()
         async def bounded():
             return await asyncio.wait_for(self._post(route, payload), TIMEOUT_SECONDS)
         try:
-            return asyncio.run(bounded())
+            result = asyncio.run(bounded())
+            # A management update may race the Control request. Validate again
+            # before returning metadata or a grant; never deliver new secrets.
+            protected = protected | self._protected_snapshot()
+            self._check_verifier(route, payload, protected)
+            encoded = json.dumps(result, ensure_ascii=False)
+            if any(secret in encoded for secret in protected):
+                raise _unavailable()
+            return result
         except AtlasGrantError:
             raise
         except (httpx.HTTPError, OSError, ValueError, RuntimeError, TimeoutError, RecursionError):

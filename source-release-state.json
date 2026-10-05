@@ -1,11 +1,11 @@
 {
   "format": "stiller-source-release-state/1",
-  "version": "0.2.0-preview.2",
+  "version": "0.2.0-preview.3",
   "distribution": "source-available-development-preview",
   "license": "PolyForm-Noncommercial-1.0.0",
-  "base_public_commit": "a77854bae330c077a4ff2929fc09bfc475b2e878",
-  "historical_public_state": "source-release-state-0.2.0-preview.1.json",
-  "accepted_functional_revisions": "L45 gateway and accepted cumulative runtime/MCP source",
+  "base_public_commit": "69dd2bcafc431699dc2d6e57703aa91343325f43",
+  "historical_public_state": "source-release-state-0.2.0-preview.2.json",
+  "accepted_functional_revisions": "L46-L48 memory ease, authored tool-card metadata, read-only atlas onboarding and original image transport",
   "preserved_public_regressions": [
     "strict cross-Python AST serialization",
     "control-client proxy isolation"
@@ -16,13 +16,27 @@
   "production_readiness_certified": false,
   "linux_new_installer_end_to_end_verified_this_publication": false,
   "user_acceptance": {
-    "specific_Orbis_long_code_tool": "passed_user_report",
-    "consultation_end_to_end": "pending",
+    "ordinary_memory": "passed_user_report",
+    "tool_card_storage": "passed_user_report",
+    "work_memory_save_and_read": "passed_user_report",
+    "orbis_atlas_connect_tap_and_reopen": "passed_user_report",
+    "orbis_original_image_store_and_read": "passed_user_report_on_paired_dev61_client",
+    "legacy_import_ui": "deferred_not_end_to_end_accepted",
+    "ob_direct_bulk_migration": "not_implemented_deferred",
+    "galaxy_visual_redesign": "not_implemented",
+    "consultation_end_to_end": "pending_separate_scope",
     "all_provider_cache_hit_issues_resolved": false
   },
   "catalog": {
-    "default_full": 50,
-    "explicit_daily": 7
+    "transport_full": 55,
+    "model_full": 54,
+    "model_daily": 8,
+    "host_only_transport": 1
+  },
+  "atlas_onboarding": {
+    "new_installer": "enabled_with_separate_device_credentials",
+    "existing_config": "complete_enabled_config_or_explicit_one_time_preparation_required",
+    "orbis_connection": "existing_ST_gateway_connection_not_MCP_only"
   },
   "validation_details": "docs/UPDATE-VALIDATION.md",
   "integrity_manifest": "SOURCE-PACKAGE-MANIFEST.json",
@@ -31,32 +45,59 @@
   "production_gate": "python -B scripts/check_release.py",
   "current_candidate_regression": [
     {
-      "group": "tests",
+      "group": "gateway",
       "returncode": 0,
-      "tests": 864,
-      "skipped": 0,
-      "seconds": 132.389
-    },
-    {
-      "group": "mcp_server/tests",
-      "returncode": 0,
-      "tests": 549,
-      "skipped": 0,
-      "seconds": 395.326
-    },
-    {
-      "group": "rikkahub_gateway/tests",
-      "returncode": 0,
-      "tests": 701,
+      "tests": 721,
       "skipped": 1,
-      "seconds": 155.102
+      "seconds": 162.214,
+      "source_unchanged": true
     },
     {
-      "group": "packaging_tests",
+      "group": "mcp",
       "returncode": 0,
-      "tests": 117,
+      "tests": 585,
+      "skipped": 0,
+      "seconds": 419.122,
+      "source_unchanged": true
+    },
+    {
+      "group": "migration",
+      "returncode": 0,
+      "tests": 30,
+      "skipped": 0,
+      "seconds": 22.16,
+      "source_unchanged": true
+    },
+    {
+      "group": "packaging",
+      "returncode": 0,
+      "tests": 142,
       "skipped": 1,
-      "seconds": 36.064
+      "seconds": 38.765,
+      "source_unchanged": true
+    },
+    {
+      "group": "runtime",
+      "returncode": 0,
+      "tests": 918,
+      "skipped": 0,
+      "seconds": 140.296,
+      "source_unchanged": true
     }
-  ]
+  ],
+  "current_python_inventory_sha256": "a644db25b66659e55a01ab926b6fbc4aaae97183025bba090d9946e5353a3672",
+  "linux_same_functional_source_validation": {
+    "tests": 2396,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 2,
+    "scope": "deployment-candidate evidence; 302 code/test/UI/schema files byte-identical, not a new public-release Linux full-tree rerun"
+  },
+  "cache_observation": {
+    "scope": "nine existing successful requests on one user-reported official DeepSeek route; not a paid synthetic benchmark or billing audit",
+    "requests": 9,
+    "steady_samples": 8,
+    "steady_hit_percentage_min": 96.8561,
+    "steady_hit_percentage_max": 99.9234
+  }
 }

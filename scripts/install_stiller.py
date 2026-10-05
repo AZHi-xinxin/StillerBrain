@@ -160,11 +160,12 @@ def make_config(private, base_url, model, api_key, ports):
     for component, port in zip(("MCP", "CONTROL", "GATEWAY"), ports):
         config["STBRAIN_" + component + "_HOST"] = "127.0.0.1"
         config["STBRAIN_" + component + "_PORT"] = str(port)
-    return config
+    return helper("atlas_config").configure_new(config)
 
 
 def validate_config(config, private, root=ROOT):
     starter = helper("run_component")
+    helper("atlas_config").validate(config)
     try:
         starter.parse_config("".join(key + "=" + value + "\n" for key, value in config.items()))
     except ValueError:

@@ -40,6 +40,10 @@ BRAIN_MANUAL_MODULES = (
 )
 
 PUBLIC_TOOL_NAMES: tuple[str, ...] = (
+    "store_memory_image",
+    "list_memory_images",
+    "read_memory_image",
+    "remove_memory_image",
     "attach_memory_relation",
     "detach_memory_relation",
     "read_memory_relations",
@@ -1228,10 +1232,30 @@ def install_public_tool_input_contracts(mcp: Any) -> None:
         parameters["additionalProperties"] = False
         tool.parameters = parameters
 
-    remember_memory = manager.get_tool("remember_memory").parameters
+    from .daily_argument_metadata import literal_daily_argument_metadata
+
+    remember_tool = manager.get_tool("remember_memory")
+    remember_tool.fn_metadata = literal_daily_argument_metadata(remember_tool.fn_metadata)
+    remember_memory = remember_tool.parameters
+    remember_memory["properties"]["content"]["description"] = (
+        "唯一必填：1–2000字原文，原样保存，不自动截断或改写。"
+    )
+    remember_memory["properties"]["module"]["description"] = (
+        "默认 auto；省略、null或空使用明确字段线索自动分类，不猜正文。"
+        "可指定 emotional_memory、learning_memory 或 planning_memory；未知模块不会转为更高权限。"
+    )
     remember_memory["properties"]["kind"]["description"] = (
-        "由 AI 按对应模块选择类型；情感记忆省略时为 unclassified（未分类），"
-        "不会替作者判定为重要对话。学习记忆与计划沿用各自类型。"
+        "可省略、null或空；moment/event兼容shared_event；非标准分类保守回到模块默认并返回提示，"
+        "不因此拒绝正文。默认情感unclassified、学习fact、规划task，不替作者判定为重要对话。"
+    )
+    remember_memory["properties"]["emotion"]["description"] = (
+        "可省略、null或空，默认other；无法识别的感受保守归other并提示，不猜测作者情绪。"
+    )
+    remember_memory["properties"]["importance"]["description"] = (
+        "可省略、null或空，默认50；接受0–100整数、数字字符串或整数值小数，不接受布尔或越界值。"
+    )
+    remember_memory["properties"]["keywords"]["description"] = (
+        "可省略、null或空；支持短语数组、JSON数组字符串或分隔短语，不自动编造检索标签。"
     )
     remember_memory["properties"]["source_basis"]["description"] = (
         "observed=我亲历或观察；reported=转述/引述；inferred=推断。"
@@ -1278,12 +1302,13 @@ def install_public_tool_input_contracts(mcp: Any) -> None:
                 "description": "可选自然语言场景标签，支持中文或英文，如 回家了、准备睡觉、home.arrival；每项 1–128 字符，最多 16 项且不重复。新增可省略；修改时省略或 null 保留现有标签，[] 清空。",
             }
         parameters["properties"]["risk_level"]["description"] = (
-            "由当前 AI 评估风险。real_world_action 的运行时下限为 high，"
-            "不是一律要求 critical；high 与 critical 都必须搭配 explicit_each_time。"
+            "作者可自主填写 low/medium/high/critical，不按动作类别或关键词设存卡下限。"
+            "新卡省略为 medium，仅是默认元数据，不代表独立安全评级；修改省略保留旧值。"
         )
         parameters["properties"]["confirmation_policy"]["description"] = (
-            "real_world_action 必须使用 explicit_each_time；high/critical 同样如此。"
-            "此字段供实际执行权限核验；场景提醒独立于执行权限。"
+            "作者可自主填写 none/contextual/explicit_each_time，与风险标签独立。"
+            "新卡省略为 none，表示卡片不额外要求确认，不表示已获执行授权；修改省略保留旧值。"
+            "真实调用仍遵循调用端和目标工具的权限；作者显式逐次确认要求保留。"
         )
         manager.get_tool(name).parameters = parameters
     for name in ("remember_learning_memory", "revise_learning_memory"):

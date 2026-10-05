@@ -355,6 +355,67 @@ def parse_arguments(arguments: Any) -> dict[str, Any]:
     return value
 
 
+def is_host_only_image_transport(definition: Any) -> bool:
+    """Recognize the one explicit ST transport capability, never a name alone.
+
+    Native clients can retain schema extensions while dropping MCP _meta.
+    Only the canonical name or its standard MCP namespace plus this exact
+    host-only contract qualifies; other tools and generic metadata stay intact.
+    """
+    if not isinstance(definition, Mapping):
+        return False
+    name = definition.get("name")
+    if (not isinstance(name, str) or _TOOL_NAME.fullmatch(name) is None
+            or re.fullmatch(r"(?:mcp__[A-Za-z0-9][A-Za-z0-9._-]*__)?stage_memory_image_upload", name) is None):
+        return False
+    schema = definition.get("parameters")
+    if not isinstance(schema, Mapping):
+        return False
+    metadata = definition.get("_meta")
+    metadata_marked = (isinstance(metadata, Mapping)
+        and metadata.get("stbrain/hostOnly") is True
+        and metadata.get("stbrain/contract") == "memory-image-upload/1")
+    schema_marked = (schema.get("x-stbrain-host-only") is True
+        and schema.get("x-stbrain-contract") == "memory-image-upload/1")
+    return metadata_marked or schema_marked
+
+
+def without_host_only_image_transport(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Copy only catalog containers with the transport removed; preserve text.
+
+    A forced selection of a removed capability cannot re-advertise it. Invalid
+    unrelated definitions are left for existing validation, not repaired here.
+    """
+    result = dict(payload)
+    removed = set()
+    changed = False
+    for key in ("tools", "functions"):
+        definitions = payload.get(key)
+        if not isinstance(definitions, list):
+            continue
+        kept = []
+        for item in definitions:
+            definition = (item.get("function") if isinstance(item, Mapping)
+                          and item.get("type") == "function" else None) if key == "tools" else item
+            if is_host_only_image_transport(definition):
+                removed.add(definition["name"])
+                changed = True
+            else:
+                kept.append(item)
+        if len(kept) != len(definitions):
+            result[key] = kept
+    if not changed:
+        return payload
+    for key in ("tool_choice", "function_call"):
+        choice = payload.get(key)
+        if isinstance(choice, Mapping):
+            function = choice.get("function") if key == "tool_choice" else choice
+            if (isinstance(function, Mapping) and isinstance(function.get("name"), str)
+                    and function["name"] in removed):
+                result.pop(key, None)
+    return result
+
+
 def advertised_schemas(payload: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     """Return exact schemas from the native request, failing on ambiguity.
 
@@ -397,6 +458,8 @@ def advertised_schemas(payload: Mapping[str, Any]) -> dict[str, Mapping[str, Any
     for definition in definitions:
         if not isinstance(definition, Mapping):
             raise ToolExecutionBoundaryError("advertised_tool_catalog_incomplete")
+        if is_host_only_image_transport(definition):
+            continue
         name = definition.get("name")
         schema = definition.get("parameters")
         if (

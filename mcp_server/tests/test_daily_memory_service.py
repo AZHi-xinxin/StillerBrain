@@ -200,13 +200,167 @@ class DailyMemoryServiceTests(unittest.TestCase):
         self.assertEqual(self.counts(), (0, 0, 0))
 
     def test_invalid_input_returns_one_actionable_fix_before_open(self):
-        for fields, field in (({"content": " "}, "content"), ({"kind": "bad"}, "kind"),
-                              ({"importance": True}, "importance"), ({"keywords": "not-list"}, "keywords")):
+        for fields, field in (({"content": " "}, "content"), ({"kind": ["bad"]}, "kind"),
+                              ({"importance": True}, "importance"), ({"keywords": {"not": "list"}}, "keywords")):
             with self.subTest(field=field):
                 args = {"module": "planning_memory", "content": "Synthetic", **fields}
                 result = self.daily.remember(**args)
                 self.assertEqual(result["field"], field)
+                self.assertEqual(result["reason_codes"], [result["reason_code"]])
                 self.assertTrue(result["next_step"])
+        self.assertEqual(self.host.open_calls, [])
+        self.assertEqual(self.counts(), (0, 0, 0))
+
+    def test_body_only_and_moment_null_options_preserve_original(self):
+        original = "  Synthetic moment\n原始正文保持。  "
+        for fields, kind in (({}, "unclassified"),
+                             ({"kind": "moment", "emotion": None, "importance": None, "keywords": None}, "shared_event"),
+                             ({"module": "", "kind": " event ", "emotion": "", "importance": "", "keywords": " "}, "shared_event")):
+            saved = self.daily.remember(content=original, **fields)
+            self.assertTrue(saved["stored"], saved)
+            self.assertEqual(saved["module"], "emotional_memory")
+            record = next(row for row in self.rows("emotion_memories") if row["memory_id"] == saved["id"])
+            self.assertEqual(record["original_text"], original)
+            self.assertEqual(record["memory_type"], kind)
+            self.assertEqual(record["primary_emotion"], "other")
+            self.assertEqual(record["importance"], 50)
+            self.assertEqual(record["origin"], "unmarked")
+            self.assertIsNone(record["confidence"])
+
+    def test_unknown_kind_emotion_do_not_reject_or_invent_keywords(self):
+        saved = self.daily.remember(content="Synthetic unknown labels", kind="synthetic-label",
+                                    emotion="synthetic-feeling", keywords=["authored"], importance="75")
+        self.assertTrue(saved["stored"], saved)
+        row = self.rows("emotion_memories")[0]
+        self.assertEqual(row["memory_type"], "unclassified")
+        self.assertEqual(row["primary_emotion"], "other")
+        self.assertEqual(json.loads(row["keywords_json"]), ["authored"])
+        self.assertEqual(row["importance"], 75)
+        self.assertEqual(len(saved["input_warnings"]), 2)
+        self.assertNotIn("synthetic-label", json.dumps(saved))
+        self.assertNotIn("synthetic-feeling", json.dumps(saved))
+
+    def test_metadata_routing_still_requires_exact_scope_no_available_module_fallback(self):
+        self.host.scopes = {"emotional_memory"}
+        denied = self.daily.remember(content="Synthetic", kind="task")
+        self.assertEqual(denied["reason_codes"], ["direct_scope_not_authorized"])
+        self.assertEqual(self.host.binding_calls[-1]["required_scope"], "planning_memory")
+        self.assertEqual(self.counts(), (0, 0, 0))
+        self.host.scopes = {"learning_memory"}
+        denied_default = self.daily.remember(content="Synthetic")
+        self.assertFalse(denied_default["stored"])
+        self.assertEqual(self.host.binding_calls[-1]["required_scope"], "emotional_memory")
+
+    def test_kind_learning_and_plan_route_to_real_store_and_keep_exact_body(self):
+        original = "  exact synthetic body\n  "
+        learning = self.daily.remember(content=original, kind="lesson", keywords='["a,b","a,b"]')
+        self.assertTrue(learning["stored"], learning)
+        record = json.loads(self.rows("learning_items")[0]["current_json"])
+        self.assertEqual(record["current_understanding"], original)
+        self.assertEqual(record["kind"], "lesson")
+        self.assertEqual(record["keywords"], ["a,b", "a,b"])
+        planning = self.daily.remember(content=original, kind="task", importance=75.0)
+        self.assertTrue(planning["stored"], planning)
+        record = json.loads(self.rows("planning_versions")[0]["content_json"])
+        self.assertEqual(record["original_text"], original)
+        self.assertEqual(record["kind"], "task")
+
+    def test_discarded_optional_labels_still_pass_original_protected_value_gate(self):
+        for field in ("kind", "emotion"):
+            result = self.daily.remember(content="Safe synthetic body", **{field: "synthetic-protected-value"})
+            self.assertEqual(result["reason_codes"], ["credential_or_secret_detected"])
+            self.assertNotIn("synthetic-protected-value", json.dumps(result))
+        self.assertEqual(self.counts(), (0, 0, 0))
+
+    def test_original_keyword_assignment_context_and_encoded_secret_are_checked_before_write(self):
+        # Splitting the first example would turn the first keyword into a safe
+        # variable reference, and detach the actual value into another label.
+        examples = ('密码："$DEMO_PASSWORD"，实际值为 SYNTHETIC_VALUE',
+                    '["ordinary","token\\uff1aSYNTHETIC_VALUE"]')
+        with patch.object(self.daily, "_configured_protected", wraps=self.daily._configured_protected) as gate:
+            for keywords in examples:
+                result = self.daily.remember(content="Safe synthetic body", keywords=keywords)
+                self.assertEqual(result["reason_codes"], ["credential_or_secret_detected"])
+                self.assertEqual(gate.call_args.args[0]["keywords"], keywords)
+                self.assertNotIn("SYNTHETIC_VALUE", json.dumps(result))
+            for field in ("kind", "emotion"):
+                result = self.daily.remember(content="Safe synthetic body",
+                                             **{field: "token: SYNTHETIC_VALUE"})
+                self.assertEqual(result["reason_codes"], ["credential_or_secret_detected"])
+        self.assertEqual(self.counts(), (0, 0, 0))
+
+    def test_auto_or_alias_does_not_open_missing_module_or_core_mutation(self):
+        self.daily.services["emotional_memory"] = None
+        result = self.daily.remember(content="Synthetic")
+        self.assertEqual(result["reason_codes"], ["module_unavailable"])
+        self.assertEqual(result["module"], "emotional_memory")
+        self.assertEqual(self.host.open_calls, [])
+        self.assertEqual(self.counts(), (0, 0, 0))
+
+    def test_auth_gate_still_precedes_original_secret_scan_and_store(self):
+        self.bound.return_value = None
+        with patch.object(self.host, "contains_protected_persistence_value",
+                          side_effect=AssertionError("unauthenticated original must not scan storage")):
+            result = self.daily.remember(content="Synthetic", kind="synthetic-protected-value")
+        self.assertEqual(result["reason_codes"], ["execution_binding_required"])
+        self.assertEqual(self.host.open_calls, [])
+        self.assertEqual(self.counts(), (0, 0, 0))
+
+    def test_process_credentials_cannot_hide_in_defaulted_fields_or_encoded_keywords(self):
+        secret = "SYNTHETIC_PROCESS_VALUE_986"
+        daily = DailyMemoryAccessService(self.host, self.emotional, self.learning, self.planning,
+                                         OWNER, MODEL, protected_values=(secret,))
+        encoded = '["' + ''.join('\\u%04x' % ord(character) for character in secret) + '"]'
+        for fields in ({"kind": secret}, {"emotion": secret}, {"keywords": [secret]},
+                       {"keywords": encoded}, {"content": "before " + secret + " after"}):
+            result = daily.remember(**{"content": "Safe synthetic body", **fields})
+            self.assertEqual(result["reason_codes"], ["credential_or_secret_detected"])
+            self.assertNotIn(secret, json.dumps(result))
+        self.assertEqual(self.host.open_calls, [])
+        self.assertEqual(self.counts(), (0, 0, 0))
+
+    def test_bad_protection_configuration_and_recursive_values_fail_closed(self):
+        for values in ("not-a-list", ("",), (None,), (1,)):
+            with self.assertRaisesRegex(ValueError, "daily_memory_configuration_invalid"):
+                DailyMemoryAccessService(self.host, self.emotional, self.learning, self.planning,
+                                         OWNER, MODEL, protected_values=values)
+        cyclic = []
+        cyclic.append(cyclic)
+        result = self.daily.remember(content="Synthetic", keywords=cyclic)
+        self.assertEqual(result["reason_codes"], ["credential_or_secret_detected"])
+        self.assertEqual(self.counts(), (0, 0, 0))
+
+    def test_blank_optional_display_fields_omitted_only_without_receipt(self):
+        original = "  Synthetic body\nunchanged.  "
+        for module in ("emotional_memory", "learning_memory", "planning_memory"):
+            saved = self.daily.remember(module, original, title=" ", summary="\t", reason="\r\n")
+            self.assertTrue(saved["stored"], saved)
+        self.assertEqual(self.rows("emotion_memories")[0]["original_text"], original)
+        self.assertEqual(json.loads(self.rows("learning_items")[0]["current_json"])["current_understanding"], original)
+        self.assertEqual(json.loads(self.rows("planning_versions")[0]["content_json"])["original_text"], original)
+        before = self.counts()
+        for field in ("title", "summary", "reason"):
+            denied = self.daily.remember("emotional_memory", original,
+                                         rewrite_receipt="synthetic-receipt", **{field: " "})
+            self.assertEqual(denied["reason_codes"], ["invalid_" + field])
+        self.assertEqual(self.counts(), before)
+
+    def test_security_fields_unknown_module_and_oversized_body_are_not_compatibility_aliases(self):
+        for fields in ({"module": "self"}, {"module": "tool_guidance"}, {"module": "emotional_memroy"},
+                       {"source_basis": "obeserved"}, {"track": "interal"}, {"confidence": "100"},
+                       {"content": "x" * 2001}, {"keywords": ["x"] * 17}, {"keywords": ["x" * 161]}):
+            result = self.daily.remember(**{"content": "Synthetic", **fields})
+            self.assertFalse(result["stored"], result)
+            self.assertFalse(result["state_changed"])
+        self.assertEqual(self.host.open_calls, [])
+        self.assertEqual(self.counts(), (0, 0, 0))
+
+    def test_receipt_does_not_silently_normalize_null_or_alias_metadata(self):
+        for fields in ({"kind": "moment"}, {"emotion": None}, {"importance": None},
+                       {"importance": "50"}, {"keywords": "a,b"}, {"module": "emotion"}):
+            result = self.daily.remember(**{"module": "emotional_memory", "content": "Synthetic",
+                                           "rewrite_receipt": "synthetic-receipt", **fields})
+            self.assertFalse(result["stored"], result)
         self.assertEqual(self.host.open_calls, [])
         self.assertEqual(self.counts(), (0, 0, 0))
 

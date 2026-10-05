@@ -58,6 +58,22 @@ LICENSE/COPYING texts were located in all 29 Linux wheels, and declared license-
 
 For reference, the upstream [MCP SDK MIT text](https://raw.githubusercontent.com/modelcontextprotocol/python-sdk/main/LICENSE), [HTTPX BSD text](https://raw.githubusercontent.com/encode/httpx/master/LICENSE.md), and [certifi notice](https://raw.githubusercontent.com/certifi/python-certifi/master/LICENSE) explain independent rights. These links can evolve; the installed exact-version distributions and their texts, not current branch labels alone, govern the artifacts you actually use.
 
+## Image-attachment dependency in 0.2.0-preview.3
+
+The image-attachment feature adds Pillow 12.3.0, whose installed wheel
+metadata declares `MIT-CMU` and includes `pillow-12.3.0.dist-info/licenses/LICENSE`.
+That license file also contains notices for bundled image-codec components;
+the SPDX label is not a claim that every bundled component uses one license.
+The Windows CPython 3.14 wheel was installed and its version checked in the
+existing isolated test environment. The Windows and Linux x86_64 / CPython 3.12
+locks pin their respective wheel hashes. The image-enabled functional snapshot
+completed isolated runtime regressions on both Windows and Linux; public-tree
+regression scope is recorded in [UPDATE-VALIDATION](docs/UPDATE-VALIDATION.md).
+No Pillow binaries are vendored in this source tree. The historical dependency
+inventories above remain records of their previous baselines: these functional
+tests do not constitute a new complete dependency inventory, fresh-install
+certification, vulnerability audit, or review of all bundled codec licenses.
+
 ## Clients and source provenance
 
 The ST gateway implements Python-side protocol adaptation. The release does not include the RikkaHub native client or its APK, Kotlin/Java code, UI resources, or modified frontend. RikkaHub's inspected revision has its own [GNU AGPL v3 license](https://raw.githubusercontent.com/rikkahub/rikkahub/12ee935e0b0063dc3194d5145248795e071393cc/LICENSE). Interface compatibility does not relicense that client and is not a license to copy its implementation into this package.

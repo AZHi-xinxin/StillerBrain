@@ -1,5 +1,6 @@
 """All endpoints, credentials, DNS and HTTP here are synthetic/offline."""
 import io
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,8 @@ from rikkahub_gateway.routes import GatewayRoute
 from rikkahub_gateway.server import GatewayApplication, GatewayError
 from rikkahub_gateway.tests.test_gateway import config, FakeControl
 from rikkahub_gateway.tests import test_gateway as legacy
+from rikkahub_gateway.atlas import REGISTER as ATLAS_REGISTER, SNAPSHOT as ATLAS_SNAPSHOT, REVOKE as ATLAS_REVOKE
+from runtime.atlas_device_grants import AtlasGrantError
 
 ADMIN = "synthetic-management-" + "a" * 40
 KEY = "synthetic-provider-key-" + "b" * 40
@@ -256,6 +259,23 @@ class GatewayManagementTests(StoreTests):
         with self.assertRaises(GatewayError) as caught:
             self.app.balance("managed/pro")
         self.assertEqual("balance_unsupported", caught.exception.code)
+
+    def test_new_managed_key_is_not_atlas_device_token_even_before_route_refresh(self):
+        token = "orb_atlas_" + "Q" * 43
+        self.store.upsert(payload(apiKey=token))
+        # The atlas adapter was constructed before this key existed. Deliberately
+        # do not refresh the route map: the store commit is already authoritative.
+        verifier = hashlib.sha256(token.encode()).hexdigest()
+        with patch.object(self.app.atlas, "_post", side_effect=AssertionError("no Control call")):
+            for route in (ATLAS_REGISTER, ATLAS_SNAPSHOT, ATLAS_REVOKE):
+                with self.subTest(route=route), self.assertRaises(AtlasGrantError) as caught:
+                    self.app.atlas.request(route, {"verifier": verifier})
+                self.assertEqual((401, "unauthorized"), (caught.exception.status, caught.exception.code))
+        self.app.refresh_managed_routes()
+        self.store.upsert(payload(requestId="2" * 32, expectedRevision=1, apiKey="replacement-" + KEY))
+        with self.assertRaises(AtlasGrantError) as caught:
+            self.app.atlas.request(ATLAS_SNAPSHOT, {"verifier": verifier})
+        self.assertEqual("unauthorized", caught.exception.code)
 
     def test_continuation_retains_snapshot_after_management_edit(self):
         self.store.upsert(payload())

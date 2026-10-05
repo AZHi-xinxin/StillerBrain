@@ -42,6 +42,7 @@ ORDINARY_TOOLS = {
 # content or receipts. Rewrite previews persist authoring receipts, so they
 # deliberately remain writes. New ordinary tools default to write protection.
 ORDINARY_READ_TOOLS = frozenset({
+    'list_memory_images', 'read_memory_image',
     'read_memory_relations',
     'recall_work_memory',
     'recall_emotional_memory', 'recall_learning_memory', 'preview_learning_recall',
@@ -63,6 +64,12 @@ _CURRENT = ContextVar('st_authenticated_ordinary_operation', default=None)
 _SEQUENCE = itertools.count(time.time_ns() // 1000000)
 
 def tool_scope(name, arguments):
+    if name in {'store_memory_image', 'list_memory_images', 'read_memory_image', 'remove_memory_image'}:
+        ref = arguments.get('target_ref')
+        if isinstance(ref, str):
+            return {'emotion': 'emotional_memory', 'learning': 'learning_memory',
+                    'plan': 'planning_memory'}.get(ref.split('://', 1)[0])
+        return None
     if name == 'manage_injection_control' and arguments.get('scope') == 'hallucination_vault':
         return None
     if name in {'manage_self_governance_profile', 'manage_injection_control'}:
@@ -70,8 +77,13 @@ def tool_scope(name, arguments):
         if action in {'propose_set', 'propose_clear', 'propose_mode', 'propose_rollback', 'activate', 'withdraw'}:
             return None
     if name == 'remember_memory':
-        value = arguments.get('module')
-        return value if value in {'emotional_memory', 'learning_memory', 'planning_memory'} else None
+        # Resolve only the scope here. Never mutate the payload that the outer
+        # execution guard must match against its signed arguments hash.
+        from .daily_memory_input import DailyMemoryInputError, resolve_daily_memory_module
+        try:
+            return resolve_daily_memory_module(arguments)
+        except DailyMemoryInputError:
+            return None
     if name == 'revise_memory':
         ref = arguments.get('target_ref')
         if isinstance(ref, str):

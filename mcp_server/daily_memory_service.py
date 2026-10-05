@@ -16,6 +16,8 @@ from runtime.onboarding import OnboardingError
 from runtime.planning_memory import PlanningMemoryError, PLAN_KINDS, PLAN_TRACKS
 from runtime.emotional_memory import EMOTION_LABELS, MEMORY_TYPES
 from runtime.learning_memory import LEARNING_KINDS, SOURCE_BASES
+from runtime.daily_memory_input import DailyMemoryInputError, normalize_daily_memory_input
+from runtime.credential_guard import contains_credential_or_secret
 
 
 _KINDS = {"emotional_memory": MEMORY_TYPES, "learning_memory": LEARNING_KINDS,
@@ -44,7 +46,7 @@ _SAFE_FAILURES = frozenset({
 
 class DailyMemoryAccessService:
     def __init__(self, onboarding: Any, emotional_service: Any, learning_service: Any,
-                 planning_service: Any, owner_id: str, model_id: str) -> None:
+                 planning_service: Any, owner_id: str, model_id: str, *, protected_values=()) -> None:
         if not isinstance(owner_id, str) or not owner_id.strip() or not isinstance(model_id, str) or not model_id.strip():
             raise ValueError("owner_id and model_id are required")
         self.onboarding = onboarding
@@ -54,6 +56,32 @@ class DailyMemoryAccessService:
         if any(component is not None and (component.owner_id, component.model_id) != (self.owner_id, self.model_id)
                for component in self.services.values()):
             raise ValueError("daily module owner/model mismatch")
+        if (not isinstance(protected_values, (list, tuple, set, frozenset))
+                or any(not isinstance(value, str) or not value for value in protected_values)):
+            raise ValueError("daily_memory_configuration_invalid")
+        # Only already-held process credentials, never credentials loaded from
+        # another role/store to extend the list. No values enter error messages.
+        self._protected_values = tuple(frozenset(protected_values))
+
+    def _configured_protected(self, value: Any) -> bool:
+        def contains(item: Any, depth: int = 0, active: set[int] | None = None) -> bool:
+            if depth > 64:
+                return True
+            if isinstance(item, str):
+                return any(secret in item for secret in self._protected_values)
+            if isinstance(item, (dict, list, tuple, set, frozenset)):
+                active = set() if active is None else active
+                identity = id(item)
+                if identity in active:
+                    return True
+                active.add(identity)
+                try:
+                    children = (*item.keys(), *item.values()) if isinstance(item, dict) else item
+                    return any(contains(child, depth + 1, active) for child in children)
+                finally:
+                    active.remove(identity)
+            return False
+        return contains_credential_or_secret(value) or contains(value)
 
     @staticmethod
     def _reject(module: str, code: str, guidance: str | None = None, **details: Any) -> dict[str, Any]:
@@ -75,7 +103,7 @@ class DailyMemoryAccessService:
             else:
                 guidance = "本次未存入；请恢复准确绑定的当前对话后重新发起请求，不要复用旧回合参数。"
         return {"module": module, "decision": "reject", "stored": False, "count": 0,
-                "state_changed": False, "reason_codes": [code], "message": "未存入记忆。",
+                "state_changed": False, "reason_code": code, "reason_codes": [code], "message": "未存入记忆。",
                 "next_step": guidance, **details}
 
     def _runtime_reject(self, module: str, result: Mapping[str, Any]) -> dict[str, Any]:
@@ -86,13 +114,40 @@ class DailyMemoryAccessService:
                     "daily_write_rejected")
         return self._reject(module, code)
 
-    def remember(self, module: str, content: str, title: str | None = None,
+    def remember(self, module: str | None = "auto", content: str | None = None, title: str | None = None,
                  summary: str | None = None, kind: str | None = None, track: str = "internal",
-                 keywords: list[str] | None = None, importance: int = 50, emotion: str = "other",
+                 keywords: list[str] | str | None = None, importance: int | float | str | None = 50,
+                 emotion: str | None = "other",
                  source_basis: str = "unmarked", confidence: int | None = None, reason: str | None = None,
                  write_context_ref: str | None = None, parent_ref: str | None = None,
                  due_at: str | None = None, timezone: str = "UTC",
                  rewrite_receipt: str | None = None) -> dict[str, Any]:
+        # Keep raw persistence input for both the process-only protection gate
+        # and the later exact-context, stored-capability gate. Defaulting a
+        # label must never discard a secret before either protection check.
+        original_fields = dict(module=module, content=content, title=title, summary=summary,
+                               kind=kind, track=track, keywords=keywords, importance=importance,
+                               emotion=emotion, source_basis=source_basis, confidence=confidence,
+                               reason=reason, parent_ref=parent_ref, due_at=due_at, timezone=timezone)
+        if self._configured_protected(original_fields):
+            return self._reject("unknown", "credential_or_secret_detected")
+        try:
+            normalized = normalize_daily_memory_input({**original_fields, "rewrite_receipt": rewrite_receipt})
+        except DailyMemoryInputError as exc:
+            return self._reject("unknown", exc.code,
+                                "修正标出的字段；正文不会被截断，未知权限模块不会自动替换。",
+                                field=exc.field)
+        module = normalized.fields["module"]
+        title, summary, reason = (normalized.fields[field] for field in ("title", "summary", "reason"))
+        kind = normalized.fields["kind"]
+        emotion = normalized.fields["emotion"]
+        importance = normalized.fields["importance"]
+        keywords = normalized.fields["keywords"]
+        # A JSON keyword string may encode a bare process credential using
+        # Unicode escapes. Check the decoded copy too, without scanning the
+        # legitimate rewrite/context authorization values as content.
+        if self._configured_protected(dict(kind=kind, emotion=emotion, keywords=keywords)):
+            return self._reject(module, "credential_or_secret_detected")
         if not isinstance(module, str) or module not in self.services:
             return self._reject("unknown", "invalid_module", "选择一个支持的日常记忆模块。",
                                 allowed_values=sorted(self.services))
@@ -184,6 +239,10 @@ class DailyMemoryAccessService:
                 scopes = binding.get("authorized_scopes")
                 if not isinstance(scopes, list) or module not in scopes:
                     return self._reject(module, "direct_scope_not_authorized")
+            if self.onboarding.contains_protected_persistence_value(
+                owner_id=self.owner_id, model_id=self.model_id, value=original_fields,
+            ):
+                return self._reject(module, "credential_or_secret_detected")
             version = component.status().get("row_version")
             if type(version) is not int or version < 0:
                 return self._reject(module, "module_version_unavailable")
@@ -251,4 +310,5 @@ class DailyMemoryAccessService:
                 "id": item_id, "ref": item_ref, "version": item_version,
                 "state_changed": result.get("state_changed") is True,
                 "idempotent_replay": result.get("idempotent_replay") is True,
+                "input_warnings": list(normalized.warnings),
                 "message": "已存入 1 条日常记忆；未执行核心自我修改或候选审核。"}

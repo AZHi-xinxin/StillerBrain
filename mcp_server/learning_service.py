@@ -164,7 +164,7 @@ class LearningMemoryAccessService:
                 "我可以保存、查询、修订、综合，也可以什么都不做。",
             ],
             "tools": {
-                "remember_memory": "普通新增首选：module=learning_memory，content=实际原文；一次保存，无需先 open、手填版本或另轮审核。",
+                "remember_memory": "日常新增只需content=实际原文，module默认auto；明确要存学习时可选module=learning_memory，不会猜正文内容自动归类。激活后的普通调用一次保存，无需先open、手填版本或另轮审核；旧直连仍按原授权。",
                 "revise_memory": "按已读 target_ref 直接修改正文 current_understanding、摘要、来源、标签、重要度等作者字段；旧版本保留，模块版本由宿主处理。",
                 "remember_learning_memory": (
                     "高级新建详细学习卡；若希望未来用不同说法自动想起，可填写简短的 "

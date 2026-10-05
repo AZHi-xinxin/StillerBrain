@@ -5,3 +5,4 @@ httpx==0.28.1
 jsonschema==4.26.0
 referencing==0.37.0
 pydantic==2.13.4
+Pillow==12.3.0

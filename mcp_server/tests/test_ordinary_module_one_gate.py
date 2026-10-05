@@ -45,6 +45,9 @@ class OrdinaryModuleOneGateTests(unittest.TestCase):
         for name in set(ORDINARY_TOOLS) | {
             'remember_memory', 'revise_memory', 'submit_self_model_candidate',
             'activate_self_model_candidate', 'hold_hallucination_record',
+            # Image reads resolve their module from target_ref rather than
+            # ORDINARY_TOOLS. Register only observation stubs for this gate test.
+            'list_memory_images', 'read_memory_image',
         }:
             def body(tool_name):
                 async def observed(module: str | None = None, target_ref: str | None = None,

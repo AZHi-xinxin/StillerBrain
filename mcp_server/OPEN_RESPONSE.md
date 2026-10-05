@@ -2,25 +2,25 @@
 
 [日常指南](../docs/GUIDE.md) · [工具目录](../docs/TOOLS.md) · [MCP 组件](README.md)
 
-当前公开契约为 `public-tools/21`，默认展开协议为 `brain-open/2`。本文以 `simple-memory-v1` 为主；默认完整目录提供 50 个公开工具，显式日常档为 7 入口，工具集合差异见 [TOOLS](../docs/TOOLS.md)。客户端使用当前工具 Schema 组织真实调用。
+当前公开契约为 `public-tools/21`，默认展开协议为 `brain-open/2`，对应 `0.2.0-preview.3`。本文以 `simple-memory-v1` 为主，完整模型目录提供 54 个公开工具（含 4 个图片操作），显式日常档为 8 入口。完整传输 `tools/list` 另含 1 项 host-only 图片运输能力，共 55 项；宿主不得把运输项发送给模型或作为图片写入授权。工具集合差异见 [TOOLS](../docs/TOOLS.md)。客户端使用当前工具 Schema 组织真实调用，下载源码不自动升级所连接实例。
 
 ## 目录选择与操作调用
 
 默认 `/mcp` 或 `tool_profile=full` 返回完整目录。`/mcp?tool_profile=daily` 或请求头 `X-STBrain-Tool-Profile: daily` 选择日常档；两个选择器各最多一次，同时提供时必须一致。选择按请求生效，不改变实例的访问配置，也不会在升级时自动替客户端切档。
 
-日常档按顺序提供 `stbrain_open`、`remember_memory`、`remember_tool_guidance`、`revise_memory`、`advance_plan`、`stbrain_tools`、`stbrain_manage`。`stbrain_open` 无必填参数。`stbrain_tools()` 列分类，`stbrain_tools(category=...)` 列该类操作，`stbrain_tools(action=...)` 返回一个操作的准确参数。工具箱包含常用能力与兼容操作；新增 `work` 与 `relations` 分类仍通过现有入口发现和执行。
+日常档按顺序提供 `stbrain_open`、`remember_memory`、`remember_work_memory`、`remember_tool_guidance`、`revise_memory`、`advance_plan`、`stbrain_tools`、`stbrain_manage`。`stbrain_open` 无必填参数，两个记忆存入入口都只有 `content` 必填。`stbrain_tools()` 列分类，`stbrain_tools(category=...)` 列该类操作，`stbrain_tools(action=...)` 返回一个操作的准确参数。工具箱包含常用能力与兼容操作；`work`、`relations` 与 `images` 的其余操作仍通过工具箱发现和执行。
 
-本文或 `detail_lookup` 中给出的操作名，若不在当前独立工具目录中，使用 `stbrain_manage(action=操作名, arguments=原参数对象)` 调用。已知参数时可直接执行；内层参数仍经过原 Schema、权限与执行绑定检查。直接调用七个入口时按各自 Schema 平铺业务参数，只有 `stbrain_manage` 使用内层 `arguments` 封装子操作。
+本文或 `detail_lookup` 中给出的操作名，若不在当前独立工具目录中，使用 `stbrain_manage(action=操作名, arguments=原参数对象)` 调用。已知参数时可直接执行；内层参数仍经过原 Schema、权限与执行绑定检查。直接调用八个入口时按各自 Schema 平铺业务参数，只有 `stbrain_manage` 使用内层 `arguments` 封装子操作。
 
 更改连接后重连、刷新目录，从新回合开始；旧历史里的工具说明不会自动消失。客户端禁用或审批工具箱入口的选择继续生效。
 
 ## 1. 普通保存
 
 ```text
-remember_memory(module, content)
+remember_memory(content="想留下的原文")
 ```
 
-仅 `module`、`content` 必填，正文长度为 1–2000 字符。
+只有 `content` 必填，正文长度为 1–2000 字符，按实际提交内容原样保留。`module` 省略、空白或 null 时为 `auto`：仅依据明确元数据选择模块，不对正文进行语义分类。填写 `parent_ref`、`due_at` 或规划类型时选择规划脑；填写学习类型时选择学习脑；其余情况选择情感脑。
 
 | module | 内容 | kind 省略值 |
 | --- | --- | --- |
@@ -28,11 +28,17 @@ remember_memory(module, content)
 | `learning_memory` | 知识、方法与当前理解 | `fact` |
 | `planning_memory` | 计划、安排与承诺 | `task` |
 
-`title`、`summary`、`keywords`、`importance` 等可按内容填写。普通记忆的 `source_basis` 省略为 `unmarked`，`confidence` 省略为 null，表示未标注；明确填写的 0–100 为作者判断。情感类型由作者选择。规划的 `parent_ref` 可选。
+也可明确填写以上模块，或有限短名 `emotion`/`emotional`、`learn`/`learning`、`plan`/`planning`。未知模块以及自我、工具、黑匣子等其他权限模块不自动改投；目标模块未配置或未获授权时不转存别处。
+
+`kind`、`emotion`、`importance`、`keywords` 可省略、留空或填 null；默认分类见上表，情绪为 `other`，重要度为 50。情感分类 `moment`/`event` 兼容为 `shared_event`。不认识的分类或情绪使用对应默认值，在成功回执的 `input_warnings` 中给出固定说明，原标签不另外写入关键词。重要度接受 0–100 整数、等值整数浮点数或数字字符串，不接受布尔值、越界值或百分号。
+
+关键词优先填写最多 16 项的字符串数组，每项 1–160 字符；也兼容逗号、顿号、分号、换行分隔文本或合法 JSON 数组字符串。数组元素内部的标点不拆分，不去重、不排序、不截断。正文、原始可选字段和实际落盘值仍经过凭据检查；不因默认值或拆分而丢掉安全检查。
+
+`title`、`summary` 等可按内容填写。普通记忆的 `source_basis` 省略为 `unmarked`，`confidence` 省略为 null，表示未标注；明确填写的 0–100 为作者判断，不因此成为独立核验。来源、可信度、计划轨道和权限字段仍严格校验，不替作者纠错或编造。规划的 `parent_ref` 可选。若使用 `rewrite_receipt`，必须填写精确模块并提交与已确认预览完全相同的最终字段，不做上述兼容修正。
 
 模块一首次激活后，简化配置的直连与网关调用均可直接保存。内部上下文和模块行版本由服务取得，普通保存直接返回存储结果。正文保留本次实际提交内容，存入后的提示附在回执里。
 
-这些普通调用不需要先 `stbrain_open`，也无需填写内部模块行版本或另轮审核表。
+只有在上述已首次激活的 `simple-memory-v1` 配置下，这些普通调用不需要每次先 `stbrain_open`，也无需填写内部模块行版本或另轮审核表。`legacy` 仍需真实授权上下文；网关调用仍绑定原始参数和本轮执行，不能用归一化后的等义参数替换或重放旧调用。便利输入不会自动激活模块一。
 
 工具卡使用 `remember_tool_guidance(tool_name, purpose)`。`tool_name` 可写 MCP 服务大名；`operation_key` 可省略。`reminder`、中文 `scenario_tags`、0–100 的可信度和有效期均按工具 Schema 填写。省略到期日期表示长期保留。来源字段与实际执行确认分别管理。
 
@@ -67,7 +73,7 @@ stbrain_open(view="recall", query="查询内容")
 
 | 操作 | 参数与边界 |
 | --- | --- |
-| `remember_work_memory(content, tag)` | 正文 1–32768 字符且不超过 128 KiB UTF-8；一个 1–160 字符的作者标签，原文原样保留 |
+| `remember_work_memory(content=...)` | 只有正文必填，1–32768 字符且不超过 128 KiB UTF-8；`tag` 省略为“随手记”，明确填写时须为 1–160 字符，原文原样保留 |
 | `recall_work_memory(query="", limit=5, offset=0)` | 标签字面子串匹配，不做语义搜索或 SQL 通配；空查询浏览，单页最多 5 条完整记录 |
 | `recall_work_memory(target_ref=...)` | 按返回的 `work://...@版本` 读取确切版本，不能与非空 `query` 合用 |
 | `revise_work_memory(target_ref, content=..., tag=..., lifecycle=...)` | 用刚读到的当前引用，至少提交一项改动；省略字段保留原值，旧版本保留 |
@@ -76,7 +82,7 @@ stbrain_open(view="recall", query="查询内容")
 
 `simple-memory-v1` 首次激活前可认证读取、不可写入；激活后沿普通学习记忆授权路径读写，不需填写内部上下文。兼容配置保留其学习授权门槛。直连创建可用一个 32 位小写十六进制 `request_id` 重试相同且结果未知的提交；同 ID 改内容会拒绝。网关调用省略此字段，由宿主绑定操作身份。
 
-日常档用 `stbrain_tools(category="work")` 查目录，或直接用 `stbrain_manage` 执行上述操作。显式读取会把原文交给当前模型，仍须注意资料与模型服务的隐私范围。
+日常档可直接调用 `remember_work_memory(content=...)`。查询和修订用 `stbrain_tools(category="work")` 查参数，或用 `stbrain_manage` 执行。碎片不自动参与长期召回，不替代普通记忆；显式读取会把原文交给当前模型，仍须注意资料与模型服务的隐私范围。
 
 ### 记忆关系：显式连边，不代替正文查询
 

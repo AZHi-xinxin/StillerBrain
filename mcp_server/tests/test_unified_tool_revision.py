@@ -162,14 +162,17 @@ class UnifiedToolRevisionTests(unittest.TestCase):
         self.assertIn("synthetic:new-source", self.card()["content"]["additional_source_refs"])
         self.assertEqual(5, len(self.rows("tool_card_versions")))
 
-    def test_risk_floor_and_confidence_error_hints_are_preserved(self):
-        risk = self.revise({"risk_level": "low"})
-        self.assertEqual(["risk_below_runtime_floor"], risk["reason_codes"])
-        self.assertEqual("high", risk["repair_guidance"]["real_world_action_minimum_risk_level"])
-        confidence = self.revise({"confidence": 101})
+    def test_author_risk_revision_preserves_history_and_confidence_validation(self):
+        before = self.rows("tool_card_versions")
+        risk = self.revise({"risk_level": "low", "confirmation_policy": "none"})
+        self.assertTrue(risk["revised"], risk)
+        self.assertEqual("low", self.card()["content"]["risk_level"])
+        self.assertEqual("none", self.card()["content"]["confirmation_policy"])
+        self.assertEqual(before, self.rows("tool_card_versions")[:1])
+        confidence = self.revise({"confidence": 101}, risk["ref"])
         self.assertEqual(["invalid_confidence"], confidence["reason_codes"])
         self.assertEqual(100, confidence["repair_guidance"]["maximum"])
-        self.assertEqual(1, len(self.rows("tool_card_versions")))
+        self.assertEqual(2, len(self.rows("tool_card_versions")))
 
     def test_receipt_mismatch_is_not_announced_as_saved_and_backend_body_is_redacted(self):
         with patch.object(self.tools, "_write", return_value={

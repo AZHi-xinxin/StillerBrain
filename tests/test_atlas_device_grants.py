@@ -67,6 +67,12 @@ class AtlasDeviceGrantsTests(unittest.TestCase):
         self.error(403, "atlas_disabled", store.register, request())
         self.error(403, "atlas_disabled", store.snapshot, request()["verifier"])
 
+    def test_explicit_disabled_without_keys_is_legacy_no_io(self):
+        absent = Path(self.temp.name) / "explicit-disabled.sqlite"
+        with patch("runtime.atlas_device_grants.sqlite3.connect", side_effect=AssertionError("no DB access")):
+            self.assertIsNone(from_env(absent, "owner", "model", {"STBRAIN_ATLAS_BOOTSTRAP_ENABLED": "0"}))
+        self.assertFalse(absent.exists())
+
     def test_initialization_changes_only_new_operational_schema(self):
         with closing(sqlite3.connect(self.database)) as db:
             before = list(db.iterdump())

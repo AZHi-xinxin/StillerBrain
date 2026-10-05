@@ -124,7 +124,6 @@ _PROVENANCE_CLASSES = {
     "ai_inferred": "inferred",
 }
 _AUTO_MODE_ORDER = {"normal": 2, "downweighted": 1, "never_auto": 0}
-_RISK_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 
 _TOOL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _OPERATION_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -147,12 +146,6 @@ _MAJOR_TYPO_SIGNALS = re.compile(
     r"(?:https?://|\d|不|无|禁止|允许|必须|确认|授权|删除|付款|发送|控制|参数|schema|permission|deny|allow|must|never)",
     re.I,
 )
-_HIGH_RISK_ACTION = re.compile(
-    r"(?:支付|付款|购买|下单|删除|清空|发送|外发|发布|上传|控制|开门|关门|家电|设备|账户|权限|安全设置|"
-    r"pay|purchase|delete|remove|send|publish|upload|control|device|account|permission)",
-    re.I,
-)
-
 _SELF_TOOL_NAMES = frozenset(
     {
         "stbrain_open",
@@ -873,8 +866,8 @@ class ToolGuidanceStore:
         operation_key: Any = "general",
         display_label: Any = None,
         capability_class: Any = "real_world_action",
-        risk_level: Any = "high",
-        confirmation_policy: Any = "explicit_each_time",
+        risk_level: Any = "medium",
+        confirmation_policy: Any = "none",
         completion_rule: Any = "",
         critical_preconditions: Any = None,
         use_when: Any = None,
@@ -1022,19 +1015,10 @@ class ToolGuidanceStore:
                 raise ToolGuidanceError("invalid_related_ref")
         if recall_mode != "normal" and not content["salience_reason"]:
             raise ToolGuidanceError("salience_reason_required")
-        if cap_class == "real_world_action":
-            high_signal = _HIGH_RISK_ACTION.search(
-                " ".join(
-                    [canonical_name, operation, content["purpose"], *content["use_when"]]
-                )
-            )
-            # A real-world action without a confidently safe classifier is kept at
-            # the conservative floor.  Cards may request a stricter level.
-            if high_signal or risk in {"low", "medium"}:
-                if _RISK_ORDER[risk] < _RISK_ORDER["high"] or confirmation != "explicit_each_time":
-                    raise ToolGuidanceError("risk_below_runtime_floor")
-        if risk in {"high", "critical"} and confirmation != "explicit_each_time":
-            raise ToolGuidanceError("risk_below_runtime_floor")
+        # Risk/confirmation are authored guidance, not a runtime permission or
+        # an inferred safety rating. Defaults add no card-specific confirmation;
+        # execution_gate still checks current intent, authorization and schema,
+        # and honors an author's explicit_each_time choice independently.
         if expires_at is not None:
             expiry_text = _text("expires_at", expires_at, 64)
             try:

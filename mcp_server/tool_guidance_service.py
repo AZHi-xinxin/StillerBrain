@@ -34,12 +34,17 @@ class ToolGuidanceAccessService:
         owner_id: str,
         model_id: str,
         catalog_provider: CatalogProvider | Mapping[str, Any] | None = None,
+        protected_values=(),
     ) -> None:
         self.store = store
         self.onboarding = onboarding
         self.owner_id = owner_id.strip()
         self.model_id = model_id.strip()
         self.catalog_provider = catalog_provider
+        if (not isinstance(protected_values, (list, tuple, set, frozenset))
+                or any(not isinstance(value, str) or not value for value in protected_values)):
+            raise ValueError("invalid_protected_values")
+        self._protected_values = tuple(frozenset(protected_values))
         if not self.owner_id or not self.model_id:
             raise ValueError("owner_id and model_id must not be empty")
         self.store.ensure_state(owner_id=self.owner_id, model_id=self.model_id)
@@ -68,18 +73,6 @@ class ToolGuidanceAccessService:
                 "minimum": 0,
                 "maximum": 100,
                 "message": "工具卡与工具经验的 confidence 由我填写 0–100 的整数，包含 0 和 100；经验保持 AI 自报，不因分数升为独立核验。",
-            }
-        elif reason == "risk_below_runtime_floor":
-            result["repair_guidance"] = {
-                "real_world_action_minimum_risk_level": "high",
-                "high_or_critical_confirmation_policy": "explicit_each_time",
-                "critical_required": False,
-                "message": (
-                    "现实动作卡最低为 high，允许更严格的 critical；high/critical 均须 "
-                    "explicit_each_time。请根据具体操作重新判断，不要把拒绝误解为必须 critical，"
-                    "也不要仅为通过校验改写风险事实。普通修改同样保留执行风险下限。"
-                ),
-                "permission_authority": "none",
             }
         elif reason == "invalid_scenario_tags_item":
             result["repair_guidance"] = {
@@ -152,7 +145,7 @@ class ToolGuidanceAccessService:
                 else "brain_open_required"
             )
             return self._reject(reason, status=self.status())
-        if self.onboarding.contains_protected_persistence_value(
+        if self._contains_known_secret(model_values) or self.onboarding.contains_protected_persistence_value(
             owner_id=self.owner_id,
             model_id=self.model_id,
             value=model_values,
@@ -172,6 +165,27 @@ class ToolGuidanceAccessService:
             **result,
             "execution_performed": False,
         }
+
+    def _contains_known_secret(self, value: Any) -> bool:
+        """Check already-held credentials without reading or exposing more secrets."""
+        active: set[int] = set()
+        def contains(item: Any, depth: int = 0) -> bool:
+            if depth > 64:
+                return True
+            if isinstance(item, str):
+                return any(secret in item for secret in self._protected_values)
+            if isinstance(item, (Mapping, list, tuple, set, frozenset)):
+                identity = id(item)
+                if identity in active:
+                    return True
+                active.add(identity)
+                try:
+                    children = (*item.keys(), *item.values()) if isinstance(item, Mapping) else item
+                    return any(contains(child, depth + 1) for child in children)
+                finally:
+                    active.remove(identity)
+            return False
+        return contains(value)
 
     def manual(self, *, write_context_ref: str | None = None) -> dict[str, Any]:
         """Return the manual and full candidates for a valid trusted binding."""
@@ -246,8 +260,10 @@ class ToolGuidanceAccessService:
                     "每项为 1–128 字的非空文本，最多 16 项且不重复，不含换行等控制字符。"
                 ),
                 "real_world_action": (
-                    "最低风险级是 high，不是必须 critical；high/critical 均须 explicit_each_time。"
-                    "可以主动记下工具建议；卡片的风险声明与本轮真实执行授权分别核对。"
+                    "保存工具说明不执行工具，不按动作类别或关键词设置风险下限。"
+                    "risk_level 与 confirmation_policy 可独立填写；新卡省略时为 medium 与 none，"
+                    "仅表示默认元数据且卡片不额外要求确认，不是安全评级或执行授权。"
+                    "已保存卡片不自动改写；真实调用仍遵循调用端与目标工具的权限。"
                 ),
             },
             "pending_candidates": pending,

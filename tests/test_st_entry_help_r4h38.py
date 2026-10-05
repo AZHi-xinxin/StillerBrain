@@ -44,7 +44,7 @@ class StEntryHelpTests(unittest.TestCase):
             r"\b(?:remember|recall|stbrain|query|preview|revise|advance)_[a-z_]+", serialized))
         mentioned -= {field for fields in help_['ordinary_revision']['allowed_fields'].values() for field in fields}
         self.assertTrue(mentioned <= public_names(), mentioned - public_names())
-        self.assertEqual(50, len(public_names()))
+        self.assertEqual(54, len(public_names()))
         self.assertFalse({"breath", "stbrain_breath"} & public_names())
         self.assertNotIn("stbrain_breath", serialized)
 
@@ -66,8 +66,9 @@ class StEntryHelpTests(unittest.TestCase):
         serialized = json.dumps(help_, ensure_ascii=False)
         for forbidden in ("必须每轮", "必须先运行", "必须以我开头", "必须以“我”开头"):
             self.assertNotIn(forbidden, serialized)
-        self.assertEqual(["module", "content"], help_["daily_memory"]["required"])
-        self.assertIn("不用先 open", help_["daily_memory"]["instruction"])
+        self.assertEqual(["content"], help_["daily_memory"]["required"])
+        self.assertIn("无需为存入先查目录、open、手填版本或另轮审核", help_["daily_memory"]["instruction"])
+        self.assertIn("旧直连仍保留其真实上下文授权", help_["daily_memory"]["instruction"])
 
     def test_recall_view_and_core_three_wakes_remain_separate(self):
         advanced = literal_help()["advanced"]

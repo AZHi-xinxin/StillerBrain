@@ -69,8 +69,11 @@ class NeutralMemoryDefaultsTests(unittest.TestCase):
             with self.subTest(score=score):
                 result = self.daily.remember("learning_memory", "Synthetic.", confidence=score)
                 self.assertFalse(result["stored"])
-        for fields in ({"source_basis": "guessed"}, {"kind": "guessed"}):
-            self.assertFalse(self.daily.remember("emotional_memory", "Synthetic.", **fields)["stored"])
+        self.assertFalse(self.daily.remember("emotional_memory", "Synthetic.", source_basis="guessed")["stored"])
+        unknown = self.daily.remember("emotional_memory", "Synthetic.", kind="guessed")
+        self.assertTrue(unknown["stored"])
+        self.assertEqual(self._content("emotional_memory", unknown["id"])["memory_type"], "unclassified")
+        self.assertEqual(unknown["input_warnings"][0]["code"], "kind_unrecognized_defaulted")
 
     def test_changes_null_clears_and_omission_preserves_score_and_history(self):
         for module in ("emotional_memory", "learning_memory"):

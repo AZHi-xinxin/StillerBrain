@@ -1,6 +1,6 @@
 # 安装与日常使用
 
-0.2 提供[短期换窗交接设置与验收](SHORT-TERM-MEMORY.md)。本次更新加入显式工作记忆、记忆关系、多模型路由及长工具流的独立预算。正式聊天保留原模型，标题/回复建议等快速任务选择 `--auxiliary-no-memory` 模型项；这不是改用另一家模型供应商。
+0.2 提供[短期换窗交接设置与验收](SHORT-TERM-MEMORY.md)。本版进一步简化普通保存、随手记和工具卡，加入[星图接入](ATLAS.md)与[原图附件](MEMORY-IMAGES.md)；既有工作记忆、记忆关系、多模型路由及长工具流预算继续保留。正式聊天保留原模型，标题/回复建议等快速任务选择 `--auxiliary-no-memory` 模型项；这不是改用另一家模型供应商。
 
 [首页](../README.md) · [新手安装](INSTALL.md) · [工具目录](TOOLS.md) · [缓存设置](CACHE.md) · [架构](ARCHITECTURE.md) · [启动、备份与导出](OPERATIONS.md)
 
@@ -8,7 +8,7 @@
 
 ST 可以部署在 Windows 电脑、Linux 电脑或 Linux VPS 上。Windows 与 Linux 服务均有实际验收；Linux 已验证环境包括 Ubuntu 24.04 x64 / CPython 3.12.3，具体范围见发布验证记录。先确认服务放在哪台设备，再选择该系统的安装命令；手机客户端连接现有实例时，直接使用部署者提供的地址与凭证。
 
-本页的日常读写采用 `simple-memory-v1` 配置。旧版 `legacy` 连接继续保留独立授权上下文；先读当前实例的帮助确认配置。日常档通过 `stbrain_manage(action="stbrain_help")` 读取，完整档可直接调用 `stbrain_help`。
+本页日常用法对应 `0.2.0-preview.3`；下载源码不自动升级现有实例。日常读写以 `simple-memory-v1` 配置为主：模块一首次完成并激活后，普通保存无需每次先 `open`。旧版 `legacy` 连接继续要求真实授权上下文；先读当前实例的帮助确认配置。日常档通过 `stbrain_manage(action="stbrain_help")` 读取，完整档可直接调用 `stbrain_help`。
 
 ## 先分清两种连接
 
@@ -41,13 +41,13 @@ ST 按接入能力适配模型与客户端。当前提供 OpenAI 兼容的 Chat 
 
 手机里的 `127.0.0.1` 是手机自己。远程连接应使用部署者提供、经过 TLS 与设备授权验收的地址。
 
-### 选择日常七入口
+### 选择日常八入口
 
 想减少常驻工具说明，在客户端把 ST MCP 地址末尾改为 `/mcp?tool_profile=daily`；已有其他查询参数时追加 `&tool_profile=daily`，已有 `tool_profile` 时修改原值，避免重复。保留原认证信息，重连并刷新工具目录，从下一条新消息开始使用。
 
-日常档提供 `stbrain_open`、`remember_memory`、`remember_tool_guidance`、`revise_memory`、`advance_plan`、`stbrain_tools`、`stbrain_manage`，其中 `stbrain_open` 排在首位，无必填参数。后两个入口让 AI 自行查分类、读参数和执行其余 ST 操作，详细用法见 [工具箱](TOOLS.md#日常七入口与分类工具箱)。
+日常档提供 `stbrain_open`、`remember_memory`、`remember_work_memory`、`remember_tool_guidance`、`revise_memory`、`advance_plan`、`stbrain_tools`、`stbrain_manage`，其中 `stbrain_open` 排在首位，无必填参数。两个记忆存入入口都只要求 `content`；后两个工具箱入口让 AI 自行查分类、读参数和执行其余 ST 操作，详细用法见 [工具箱](TOOLS.md#日常八入口与分类工具箱)。
 
-默认 `/mcp` 是完整 50 项目录，公开契约为 `public-tools/21`，升级不会自动切档。也可由客户端设置请求头 `X-STBrain-Tool-Profile: daily`；查询参数和请求头各只允许出现一次，同时提供时必须一致。它们按请求选择目录，与 `STBRAIN_ACCESS_PROFILE` 的访问权限配置独立。
+默认 `/mcp` 的完整模型目录为 54 项（含 4 个图片操作），公开契约为 `public-tools/21`；传输层还列出 1 项 host-only 图片运输能力，宿主须过滤，不能把它发给模型。升级不会自动切档。也可由客户端设置请求头 `X-STBrain-Tool-Profile: daily`；查询参数和请求头各只允许出现一次，同时提供时必须一致。它们按请求选择目录，与 `STBRAIN_ACCESS_PROFILE` 的访问权限配置独立。
 
 工具箱说明会随客户端发送的目录提供给模型，包括自写提醒、浮现开关和记忆整理等用途。模型不必等人类逐次切档；如果客户端禁用了整个 ST MCP 或工具箱入口，则仍以客户端许可为准。
 
@@ -131,15 +131,21 @@ python -B scripts/stiller_ops.py start --config C:/stiller-private/stiller.env
 
 ### 1. 新增一条经历、方法或计划
 
-普通保存使用 `remember_memory`，只需 `module` 与 `content`。下面是合成 MCP 调用示例：
+普通保存使用 `remember_memory`，唯一必填项是 `content`。在已首次激活的 `simple-memory-v1` 中直接调用，不用每次先打开上下文；`legacy` 仍需真实授权。下面是合成 MCP 调用示例：
+
+```json
+{"name":"remember_memory","arguments":{"content":"今天我们一起把一个困难的问题理清了。"}}
+```
+
+只有正文时，先保存为情感脑的未分类记录。若想明确写入学习脑，可按需加分类和关键词：
 
 ```json
 {"name":"remember_memory","arguments":{"module":"learning_memory","content":"我学会先列出候选方案，再比较时间和材料。","keywords":["比较方案","选择方法"]}}
 ```
 
-可用模块：`emotional_memory`、`learning_memory`、`planning_memory`。工具卡另用 `remember_tool_guidance`，必填 `tool_name` 与 `purpose`。
+`module` 省略、空白或 null 时为 `auto`：依据明确填写的元数据选择模块——计划类型、`parent_ref` 或 `due_at` 选规划脑，学习类型选学习脑，其余选情感脑；不会阅读正文后猜分类。也可明确选择 `emotional_memory`、`learning_memory`、`planning_memory`，或短名 `emotion`/`emotional`、`learn`/`learning`、`plan`/`planning`。未知模块仍拒绝，不擅自改投。工具卡另用 `remember_tool_guidance`，必填 `tool_name` 与 `purpose`。
 
-来源省略时为 `unmarked`，可信度省略时为未标注。作者可以按实际经历选择来源，自填 0–100 的可信度。情感类型省略时为 `unclassified`，由 AI 按内容自行分类。
+`kind`、`emotion`、`importance`、`keywords` 均可省略、留空或填 null；默认分类按模块确定，情绪为 `other`，重要度为 50。`moment`/`event` 在情感脑兼容为 `shared_event`；其他未识别分类或情绪会用默认值，并在成功回执的 `input_warnings` 中说明，不截断正文或把标签另存成关键词。关键词优先使用数组，也兼容分隔文本或合法 JSON 数组字符串。来源省略时为 `unmarked`，可信度省略时为 null；明确填写仍严格校验，不由服务编造。使用已确认的 `rewrite_receipt` 时，必须提交精确模块和原样最终字段，不进行这些兼容修正。
 
 ### 2. 统一找记忆，再按需要展开
 
@@ -171,11 +177,11 @@ python -B scripts/stiller_ops.py start --config C:/stiller-private/stiller.env
 
 ## 主动保留工作资料与记忆关系
 
-`remember_work_memory(content, tag)` 原样保存资料，正文最多 32768 字符且不超过 128 KiB UTF-8。`recall_work_memory` 按标签字面查询或确切版本读取，每页最多 5 条；`revise_work_memory` 修订并保留历史，也能用 `lifecycle="retired"` 退役、`lifecycle="active"` 恢复。退役内容需显式 `include_retired=true` 才能读回。工作记忆不参与日常自动浮现、四模块混合查询或星图；AI 主动读取时才将原文交给当前模型。
+`remember_work_memory(content=...)` 原样保存碎片或资料，唯一必填项是正文；`tag` 省略为“随手记”，也可明确填写 1–160 字符的标签。正文最多 32768 字符且不超过 128 KiB UTF-8。`recall_work_memory` 按标签字面查询或确切版本读取，每页最多 5 条；`revise_work_memory` 修订并保留历史，也能用 `lifecycle="retired"` 退役、`lifecycle="active"` 恢复。退役内容需显式 `include_retired=true` 才能读回。工作记忆不参与日常自动浮现、四模块混合查询或星图；AI 主动读取时才将原文交给当前模型，不能把它当作自动长期记忆的替代入口。
 
 `attach_memory_relation`、`read_memory_relations`、`detach_memory_relation` 为情感、学习和规划的现有记录建立可追溯关系。一跳查询只给引用、类型和已有标题，不递归读正文；不连接工作记忆或隔离匣，不自动开启联想注入。星图仅展示匿名结构，不展示自定义关系标签或记忆标题。
 
-这六个工具沿既有身份与权限检查，不创建独立自动任务。日常档通过 `stbrain_tools(category="work")` / `category="relations"` 与 `stbrain_manage` 使用；完整参数、幂等与恢复规则见 [OPEN_RESPONSE](../mcp_server/OPEN_RESPONSE.md)。
+这六个工具沿既有身份与权限检查，不创建独立自动任务。日常档可直接调用 `remember_work_memory`；其余工作记录与关系操作通过 `stbrain_tools(category="work")` / `category="relations"` 与 `stbrain_manage` 使用。`simple-memory-v1` 首次激活后无需每次先 `open`，`legacy` 仍需真实授权；完整参数、幂等与恢复规则见 [OPEN_RESPONSE](../mcp_server/OPEN_RESPONSE.md)。
 
 ## 给 AI 自己写提醒
 

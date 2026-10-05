@@ -324,7 +324,7 @@ def from_env(database: Path, owner_id: str, model_id: str, env: Mapping[str, str
     enabled = enabled_from_env(values)
     flag, key = values.get("STBRAIN_ATLAS_BOOTSTRAP_ENABLED"), values.get("STBRAIN_ATLAS_ID_KEY")
     forbidden_raw = values.get("STBRAIN_ATLAS_FORBIDDEN_VERIFIERS_JSON")
-    if flag is None and key is None and forbidden_raw is None:
+    if flag in (None, "0") and key is None and forbidden_raw is None:
         return None  # Exactly legacy: no store, new file, schema inspection or key access.
     try:
         if flag not in {"0", "1"} or not isinstance(key, str) or not HEX64.fullmatch(key):

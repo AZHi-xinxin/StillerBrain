@@ -1,4 +1,4 @@
-"""Small discovery-only contracts for the five ordinary daily entry points.
+"""Small discovery-only contracts for the six ordinary daily entry points.
 
 The registered tools, their validators and every authorization wrapper remain
 unchanged.  In particular, ``changes`` is an author-supplied map here, not a
@@ -15,24 +15,32 @@ from mcp import types
 
 
 COMPACT_ORDINARY_TOOL_NAMES = frozenset({
-    "remember_memory", "remember_tool_guidance", "revise_memory",
+    "remember_memory", "remember_work_memory", "remember_tool_guidance", "revise_memory",
     "advance_plan", "stbrain_open",
 })
 
 _DESCRIPTIONS = {
     "remember_memory": (
-        "一次存入情感、学习或规划记忆；只需 module、content，无需先打开或交审核表。"
-        "正文原样保存；情感 kind 默认 unclassified，学习 fact，规划 task。"
-        "来源和可信度未填为未标注；可自行填写。keywords 用 JSON 数组。"
+        "日常存入：只填 content 即可，module 默认 auto，无需先打开、查目录或交审核表。"
+        "正文原样保存；kind/emotion/importance/keywords 可省略、留空或 null，moment 等分类可兼容。"
+        "来源/可信度未填为未标注，不猜正文或编标签；回执会给出实际模块与归一化提示。"
         "模块一首次激活前只读，激活后普通直连和网关均省略 write_context_ref；旧模式保留原授权。"
         "rewrite_receipt 可选，仅接受已确认且字段一致的情感/学习回执，不自动改写。"
         "仅真实 stored 回执表示保存成功，计划不授予外部操作权限。"
+    ),
+    "remember_work_memory": (
+        "随手记：只填 content，原文保存在 ST 独立工作记录，tag 默认“随手记”。"
+        "不自动混入长期回忆、网关注入或普通检索；整理/读取时按需用 "
+        "stbrain_manage(action='recall_work_memory' 或 'revise_work_memory', arguments={...})。"
+        "无需先查目录或打开；模块一首次激活前只读，激活后省略 write_context_ref，旧模式保留原授权。"
+        "只有 stored 回执表示存入成功；不要写密钥。"
     ),
     "remember_tool_guidance": (
         "记录工具或 MCP 服务用途；tool_name 可用 MCP 级名字，purpose 是用途。"
         "reminder 为可选的一句话提醒（最多100字符），详细操作写 call_notes；场景可用中文。"
         "可信度由 AI 自填0–100；expires_at 可省略，无固定到期。"
-        "real_world_action 风险至少 high，high/critical 必须 explicit_each_time；"
+        "风险与确认策略可省略或自主填写，不按写操作/关键词拦截存卡；"
+        "省略时 medium/none 只是默认元数据，不增加卡片逐次确认要求；"
         "这是使用经验和提醒，不授予真实工具权限。"
         "模块一首次激活前只读，激活后省略 write_context_ref、expected_tool_row_version；旧模式沿用原授权。"
     ),
@@ -68,12 +76,19 @@ _DESCRIPTIONS = {
 
 _FIELD_DESCRIPTIONS = {
     "remember_memory": {
-        "module": "emotional_memory=情感；learning_memory=学习；planning_memory=规划。",
+        "content": "唯一必填：1–2000字原文，原样保存，不自动截断或改写。",
+        "module": "默认 auto（也可省略、null或空）：按明确字段线索选模块；可指定 emotional_memory / learning_memory / planning_memory。",
         "source_basis": "observed=亲历/观察；reported=转述；inferred=推断；unmarked=未标注。",
         "confidence": "AI 自填0–100；省略或 null 为未标注。",
-        "keywords": "原词、近义、语义和情感关联线索，例如 [\"奶奶家\",\"家人近况\"]。",
-        "kind": "可选作者分类；默认情感 unclassified、学习 fact、规划 task。",
+        "keywords": "可省略、null或空；可给短语数组、JSON数组字符串或分隔短语，不自动编造标签。",
+        "kind": "可省略、null或空；moment/event兼容shared_event；其他非标准分类回到模块默认并提示，不拒绝正文。",
+        "emotion": "可省略、null或空，默认other；无法识别的感受保守归other并提示，不猜测情绪。",
+        "importance": "可省略、null或空，默认50；可填0–100整数或等值数字字符串/整数值小数，不接受布尔。",
         "rewrite_receipt": "已确认的一次性改写回执；仅情感/学习，字段须与确认结果一致。",
+    },
+    "remember_work_memory": {
+        "content": "唯一必填：1–32768字符原文且UTF-8不超过128KiB；独立保存，不自动进入长期回忆。",
+        "tag": "可选检索标签；省略用“随手记”，显式标签需1–160字符。",
     },
     "remember_tool_guidance": {
         "scenario_tags": "自然场景词句，如 [\"回家了\",\"到家了\"]；每项1–128字符，最多16项。",

@@ -272,8 +272,8 @@ class PlanningMemoryAccessService:
             },
             "ordinary_entry": {
                 "tool": "remember_memory", "module": "planning_memory",
-                "required_arguments": ["module", "content"],
-                "instruction": "普通新计划一次直接存入活动记录，不用先开脑、手填版本、采纳声明或另轮审核。这个记录不代表批准外部执行。",
+                "required_arguments": ["content"],
+                "instruction": "日常入口只需content，module默认auto；要明确保存为计划可选module=planning_memory，或给出真实计划元数据线索。普通新计划一次直接存入活动记录，不用先开脑、手填版本、采纳声明或另轮审核；旧直连授权不变，这个记录不代表批准外部执行。",
                 "hierarchy": "普通计划可独立保存；只有明确提供 parent_ref 时才校验父项，不能引用待审候选。",
             },
             "principles": [
@@ -287,7 +287,7 @@ class PlanningMemoryAccessService:
                 "归档内容仍可精确查询，abandoned 可明确提交复活；隔离内容不能通过修订或复活恢复，疑似凭据一律拒绝。",
             ],
             "tools": {
-                "remember_memory": "普通新计划首选；module=planning_memory，仅需正文，一次调用直接保存。",
+                "remember_memory": "日常入口只需正文；明确要存计划时可选module=planning_memory，否则auto只按明确元数据线索归类、不猜正文。一次调用直接保存，授权和首次激活边界不变。",
                 "revise_memory": "用已读版本的 target_ref 直接修改计划正文、摘要、标签、提醒、时间和层级等作者字段；旧版本保留。状态推进使用事件工具。",
                 "advance_plan": "普通进度：提供已读 target_ref、event_seq 对应的 expected_event_seq、event_type 与 note；真实完成等证据按原规则提供，不手填模块行版本。",
                 "remember_planning_memory": "本轮提交自己采纳的完整计划，直接生成活动版本；不需 calm_check 或另轮审核。",

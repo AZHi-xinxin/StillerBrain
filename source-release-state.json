@@ -1,11 +1,11 @@
 {
   "format": "stiller-source-release-state/1",
-  "version": "0.2.0-preview.3",
+  "version": "0.2.0-preview.4",
   "distribution": "source-available-development-preview",
   "license": "PolyForm-Noncommercial-1.0.0",
-  "base_public_commit": "69dd2bcafc431699dc2d6e57703aa91343325f43",
-  "historical_public_state": "source-release-state-0.2.0-preview.2.json",
-  "accepted_functional_revisions": "L46-L48 memory ease, authored tool-card metadata, read-only atlas onboarding and original image transport",
+  "base_public_commit": "b8cdf5dbc9af4ed8eb460f9c9feb5cdaa494663b",
+  "historical_public_state": "source-release-state-0.2.0-preview.3.json",
+  "accepted_functional_revisions": "L49-L51 explicit reasoning-off adaptation, exact host turn control, terminal receipts, thread recovery and request-bound streaming disconnect cleanup",
   "preserved_public_regressions": [
     "strict cross-Python AST serialization",
     "control-client proxy isolation"
@@ -25,7 +25,8 @@
     "ob_direct_bulk_migration": "not_implemented_deferred",
     "galaxy_visual_redesign": "not_implemented",
     "consultation_end_to_end": "pending_separate_scope",
-    "all_provider_cache_hit_issues_resolved": false
+    "all_provider_cache_hit_issues_resolved": false,
+    "gateway_video_after_paired_client_fix": "passed_user_report_for_specific_deployment_and_client_not_all_providers"
   },
   "catalog": {
     "transport_full": 55,
@@ -45,59 +46,89 @@
   "production_gate": "python -B scripts/check_release.py",
   "current_candidate_regression": [
     {
-      "group": "gateway",
+      "group": "runtime",
+      "run": 918,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "skips": [],
+      "passed": true,
       "returncode": 0,
-      "tests": 721,
-      "skipped": 1,
-      "seconds": 162.214,
+      "seconds": 193.382,
       "source_unchanged": true
     },
     {
       "group": "mcp",
-      "returncode": 0,
-      "tests": 585,
+      "run": 585,
+      "failures": 0,
+      "errors": 0,
       "skipped": 0,
-      "seconds": 419.122,
+      "skips": [],
+      "passed": true,
+      "returncode": 0,
+      "seconds": 445.997,
       "source_unchanged": true
     },
     {
-      "group": "migration",
+      "group": "gateway",
+      "run": 800,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1,
+      "skips": [
+        [
+          "test_posix_permissions (rikkahub_gateway.tests.test_route_management.PathGuardTests.test_posix_permissions)",
+          "POSIX permission test; Windows DACL tested separately"
+        ]
+      ],
+      "passed": true,
       "returncode": 0,
-      "tests": 30,
-      "skipped": 0,
-      "seconds": 22.16,
+      "seconds": 179.832,
       "source_unchanged": true
     },
     {
       "group": "packaging",
-      "returncode": 0,
-      "tests": 142,
+      "run": 142,
+      "failures": 0,
+      "errors": 0,
       "skipped": 1,
-      "seconds": 38.765,
+      "skips": [
+        [
+          "test_private_generated_files_have_owner_only_mode (test_install_stiller.InstallerPrivateTests.test_private_generated_files_have_owner_only_mode)",
+          "POSIX modes; Windows ACL helper is mocked"
+        ]
+      ],
+      "passed": true,
+      "returncode": 0,
+      "seconds": 37.993,
       "source_unchanged": true
     },
     {
-      "group": "runtime",
-      "returncode": 0,
-      "tests": 918,
+      "group": "migration",
+      "run": 30,
+      "failures": 0,
+      "errors": 0,
       "skipped": 0,
-      "seconds": 140.296,
+      "skips": [],
+      "passed": true,
+      "returncode": 0,
+      "seconds": 20.935,
       "source_unchanged": true
     }
   ],
-  "current_python_inventory_sha256": "a644db25b66659e55a01ab926b6fbc4aaae97183025bba090d9946e5353a3672",
+  "current_python_inventory_sha256": "d6eafb19720ba228f6046c1fae3fdc09ea65a8bb8a3b5a5187a161cb1144e56c",
   "linux_same_functional_source_validation": {
-    "tests": 2396,
+    "tests": 2475,
     "failures": 0,
     "errors": 0,
     "skipped": 2,
-    "scope": "deployment-candidate evidence; 302 code/test/UI/schema files byte-identical, not a new public-release Linux full-tree rerun"
+    "source_files": 371,
+    "source_sha256": "0f20e1a09e0cfc7d6d306e54ab05a4b804436b13be589a7a2849fc9ee4d05165",
+    "scope": "Deployment-candidate evidence with the same eight imported gateway files, not a new public-release Linux full-tree rerun"
   },
   "cache_observation": {
-    "scope": "nine existing successful requests on one user-reported official DeepSeek route; not a paid synthetic benchmark or billing audit",
-    "requests": 9,
-    "steady_samples": 8,
-    "steady_hit_percentage_min": 96.8561,
-    "steady_hit_percentage_max": 99.9234
-  }
+    "scope": "Historical preview.3 observation, not rerun this publication; see archived validation. No all-provider cache guarantee."
+  },
+  "publication_preparation_complete": true,
+  "maintainer_prepublication_review_required": true
 }

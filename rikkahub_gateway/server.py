@@ -21,6 +21,8 @@ import logging
 import math
 import os
 import re
+import select
+import socket
 import threading
 import time
 import uuid
@@ -38,6 +40,7 @@ import httpx
 from .balance import BalanceError, read_balance
 from .atlas import AtlasGateway, handle_atlas_request
 from .routes import GatewayRoute, MAX_EXTRA_ROUTES, routes_from_env, validate_route
+from .reasoning_control import apply_upstream_reasoning_control
 from .management import RouteStore, ManagementError, handle_management_request, managed_stream
 from .short_term import Scope, ShortTermMemory
 from .short_term_wire import client_source, source_message, handover_message, FinalBodyCollector
@@ -1067,6 +1070,12 @@ class TurnSession:
     recovery_audit_stage: str = ""
     abandon_requested: bool = False
     request_generation: int = 0
+    # Client-owned nonce and opaque transport identity: host-only, never logged
+    # or sent upstream. They expose no Control wake/capability values.
+    client_request_id: str = field(default="", repr=False)
+    control_session_id: str = field(default_factory=lambda: uuid.uuid4().hex, repr=False)
+    client_stop_binding: dict[str, Any] | None = field(default=None, repr=False)
+    client_terminal_reason: str = field(default="", repr=False)
     history_anchor_count: int = 0
     history_anchor_digest: str = field(default="", repr=False)
     # Confirmed by authenticated Control as a complete ordered bundle. Metadata
@@ -1077,6 +1086,8 @@ class TurnSession:
     short_term_transition: Any = field(default=None, repr=False)
     short_term_had_handover: bool = False
     short_term_allowed: bool = False
+    # Handler-owned transport observer, never a capability or persisted state.
+    client_disconnect_watch: Any = field(default=None, repr=False)
 
 
 @dataclass
@@ -1158,6 +1169,7 @@ class GatewayApplication:
         # if the client retries after the next human message has opened it.
         self._retired_tool_call_ids: set[str] = set()
         self._retired_tool_call_order: list[str] = []
+        self._client_stop_receipts: dict[str, float] = {}
         self._lock = threading.RLock()
         self.short_term = ShortTermMemory()
         self._short_term_frames: dict[str, tuple[float, float, Any]] = {}
@@ -1362,6 +1374,199 @@ class GatewayApplication:
                 session.tool_result_wait_deadline = session.delivered_at_monotonic + self.config.tool_result_wait_seconds
                 self._schedule_tool_result_wait(session, self.config.tool_result_wait_seconds)
 
+    @staticmethod
+    def _turn_control_binding(session: TurnSession) -> dict[str, Any]:
+        return {"session_id": session.control_session_id,
+                "generation": session.request_generation,
+                "revision": session.execution_revision,
+                "batch_id": (_digest(session.execution_batch_id)
+                             if session.execution_batch_id is not None else None)}
+
+    @staticmethod
+    def _turn_control_key(model: str, thread: str, request_id: str,
+                          binding: Mapping[str, Any]) -> str:
+        return _digest([model, thread, request_id, dict(binding)])
+
+    def _record_client_stop(self, session: TurnSession) -> None:
+        """Record only a confirmed retirement, before changing its generation."""
+        if session.client_stop_binding is None or session.route is None:
+            return
+        key = self._turn_control_key(session.route.public_model, session.thread_id,
+                                     session.client_request_id, session.client_stop_binding)
+        self._client_stop_receipts[key] = time.monotonic() + 600.0
+        while len(self._client_stop_receipts) > 128:
+            self._client_stop_receipts.pop(next(iter(self._client_stop_receipts)))
+
+    def _wait_for_disconnected_stream(self, model: str, thread: str, request_id: str | None = None) -> None:
+        """Bounded observation only; the owning HTTP handler performs cleanup."""
+        deadline = time.monotonic() + 1.0
+        if not self._lock.acquire(timeout=0.05):
+            return
+        try:
+            owner = self._current_session
+            watch = (owner.client_disconnect_watch if owner is not None
+                     and owner.route is not None and owner.route.public_model == model
+                     and owner.thread_id == thread
+                     and (request_id is None or hmac.compare_digest(owner.client_request_id, request_id))
+                     and owner.client_disconnect_watch is not None
+                     and owner.client_disconnect_watch.generation == owner.request_generation else None)
+        finally:
+            self._lock.release()
+        if watch is not None and watch.observe_peer(timeout=0.15):
+            watch.finished.wait(max(0.0, deadline - time.monotonic()))
+
+    def thread_turn_status(self, payload: Mapping[str, Any], headers: Mapping[str, str]) -> dict[str, Any]:
+        """Read one authenticated transport-lane snapshot without creating or retiring work.
+
+        A matching explicit thread/model may recover the REAL nonce and the same
+        opaque v1 binding that its lost process previously owned. The challenge
+        is freshness/correlation only, never a replacement request identifier.
+        An idle snapshot is not a reservation or evidence of external tool success;
+        prepare_turn and exact v1 control still perform their normal locked checks.
+        """
+        normalized = _normalize_headers(headers)
+        if not self.authorized(normalized):
+            raise GatewayError(401, "unauthorized")
+        thread = normalized.get("x-st-thread-id")
+        model, challenge = payload.get("model"), payload.get("challenge")
+        if (set(payload) != {"model", "challenge"}
+                or not isinstance(thread, str)
+                or not re.fullmatch(r"[A-Za-z0-9_.:/@-]{1,256}", thread)
+                or not isinstance(model, str) or not model.strip()
+                or any(ord(char) < 32 or ord(char) == 127 for char in model)
+                or not isinstance(challenge, str) or not re.fullmatch(r"[0-9a-f]{32}", challenge)
+                or "x-session-id" in normalized or "x-st-request-id" in normalized):
+            raise GatewayError(400, "invalid_thread_status_request")
+        self._wait_for_disconnected_stream(model, thread)
+        # A long-running Control operation may hold the ordinary turn lock.
+        # Never let a read-only recovery button wait indefinitely behind it.
+        if not self._lock.acquire(timeout=2.0):
+            raise GatewayError(503, "thread_status_unavailable")
+        try:
+            session = self._current_session
+            if model not in self.routes and (session is None or session.route is None
+                                             or session.route.public_model != model):
+                raise GatewayError(400, "invalid_thread_status_request")
+            result = {"protocol": "st-thread-recovery/1", "model": model,
+                      "thread_id": thread, "challenge": challenge,
+                      "state": "busy", "can_stop": False,
+                      "external_tool_status": "unknown"}
+            if session is None:
+                return {**result, "state": "gateway_lane_idle"}
+            # Global lane is singular: another thread/model is busy, NOT idle.
+            # Never disclose the foreign thread, nonce, binding or tool state.
+            if (session.route is None or session.route.public_model != model
+                    or session.thread_id != thread
+                    or not isinstance(session.client_request_id, str)
+                    or not re.fullmatch(r"[0-9a-f]{32}", session.client_request_id)):
+                return result
+            delivered_wait = (session.delivered_at_monotonic is not None
+                              and session.tool_wait_armed_at is not None
+                              and bool(session.expected_tool_call_ids))
+            turn_state = ("cleanup_pending" if session.recovery_pending else
+                          "waiting_tool_results" if delivered_wait else "generating")
+            return {**result, "state": "owned_busy", "request_id": session.client_request_id,
+                    "binding": self._turn_control_binding(session), "turn_state": turn_state,
+                    "can_stop": delivered_wait}
+        finally:
+            self._lock.release()
+
+    def control_turn(self, payload: Mapping[str, Any], headers: Mapping[str, str], *,
+                     stop: bool = False, finish: bool = False) -> dict[str, Any]:
+        """Authenticated host transport control; never confirms external effects.
+
+        A client must know its original random request nonce and explicit thread.
+        Stop additionally compares one exact session/generation/revision/batch
+        snapshot. A stale stop cannot retire a later response or another chat.
+        Model generation itself is not retired here: first cancel that client's
+        HTTP stream and let its handler finish. Only delivered tool waits qualify.
+        A finish receipt means the owning host generation has terminated after
+        its local tool workers unwind. It does not attest tool success, undo an
+        effect, or authorize another model/tool invocation.
+        """
+        normalized = _normalize_headers(headers)
+        if not self.authorized(normalized):
+            raise GatewayError(401, "unauthorized")
+        if stop and finish:
+            raise GatewayError(400, "invalid_turn_control_request")
+        mutating = stop or finish
+        required = {"model", "request_id", "binding"} if mutating else {"model", "request_id"}
+        if finish:
+            required.add("terminal_reason")
+        thread = normalized.get("x-st-thread-id")
+        request_id = payload.get("request_id")
+        model = payload.get("model")
+        if (set(payload) != required
+                or (finish and payload.get("terminal_reason") not in
+                    ("failed", "cancelled", "budget_exhausted"))
+                or not isinstance(thread, str)
+                or not re.fullmatch(r"[A-Za-z0-9_.:/@-]{1,256}", thread)
+                or not isinstance(request_id, str) or not re.fullmatch(r"[0-9a-f]{32}", request_id)
+                or not isinstance(model, str) or not model.strip()
+                or any(ord(char) < 32 or ord(char) == 127 for char in model)
+                or "x-session-id" in normalized):
+            raise GatewayError(400, "invalid_turn_control_request")
+        binding = payload.get("binding")
+        if mutating:
+            if (not isinstance(binding, dict)
+                    or set(binding) != {"session_id", "generation", "revision", "batch_id"}
+                    or not isinstance(binding["session_id"], str)
+                    or not re.fullmatch(r"[0-9a-f]{32}", binding["session_id"])
+                    or type(binding["generation"]) is not int or binding["generation"] < 1
+                    or type(binding["revision"]) is not int or binding["revision"] < 0
+                    or (binding["batch_id"] is not None and
+                        (not isinstance(binding["batch_id"], str)
+                         or not re.fullmatch(r"[0-9a-f]{64}", binding["batch_id"])))):
+                raise GatewayError(400, "invalid_turn_control_request")
+        result = {"protocol": "st-turn-control/1", "state": "not_current", "can_stop": False,
+                  "external_tool_status": "unknown"}
+        if not mutating:
+            # Cancellation closes the HTTP stream before the owning handler can
+            # leave a blocked upstream read. Wait only for this exact, already
+            # disconnected transport; never stop a live/foreign generation.
+            self._wait_for_disconnected_stream(model, thread, request_id)
+        with self._lock:
+            now = time.monotonic()
+            self._client_stop_receipts = {key: expiry for key, expiry in self._client_stop_receipts.items()
+                                          if expiry > now}
+            if mutating and self._turn_control_key(model, thread, request_id, binding) in self._client_stop_receipts:
+                return {**result, "state": "retired"}
+            session = self._current_session
+            # Removing a managed alias must not strand the immutable route
+            # snapshot already serving this request, or invalidate a stop receipt.
+            if model not in self.routes and (session is None or session.route is None
+                                             or session.route.public_model != model):
+                raise GatewayError(400, "invalid_turn_control_request")
+            if (session is None or session.route is None or session.route.public_model != model
+                    or session.thread_id != thread or not session.client_request_id
+                    or not hmac.compare_digest(session.client_request_id, request_id)):
+                if mutating:
+                    raise GatewayError(409, "turn_control_binding_mismatch")
+                return result
+            current_binding = self._turn_control_binding(session)
+            delivered_wait = (session.delivered_at_monotonic is not None
+                              and session.tool_wait_armed_at is not None
+                              and bool(session.expected_tool_call_ids))
+            state = ("cleanup_pending" if session.recovery_pending else
+                     "waiting_tool_results" if delivered_wait else "generating")
+            if not mutating:
+                return {**result, "state": state, "binding": current_binding,
+                        "can_stop": delivered_wait}
+            if binding != current_binding:
+                raise GatewayError(409, "turn_control_binding_mismatch")
+            if not delivered_wait:
+                raise GatewayError(409, "turn_control_not_delivered")
+            session.client_stop_binding = dict(binding)
+            if finish:
+                session.client_terminal_reason = payload["terminal_reason"]
+            try:
+                self._abandon_delivered_wait(session)
+            except GatewayError as exc:
+                if exc.code != "tool_wait_recovery_in_progress":
+                    raise
+                return {**result, "state": "cleanup_pending", "binding": current_binding}
+            return {**result, "state": "retired"}
+
     def _schedule_tool_result_wait(self, session: TurnSession, delay: float) -> None:
         if session.tool_result_wait_timer is not None:
             session.tool_result_wait_timer.cancel()
@@ -1396,6 +1601,7 @@ class GatewayApplication:
             return False
         self._remember_retired_tool_calls(tuple(session.expected_tool_call_ids))
         self._audit_recovery(session, "retired", "tool_result_wait_timed_out")
+        self._record_client_stop(session)
         self._cancel_recovery_timer(session)
         session.request_generation += 1
         session.expected_tool_call_ids.clear()
@@ -1535,7 +1741,11 @@ class GatewayApplication:
             raise GatewayError(409, "tool_wait_recovery_in_progress",
                                "旧工具等待正在安全收尾；尚未确认执行结束，请稍后再发送。") from exc
         self._remember_retired_tool_calls(tuple(session.expected_tool_call_ids))
-        self._audit_recovery(session, "retired", "anchored_new_human_abandoned_wait")
+        cause = ("host_terminal_" + session.client_terminal_reason if session.client_terminal_reason
+                 else "explicit_client_stop" if session.client_stop_binding is not None
+                 else "anchored_new_human_abandoned_wait")
+        self._audit_recovery(session, "retired", cause)
+        self._record_client_stop(session)
         self._cancel_recovery_timer(session)
         session.request_generation += 1
         session.expected_tool_call_ids.clear()
@@ -1687,6 +1897,7 @@ class GatewayApplication:
                 return
             self._remember_retired_tool_calls(tuple(session.expected_tool_call_ids))
             self._audit_recovery(session, "retired", "abnormal_wait_closed", running_count=0)
+            self._record_client_stop(session)
             self._cancel_recovery_timer(session)
             session.request_generation += 1
             session.expected_tool_call_ids.clear()
@@ -1885,6 +2096,7 @@ class GatewayApplication:
             raise GatewayError(400, "auxiliary_single_choice_required")
         forwarded = copy.deepcopy(dict(payload))
         forwarded["model"] = route.upstream_model
+        apply_upstream_reasoning_control(forwarded, route)
         forwarded["messages"] = messages
         encoded = self.encode_upstream_payload(forwarded)
         self._short_term_note("auxiliary_started")
@@ -2685,6 +2897,9 @@ class GatewayApplication:
 
         if self._current_session is not session:
             return
+        if session.client_stop_binding is not None:
+            self._abandon_delivered_wait(session)
+            return
         if (session.tool_result_wait_deadline is not None
                 and time.monotonic() >= session.tool_result_wait_deadline):
             if not self._retire_tool_result_wait(session):
@@ -2727,6 +2942,13 @@ class GatewayApplication:
             raise GatewayError(400, "input_origin_profile_conflict")
         payload = self._profile_payload(without_host_only_image_transport(payload), profile)
         normalized_headers = _normalize_headers(headers)
+        client_request_id = normalized_headers.get("x-st-request-id", "")
+        if "x-st-request-id" in normalized_headers:
+            if (not re.fullmatch(r"[0-9a-f]{32}", client_request_id)
+                    or not re.fullmatch(r"[A-Za-z0-9_.:/@-]{1,256}",
+                                        normalized_headers.get("x-st-thread-id", ""))
+                    or "x-session-id" in normalized_headers):
+                raise GatewayError(400, "invalid_turn_control_request")
         if self.is_auxiliary(payload):
             # Even internal callers cannot accidentally open a normal wake.
             raise GatewayError(400, "auxiliary_requires_stateless_route")
@@ -2753,6 +2975,8 @@ class GatewayApplication:
                         "tool_continuation_context_lost",
                         "工具续轮的 ST 上下文已丢失，请从新的用户消息重新开始。",
                     )
+                if current.client_stop_binding is not None:
+                    raise GatewayError(409, "turn_control_stop_pending")
                 if current.execution_profile != profile:
                     raise GatewayError(409, "tool_continuation_profile_mismatch")
                 if current.input_origin != input_origin:
@@ -3118,10 +3342,12 @@ class GatewayApplication:
                         self._short_term_note("discard_missing_identity")
 
             session.request_generation += 1
+            session.client_request_id = client_request_id
             session.history_anchor_count = history_anchor_count
             session.history_anchor_digest = history_anchor_digest
             forwarded = copy.deepcopy(dict(payload))
             forwarded["model"] = session.route.upstream_model
+            apply_upstream_reasoning_control(forwarded, session.route)
             forwarded["messages"] = self._apply_context(session, messages)
             if session.input_origin != "human_message":
                 forwarded["messages"].append(_input_origin_message(session.input_origin))
@@ -3138,9 +3364,8 @@ class GatewayApplication:
                 ))
                 if frame is not None:
                     forwarded["messages"].append(handover_message(frame[2], time.monotonic() - frame[0]))
-            # Keep provider/client generation controls transparent.  The gateway
-            # owns only the upstream model selection and the exact ST system
-            # message; thinking/reasoning, tools, tool_choice, image input and
+            # Generation controls stay transparent except the exact upstream
+            # OFF dialect adaptation above. Tool contracts, image input, and
             # streaming controls remain byte-for-byte-equivalent JSON values.
             return PreparedTurn(
                 thread_id=thread_id,
@@ -4222,6 +4447,7 @@ class _StreamRetryExchange:
     finish_labels: list[list[str]] = field(default_factory=list)
     current_finish_labels: list[str] = field(default_factory=list)
     inspector: _IncrementalSSEInspector | None = None
+    disconnect_watch: Any = field(default=None, repr=False)
 
     def note_usage(self, payload: Any) -> None:
         if not isinstance(payload, Mapping):
@@ -4283,12 +4509,16 @@ def _deadline_stream(app: GatewayApplication, exchange: _StreamRetryExchange):
         timer.daemon = True
         timer.start()
         try:
+            if exchange.disconnect_watch is not None:
+                exchange.disconnect_watch.attach_response(response)
             yield response, expired
         except (httpx.HTTPError, httpx.StreamError, OSError):
             if expired.is_set():
                 raise GatewayError(502, "upstream_unavailable") from None
             raise
         finally:
+            if exchange.disconnect_watch is not None:
+                exchange.disconnect_watch.detach_response(response)
             timer.cancel()
 
 
@@ -4354,6 +4584,114 @@ def _model_visible_protected_values(
     )
 
 
+class _ClientDisconnectWatch:
+    """Observe one consumed POST socket; interrupt only its own upstream read.
+
+    EOF alone can be a valid write-half-close. A harmless SSE comment tests the
+    response side; only RST/write failure cancels. No turn/tool state is changed
+    here: the original handler's finally remains responsible for cleanup.
+    """
+    def __init__(self, connection, generation):
+        self.connection = connection
+        self.generation = generation
+        self.finished = threading.Event()
+        self.disconnected = threading.Event()
+        self.peer_eof = threading.Event()
+        self._stop = threading.Event()
+        self._lock = threading.RLock()
+        self._response = None
+        self._response_close = None
+        self.heartbeat = None
+        self._worker = threading.Thread(target=self._run, name="st-client-disconnect", daemon=True)
+
+    def start(self):
+        self._worker.start()
+
+    @staticmethod
+    def _close_response(response):
+        try:
+            stream = response.extensions.get("network_stream")
+            sock = stream.get_extra_info("socket") if stream is not None else None
+            if sock is not None:
+                # close() alone need not wake a concurrent blocking recv().
+                sock.shutdown(socket.SHUT_RDWR)
+        except (OSError, AttributeError):
+            pass
+        try:
+            response.close()
+        except Exception:
+            pass  # Never log adapter text or credentials from transport errors.
+
+    def _cancel_transport(self):
+        with self._lock:
+            self.disconnected.set()
+            if self._response is not None:
+                self._close_response(self._response)
+
+    def attach_response(self, response):
+        with self._lock:
+            original_close = response.close
+            def close_before_pool_release():
+                # iter_bytes can close on EOF *inside* the yielded block. Fence
+                # that release too, not just the context manager's final close.
+                with self._lock:
+                    if self._response is response:
+                        self._response = None
+                    original_close()
+            self._response_close = original_close
+            response.close = close_before_pool_release
+            self._response = None if response.is_closed else response
+            if self.disconnected.is_set():
+                if self._response is response:
+                    self._close_response(response)
+                raise ConnectionAbortedError("client_disconnected")
+
+    def detach_response(self, response):
+        # Disarm before HTTPX returns this connection to its pool; an old
+        # observer must never shut down a socket reused by another request.
+        with self._lock:
+            if self._response is response:
+                self._response = None
+            if self._response_close is not None:
+                response.close = self._response_close
+                self._response_close = None
+
+    def observe_peer(self, *, timeout=0.0):
+        if self._stop.is_set():
+            return self.disconnected.is_set()
+        if self.disconnected.is_set():
+            return True
+        try:
+            ready, _, _ = select.select([self.connection], [], [], timeout)
+            if ready and self.connection.recv(1, socket.MSG_PEEK) == b"":
+                self.peer_eof.set()
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+            self._cancel_transport()
+        except (OSError, ValueError):
+            # A closed handler descriptor is not evidence about a new owner.
+            return self.peer_eof.is_set()
+        return self.peer_eof.is_set() or self.disconnected.is_set()
+
+    def _run(self):
+        while not self._stop.wait(0.05):
+            self.observe_peer()
+            if self.disconnected.is_set():
+                return
+            heartbeat = self.heartbeat
+            if self.peer_eof.is_set() and heartbeat is not None:
+                try:
+                    heartbeat()
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError):
+                    self._cancel_transport()
+                    return
+                except GatewayError:
+                    return  # A superseded owner is fenced by the normal writer.
+
+    def finish(self):
+        self._stop.set()
+        self.finished.set()
+
+
 class _GatewayHandler(BaseHTTPRequestHandler):
     server_version = "StillerRikkaGateway/0.1.1"
     protocol_version = "HTTP/1.1"
@@ -4392,7 +4730,17 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                         # original write failure with a timeout-restoration error.
                         pass
 
-    def _json(self, status: int, payload: Mapping[str, Any]) -> None:
+    def _send_turn_control_headers(self, prepared: PreparedTurn) -> None:
+        # Advertise only on accepted generations, never errors or auxiliary
+        # responses. Clients match the protocol and nonce before auto-finishing.
+        session = prepared.session
+        if (session.client_request_id
+                and prepared.request_generation == session.request_generation):
+            self.send_header("X-ST-Turn-Control", "st-turn-control/1")
+            self.send_header("X-ST-Request-ID", session.client_request_id)
+
+    def _json(self, status: int, payload: Mapping[str, Any], *,
+              prepared: PreparedTurn | None = None) -> None:
         encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         performance = getattr(self, "_request_performance", None)
         if performance is not None:
@@ -4402,12 +4750,15 @@ class _GatewayHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(encoded)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        if prepared is not None and 200 <= status < 300:
+            self._send_turn_control_headers(prepared)
         self.end_headers()
         self.wfile.write(encoded)
         if performance is not None:
             performance.note_client_bytes(len(encoded))
 
-    def _read_json(self, *, max_body_bytes: int | None = None) -> dict[str, Any]:
+    def _read_json(self, *, max_body_bytes: int | None = None,
+                   reject_duplicate_keys: bool = False) -> dict[str, Any]:
         performance = getattr(self, "_request_performance", None)
         if performance is not None:
             performance.stage = "body_validation"
@@ -4442,7 +4793,17 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             performance.stage = "json_parse"
         parse_started_at = time.perf_counter()
         try:
-            payload = json.loads(raw.decode("utf-8"))
+            def unique_object(pairs):
+                result = {}
+                for key, value in pairs:
+                    if key in result:
+                        raise GatewayError(400, "invalid_turn_control_request")
+                    result[key] = value
+                return result
+            if reject_duplicate_keys and len(raw) != length:
+                raise GatewayError(400, "invalid_turn_control_request")
+            payload = json.loads(raw.decode("utf-8"),
+                                 object_pairs_hook=unique_object if reject_duplicate_keys else None)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise GatewayError(400, "invalid_utf8_json") from exc
         finally:
@@ -4509,6 +4870,38 @@ class _GatewayHandler(BaseHTTPRequestHandler):
         if handle_atlas_request(self, "POST"):
             return
         route = urlsplit(self.path).path
+        if route in {"/v1/turns/status", "/v1/turns/stop", "/v1/turns/finish", "/v1/turns/thread-status"}:
+            # Control-plane only: never log identifiers, invoke a model, or
+            # parse an unauthenticated/ambiguously framed request body.
+            self.close_connection = True
+            names = [name.lower() for name, _ in self.headers.items()]
+            auth = self.headers.get_all("Authorization", [])
+            headers = _normalize_headers(dict(self.headers.items()))
+            if len(auth) != 1 or not auth[0].isascii() or not self.app.authorized(headers):
+                self._json(401, GatewayError(401, "unauthorized").payload())
+                return
+            if (urlsplit(self.path).query or urlsplit(self.path).fragment
+                    or self.headers.get_all("Transfer-Encoding", [])
+                    or any(names.count(name) != 1 for name in
+                           ("content-length", "content-type", "x-st-thread-id"))
+                    or "x-session-id" in names):
+                self._json(400, GatewayError(400, "invalid_turn_control_request").payload())
+                return
+            connection = getattr(self, "connection", None)
+            if connection is not None:
+                connection.settimeout(5.0)
+            try:
+                payload = self._read_json(max_body_bytes=2048, reject_duplicate_keys=True)
+                if route == "/v1/turns/thread-status":
+                    self._json(200, self.app.thread_turn_status(payload, headers))
+                else:
+                    self._json(200, self.app.control_turn(payload, headers,
+                        stop=route.endswith("/stop"), finish=route.endswith("/finish")))
+            except GatewayError as exc:
+                self._json(exc.status, exc.payload())
+            except (OSError, RecursionError):
+                self._json(400, GatewayError(400, "invalid_turn_control_request").payload())
+            return
         if route == DIRECT_GRANT_ROUTE:
             headers = _normalize_headers(dict(self.headers.items()))
             if not self.app.authorized_human(headers):
@@ -4535,6 +4928,14 @@ class _GatewayHandler(BaseHTTPRequestHandler):
         if not self.app.authorized(headers):
             self._json(401, GatewayError(401, "unauthorized").payload())
             return
+        if "x-st-request-id" in headers:
+            names = [name.lower() for name, _ in self.headers.items()]
+            if (any(names.count(name) != 1 for name in
+                    ("authorization", "x-st-request-id", "x-st-thread-id"))
+                    or "x-session-id" in names):
+                self.close_connection = True
+                self._json(400, GatewayError(400, "invalid_turn_control_request").payload())
+                return
         profiles = [value for name, value in self.headers.items() if name.lower() == "x-st-execution-profile"]
         if len(profiles) > 1 or (profiles and profiles[0] not in CONSULTATION_PROFILES):
             self.close_connection = True
@@ -4557,6 +4958,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
         self._request_performance = performance
         prepared: PreparedTurn | None = None
         completed = False
+        disconnect_watch = None
         try:
             payload = self._read_json()
             selected_route = self.app.resolve_route(payload, auxiliary=self.app.is_auxiliary(payload))
@@ -4623,6 +5025,14 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                     performance.stable_context_bytes + performance.dynamic_context_bytes
                 )
             if payload.get("stream") is True:
+                connection = getattr(self, "connection", None)
+                if isinstance(connection, socket.socket):
+                    disconnect_watch = _ClientDisconnectWatch(connection, prepared.request_generation)
+                    self._client_disconnect_watch = disconnect_watch
+                    with self.app._lock:
+                        if self.app._request_is_current(prepared):
+                            prepared.session.client_disconnect_watch = disconnect_watch
+                    disconnect_watch.start()
                 self._proxy_stream(prepared)
             else:
                 self._proxy_json(prepared)
@@ -4641,6 +5051,12 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             )
             self._json(exc.status, exc.payload())
         finally:
+            if disconnect_watch is not None:
+                disconnect_watch.finish()
+                with self.app._lock:
+                    if prepared.session.client_disconnect_watch is disconnect_watch:
+                        prepared.session.client_disconnect_watch = None
+                self._client_disconnect_watch = None
             if not completed:
                 performance.mark_failed()
             performance.emit()
@@ -4715,7 +5131,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 performance.stage = "client_write"
             def send_json():
                 with self._client_write_boundary(prepared):
-                    self._json(response_status, body if isinstance(body, dict) else {})
+                    self._json(response_status, body if isinstance(body, dict) else {}, prepared=prepared)
             self._commit_final_delivery(prepared, final_body, send_json, keep,
                                         self.app.response_tool_call_ids(body), bindings)
             delivered = True
@@ -4737,6 +5153,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             encoded=self.app.encode_upstream_payload(prepared.payload, prepared.session.execution_profile),
             deadline=time.monotonic() + self.app.config.timeout_seconds,
             route=prepared.route,
+            disconnect_watch=getattr(self, "_client_disconnect_watch", None),
         )
         try:
             for attempt in range(2):
@@ -4781,6 +5198,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
         delivered = False
         retrying = False
         headers_sent = exchange.headers_sent
+        heartbeat_allowed = True
         bindings: dict[str, ToolExecutionBinding] = {}
         performance = getattr(self, "_request_performance", None)
         final_body = FinalBodyCollector()
@@ -4794,6 +5212,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache, no-store")
             self.send_header("Connection", "close")
             self.send_header("X-Accel-Buffering", "no")
+            self._send_turn_control_headers(prepared)
             self.end_headers()
             self.close_connection = True
             headers_sent = True
@@ -4808,6 +5227,18 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 self.wfile.flush()
             if performance is not None:
                 performance.note_client_bytes(len(raw))
+
+        def write_heartbeat() -> None:
+            with self.app._lock:
+                if heartbeat_allowed:
+                    write_sse(b": st-gateway connection check\n\n")
+
+        def disable_heartbeat() -> None:
+            nonlocal heartbeat_allowed
+            with self.app._lock:
+                heartbeat_allowed = False
+                if exchange.disconnect_watch is not None:
+                    exchange.disconnect_watch.heartbeat = None
 
         def write_completion_event(event: _ParsedSSEEvent) -> None:
             # Reconcile only the public model identifier after the original
@@ -4902,9 +5333,13 @@ class _GatewayHandler(BaseHTTPRequestHandler):
 
                 if not 200 <= response.status_code < 300:
                     final_body.invalidate()
+                elif exchange.disconnect_watch is not None:
+                    exchange.disconnect_watch.heartbeat = write_heartbeat
 
                 def upstream_chunks():
                     for chunk in response.iter_bytes():
+                        if exchange.disconnect_watch is not None and exchange.disconnect_watch.disconnected.is_set():
+                            raise ConnectionAbortedError("client_disconnected")
                         if time.monotonic() >= exchange.deadline:
                             raise GatewayError(502, "upstream_unavailable")
                         if performance is not None:
@@ -4923,6 +5358,8 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                     # classification even just before the monotonic deadline.
                     if deadline_expired.is_set() or time.monotonic() >= exchange.deadline:
                         raise GatewayError(502, "upstream_unavailable")
+                    if exchange.disconnect_watch is not None and exchange.disconnect_watch.disconnected.is_set():
+                        raise ConnectionAbortedError("client_disconnected")
 
                 raw_buffer = bytearray()
                 if response.status_code >= 400:
@@ -5140,10 +5577,19 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 if performance is not None:
                     performance.stage = "complete"
         except GatewayError as exc:
+            disable_heartbeat()
             if not headers_sent:
                 raise
             fail_stream(exc)
-        except httpx.RequestError as exc:
+        except (httpx.RequestError, httpx.StreamError) as exc:
+            disable_heartbeat()
+            if exchange.disconnect_watch is not None and exchange.disconnect_watch.disconnected.is_set():
+                if performance is not None:
+                    performance.stage = "client_write"
+                    performance.mark_failed()
+                _log_gateway_failure("client_disconnected", streamed_prefix=headers_sent,
+                                     protected_values=tuple(prepared.session.protected_values))
+                return
             failure = GatewayError(502, "upstream_unavailable")
             if not headers_sent:
                 raise failure from exc
@@ -5164,6 +5610,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 protected_values=tuple(prepared.session.protected_values),
             )
         finally:
+            disable_heartbeat()
             if not delivered and not retrying:
                 self.app.finish_turn(prepared, keep_for_tools=False)
 

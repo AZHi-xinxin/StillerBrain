@@ -1,6 +1,6 @@
 {
   "format": "stiller-public-release-state/1",
-  "version": "0.2.0-preview.3",
+  "version": "0.2.0-preview.4",
   "scope": "production-readiness-not-source-archive-integrity",
   "source_frozen": true,
   "license_approved": true,
@@ -10,5 +10,5 @@
   "privacy_review_complete": false,
   "user_acceptance_complete": true,
   "publication_authorized": true,
-  "notes": "Source preview explicitly authorized after specific memory, tool-card, work-memory, paired-client image and Orbis atlas acceptance; see source-release-state.json and docs/UPDATE-VALIDATION.md. Current Windows synthetic regressions passed; complete production readiness, consultation, all-provider cache behavior, clean machines, complete dependency/history privacy certification remain separate. Import UI is deferred and OB direct migration is not implemented. No live deployment this publication."
+  "notes": "Source preview candidate for the accepted L51 gateway cancellation and recovery changes. The current public Python tree passed 2473 tests with 2 POSIX-only skips and zero failures/errors; long-stream explicitly executed. Maintainer review of the final public artifact/staging remains separate. Existing production-readiness limitations remain; no live deployment, paid model calls or private-data access in this publication preparation."
 }

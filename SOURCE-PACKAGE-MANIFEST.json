@@ -42,7 +42,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "fe7d0c03e8494e172116a37ee35ff3392629f455d2e70c504e7a365711f755d5"
+      "sha256": "2efe809fa2ef7ddead850354138449fb806999f4a4b4c13b040af8ec3eea1129"
     },
     {
       "path": "RELEASE-NOTES-0.2.0-preview.1.md",
@@ -98,11 +98,11 @@
     },
     {
       "path": "docs/CACHE-TROUBLESHOOTING.md",
-      "sha256": "c37e85ff0510fec43cdc2aab54ed939e80f8caeb3e52fb660fe094471be67d90"
+      "sha256": "064923e754736238347b8520007a28c564137202fd643525cf9a979fbb1339fa"
     },
     {
       "path": "docs/CACHE.md",
-      "sha256": "ed27fb6289bfb6c1f9548e98e89ed1c4af70712dcd888d0b522d323530dd6b6d"
+      "sha256": "1351b2ad6c9f7b5941c0c5510c90d121de555ecf4a0baec5a94d060f7e0344d6"
     },
     {
       "path": "docs/DAILY-MEMORY-QUICKSTART.md",
@@ -122,7 +122,7 @@
     },
     {
       "path": "docs/GUIDE.md",
-      "sha256": "528770df9b6417e26ae609fd7f30ca83c1172c7e0563a6f38ce3fc265716b680"
+      "sha256": "bb04968256cd75a96c742a1d99b71a22bbeff0ffa36ae2a0669ba2b180314c4d"
     },
     {
       "path": "docs/INSTALL.md",

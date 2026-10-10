@@ -8,6 +8,7 @@ from pathlib import Path
 import socket
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -118,6 +119,57 @@ class OperationsTests(unittest.TestCase):
                          [command[-1] for command, _ in commands])
         self.assertTrue(all(child.terminated for child in children))
         self.assertTrue(all(settings["env"]["STBRAIN_REQUIRE_EXECUTION_BINDING"] == "1" for _, settings in commands))
+        self.assertTrue(all(settings["stdin"] == subprocess.DEVNULL for _, settings in commands))
+
+    def test_start_child_environment_ignores_foreign_python_overrides(self):
+        with patch.dict(os.environ, {"PYTHONHOME": "synthetic-foreign-home", "PYTHONPATH": "synthetic-foreign-imports"}, clear=True):
+            environment = ops.child_environment(self.config)
+        # Never let a failing assertion render inherited credential values.
+        self.assertFalse("PYTHONHOME" in environment)
+        self.assertFalse("PYTHONPATH" in environment)
+        self.assertEqual("1", environment["PYTHONUTF8"])
+
+    def test_real_supervisor_with_write_only_parent_stdin_stops_only_synthetic_children(self):
+        # GNU nohup may give the supervisor an unreadable stdin. No real ST
+        # service/model is started: the three owned children only read EOF.
+        config_path = self.private / "synthetic-process-config.json"
+        config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        harness = r'''
+import importlib.util, json, subprocess, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("synthetic_ops", Path(sys.argv[1]) / "scripts/stiller_ops.py")
+ops = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ops)
+config = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+children = []
+def launch(command, **kwargs):
+    child = subprocess.Popen([sys.executable, "-I", "-B", "-c",
+        "import sys,time; assert sys.stdin.read() == ''; print('INPUT_EOF', flush=True); time.sleep(15)"],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, **kwargs)
+    children.append(child)
+    return child
+def stop_after_input_check(_):
+    assert all(child.stdout.readline().rstrip(b"\r\n") == b"INPUT_EOF" for child in children)
+    raise KeyboardInterrupt()
+try:
+    assert ops.start_stack(config, popen=launch, sleeper=stop_after_input_check, job_factory=lambda: None) == 0
+    assert len(children) == 3 and all(child.poll() is not None for child in children)
+finally:
+    for child in children:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=5)
+        child.stdout.close()
+'''
+        environment = {name: os.environ[name] for name in ("SYSTEMROOT", "WINDIR", "TEMP", "TMP")
+                       if name in os.environ}
+        environment.update(PYTHONNOUSERSITE="1", PYTHONUTF8="1")
+        with open(os.devnull, "wb") as unreadable_input:
+            result = subprocess.run([sys.executable, "-I", "-B", "-c", harness, str(ROOT), str(config_path)],
+                                    stdin=unreadable_input, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    env=environment, cwd=self.private, timeout=20)
+        self.assertEqual(0, result.returncode, "Synthetic supervisor failed; no production service was used")
+        self.assertTrue(b"Startup health is not yet verified" in result.stdout)
 
     def test_partial_start_failure_cleans_up_already_created_child(self):
         child = FakeChild()
@@ -125,14 +177,14 @@ class OperationsTests(unittest.TestCase):
             if not hasattr(create, "called"):
                 create.called = True; return child
             raise OSError("synthetic launch failure")
-        with self.assertRaises(OSError):
+        with self.assertRaisesRegex(ops.OperationError, "mcp.*could not be launched"):
             ops.start_stack(self.config, popen=create, job_factory=lambda: None)
         self.assertTrue(child.terminated)
 
     def test_child_exit_stops_others_and_hung_child_is_killed(self):
         children = [FakeChild(exit_code=1), FakeChild(timeout_once=True), FakeChild()]
         remaining = iter(children)
-        with self.assertRaises(ops.OperationError), contextlib.redirect_stdout(io.StringIO()):
+        with self.assertRaisesRegex(ops.OperationError, "control.*exit_code=1"), contextlib.redirect_stdout(io.StringIO()):
             ops.start_stack(self.config, popen=lambda *args, **kwargs: next(remaining), job_factory=lambda: None)
         self.assertTrue(children[1].killed)
         self.assertTrue(children[2].terminated)

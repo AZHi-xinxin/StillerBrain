@@ -16,7 +16,7 @@ from rikkahub_gateway.server import (
     DEFAULT_MAX_BODY_BYTES, DEFAULT_MAX_STREAM_BYTES,
     DEFAULT_MAX_TOOL_TAIL_BYTES, MAX_TOOL_TAIL_BYTES,
     GatewayApplication, GatewayConfig, GatewayError, _GatewayHandler,
-    _ParsedSSEEvent, _ProtectedSSEQuarantine, _canonical_client_sse_event,
+    _ParsedSSEEvent, _ProtectedSSEQuarantine, _RequestPerformance, _canonical_client_sse_event,
     _observable_failure_code, _parse_sse_event,
 )
 from rikkahub_gateway.tests.test_gateway import FakeControl, config
@@ -92,12 +92,13 @@ class SyntheticStream(httpx.SyncByteStream):
 class RecordingWriter:
     """Keep only small receipt facts and tool fragments, not the large SSE wire."""
 
-    def __init__(self):
+    def __init__(self, *, capture_payloads=False):
         self.ids = []
         self.arguments = []
         self.errors = []
         self.finishes = []
         self.done = self.events = self.bytes = 0
+        self.payloads = [] if capture_payloads else None
 
     def write(self, raw):
         self.bytes += len(raw)
@@ -112,6 +113,8 @@ class RecordingWriter:
             payload = parsed.payload
             if payload is None:
                 continue
+            if self.payloads is not None:
+                self.payloads.append(payload)
             if "error" in payload:
                 self.errors.append(payload["error"])
             for choice in payload.get("choices", []):
@@ -130,7 +133,8 @@ class RecordingWriter:
 
 
 class ToolTailLimitTests(unittest.TestCase):
-    def run_stream(self, stream, *, cfg=None, protected=False, tools=True, measure=False):
+    def run_stream(self, stream, *, cfg=None, protected=False, tools=True, measure=False, writer=None,
+                   expected_failed_bind_count=0, performance=None, observe_exchange=None):
         chosen = cfg or config()
         requests = []
 
@@ -146,7 +150,7 @@ class ToolTailLimitTests(unittest.TestCase):
             "messages": [{"role": "user", "content": "capability-1" if protected else "synthetic test"}],
             **({"tools": TOOL_SCHEMA} if tools else {}),
         }, {"Authorization": "Bearer " + chosen.gateway_token})
-        writer = RecordingWriter()
+        writer = writer or RecordingWriter()
         handler = object.__new__(_GatewayHandler)
         handler.server = SimpleNamespace(application=app)
         handler.wfile = writer
@@ -154,6 +158,8 @@ class ToolTailLimitTests(unittest.TestCase):
         handler.send_header = lambda name, value: None
         handler.end_headers = lambda: None
         handler.close_connection = False
+        if performance is not None:
+            handler._request_performance = performance
         if measure:
             gc.collect()
             tracemalloc.start()
@@ -161,12 +167,15 @@ class ToolTailLimitTests(unittest.TestCase):
         try:
             with patch.object(socket.socket, "connect", side_effect=AssertionError("network forbidden")), \
                     patch.object(app, "bind_response_tool_calls", wraps=app.bind_response_tool_calls) as bind, \
-                    patch.object(handler, "_commit_final_delivery", wraps=handler._commit_final_delivery) as commit:
+                    patch.object(handler, "_commit_final_delivery", wraps=handler._commit_final_delivery) as commit, \
+                    patch.object(handler, "_proxy_stream_attempt", wraps=handler._proxy_stream_attempt) as attempt:
                 try:
                     handler._proxy_stream(prepared)
                 except GatewayError as error:
                     raised = error
                 bind_count, commit_count = bind.call_count, commit.call_count
+                if observe_exchange is not None:
+                    observe_exchange(attempt.call_args.args[1])
         finally:
             peak = tracemalloc.get_traced_memory()[1] if measure else None
             if measure:
@@ -176,7 +185,7 @@ class ToolTailLimitTests(unittest.TestCase):
         error = raised.payload()["error"] if raised else (writer.errors[-1] if writer.errors else None)
         if error:
             self.assertIsNone(app._current_session)
-            self.assertEqual(0, bind_count)
+            self.assertEqual(expected_failed_bind_count, bind_count)
             self.assertEqual(0, commit_count)
         else:
             self.assertEqual(1, commit_count)
@@ -304,16 +313,176 @@ class ToolTailLimitTests(unittest.TestCase):
                 quarantine.feed(held)
         self.assertEqual("upstream_buffer_limit_reached", raised.exception.code)
 
-    def test_non_tool_usage_tail_does_not_get_tool_budget(self):
+    def test_nonterminal_usage_keeps_ordinary_reply_progressive_and_in_order(self):
+        writer = RecordingWriter(capture_payloads=True)
+        source = [event({}, usage={})]
+        source.extend(event({"content": "safe synthetic answer"}) for _ in range(8))
+        source.extend((event({}, "stop"), event({}, usage={"completion_tokens": 8}), DONE))
+
         def response():
-            yield event({}, usage={})
-            for _ in range(8):
-                yield event({"content": "safe synthetic answer"})
+            for index, raw in enumerate(source):
+                yield raw
+                # First usage + eight content events stream immediately. A
+                # finish, its trailing usage and DONE wait for the final commit.
+                self.assertEqual(min(index + 1, 9), writer.events)
+                self.assertEqual([], writer.finishes)
+                self.assertEqual(0, writer.done)
+
+        error, writer, _ = self.run_stream(
+            SyntheticStream(response, prefix=False), writer=writer,
+            cfg=replace(config(), max_body_bytes=1024), tools=False,
+        )
+        self.assertIsNone(error)
+        expected = [{**_parse_sse_event(raw).payload, "model": config().public_model}
+                    for raw in source[:-1]]
+        self.assertEqual(expected, writer.payloads)
+        self.assertEqual(["stop"], writer.finishes)
+        self.assertEqual(1, writer.done)
+
+    def test_usage_inside_tool_tail_waits_for_validation_and_preserves_order(self):
+        writer = RecordingWriter(capture_payloads=True)
+        source = [event({}, usage={"completion_tokens": 0})]
+        source.extend(tool_events('{"html":"synthetic"}', 64))
+        source.insert(2, event({}, usage={"completion_tokens": 1}))
+        source.insert(-1, event({}, usage={"completion_tokens": 2}))
+
+        def response():
+            for raw in source:
+                yield raw
+                self.assertEqual([], writer.ids)
+                self.assertEqual([], writer.finishes)
+                self.assertEqual(0, writer.done)
+
+        error, writer, _ = self.run_stream(SyntheticStream(response, prefix=False), writer=writer)
+        self.assertIsNone(error)
+        expected = [{**_parse_sse_event(raw).payload, "model": config().public_model}
+                    for raw in source[:-1]]
+        self.assertEqual(expected, writer.payloads)
+        self.assertEqual([TOOL_ID], writer.ids)
+        self.assertEqual(1, writer.done)
+
+    def test_early_usage_never_releases_invalid_tool_batch(self):
+        def response():
+            yield event({}, usage={"completion_tokens": 0})
+            yield from tool_events('{"unexpected":true}', 64)
+
+        error, writer, _ = self.run_stream(SyntheticStream(response, prefix=False), expected_failed_bind_count=1)
+        self.assertEqual("tool_arguments_schema_invalid", error["code"])
+        self.assert_no_tool_or_success(writer)
+
+    def test_usage_on_first_tool_or_finish_event_does_not_bypass_commit(self):
+        for tools in (False, True):
+            with self.subTest(tools=tools):
+                writer = RecordingWriter(capture_payloads=True)
+                source = list(tool_events('{"html":"synthetic"}', 64)) if tools else [
+                    event({"content": "synthetic final"}, "stop"), DONE,
+                ]
+                first = dict(_parse_sse_event(source[0]).payload)
+                first["usage"] = {"completion_tokens": 1}
+                source[0] = _canonical_client_sse_event(_ParsedSSEEvent(raw=b"", payload=first)).raw
+
+                def response():
+                    for raw in source:
+                        yield raw
+                        self.assertEqual(0, writer.events, "usage must not release a tool/terminal event")
+
+                error, writer, _ = self.run_stream(
+                    SyntheticStream(response, prefix=False), writer=writer, tools=tools,
+                )
+                self.assertIsNone(error)
+                self.assertEqual({**first, "model": config().public_model}, writer.payloads[0])
+                self.assertEqual(1, writer.done)
+
+    def test_early_usage_string_metadata_cannot_leak_protected_value(self):
+        writer = RecordingWriter(capture_payloads=True)
+
+        def response():
+            yield event({"content": "synthetic safe prefix"})
+            yield event({}, usage={"completion_tokens": 1, "provider_note": config().gateway_token})
             yield event({}, "stop")
             yield DONE
-        error, writer, _ = self.run_stream(SyntheticStream(response), cfg=replace(config(), max_body_bytes=1024), tools=False)
-        self.assertEqual("upstream_buffer_limit_reached", error["code"])
+
+        error, writer, _ = self.run_stream(SyntheticStream(response, prefix=False), writer=writer, tools=False)
+        self.assertEqual("upstream_protected_value", error["code"])
+        self.assertNotIn(config().gateway_token, json.dumps(writer.payloads))
         self.assert_no_tool_or_success(writer)
+
+    def test_progressive_usage_keeps_last_snapshot_without_summing_chunks(self):
+        writer = RecordingWriter(capture_payloads=True)
+        performance = _RequestPerformance()
+        snapshots = [
+            {"prompt_tokens": 17, "completion_tokens": 1, "total_tokens": 18},
+            {"prompt_tokens": 17, "completion_tokens": 3, "total_tokens": 20},
+            {"prompt_tokens": 17, "completion_tokens": 5, "total_tokens": 22},
+        ]
+
+        def response():
+            yield event({"content": "synthetic first"}, usage=snapshots[0])
+            yield event({"content": "synthetic second"}, usage=snapshots[1])
+            yield event({}, "stop")
+            yield event({}, usage=snapshots[2])
+            yield DONE
+
+        def verify_exchange(exchange):
+            self.assertEqual(snapshots[-1], exchange.current_usage)
+            self.assertEqual([snapshots[-1]], exchange.usage_attempts())
+            self.assertEqual(snapshots[-1], exchange.total_usage())
+
+        error, writer, _ = self.run_stream(
+            SyntheticStream(response, prefix=False), writer=writer, tools=False,
+            performance=performance, observe_exchange=verify_exchange,
+        )
+        self.assertIsNone(error)
+        self.assertEqual(snapshots, [payload["usage"] for payload in writer.payloads if "usage" in payload])
+        self.assertEqual({"prompt_tokens": 17, "completion_tokens": 5}, performance.usage_snapshot)
+        self.assertEqual(5, performance.completion_tokens)
+
+    def test_early_usage_does_not_bypass_split_secret_quarantine(self):
+        writer = RecordingWriter(capture_payloads=True)
+        secret = config().gateway_token
+        prefix, suffix = secret[:16], secret[16:]
+
+        def response():
+            yield event({}, usage={"completion_tokens": 0})
+            yield event({"content": prefix})
+            self.assertEqual(1, writer.events, "possible secret prefix stays quarantined")
+            yield event({}, usage={"completion_tokens": 1})
+            self.assertEqual(1, writer.events, "usage cannot flush a quarantined prefix")
+            yield event({"content": suffix}, "stop")
+            yield DONE
+
+        error, writer, _ = self.run_stream(SyntheticStream(response, prefix=False), writer=writer, tools=False)
+        self.assertEqual("upstream_protected_value", error["code"])
+        self.assertNotIn(prefix, json.dumps(writer.payloads))
+        self.assert_no_tool_or_success(writer)
+
+    def test_early_usage_does_not_make_incomplete_stream_successful(self):
+        for content in (False, True):
+            with self.subTest(content=content):
+                def response():
+                    yield event({}, usage={"completion_tokens": 0})
+                    if content:
+                        yield event({"content": "synthetic incomplete answer"})
+                    yield event({}, usage={"completion_tokens": 1})
+
+                error, writer, _ = self.run_stream(SyntheticStream(response, prefix=False), tools=False)
+                self.assertEqual("upstream_incomplete_stream", error["code"])
+                self.assert_no_tool_or_success(writer)
+
+    def test_early_usage_does_not_enlarge_sensitive_history_buffer(self):
+        def response():
+            yield event({}, usage={"completion_tokens": 0})
+            for _ in range(8):
+                yield event({"content": "synthetic sensitive-history answer"})
+            yield event({}, "stop")
+            yield DONE
+
+        error, writer, _ = self.run_stream(
+            SyntheticStream(response, prefix=False), tools=False, protected=True,
+            cfg=replace(config(), max_body_bytes=1024),
+        )
+        self.assertEqual("upstream_buffer_limit_reached", error["code"])
+        self.assertEqual(0, writer.events)
 
     def test_non_tool_terminal_tail_does_not_get_tool_budget(self):
         def response():

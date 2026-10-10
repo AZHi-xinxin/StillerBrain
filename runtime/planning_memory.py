@@ -1322,6 +1322,8 @@ class PlanningMemoryStore:
                 action="remember_ordinary", idempotency_key=idempotency_key,
                 request_hash=request_hash, response=result,
             )
+            from .emotion_layer import attach_pending_emotions
+            attach_pending_emotions(connection, owner_id, model_id, _plan_ref(plan_id, 1))
             return result
 
     def revise_ordinary(

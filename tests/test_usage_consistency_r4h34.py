@@ -59,7 +59,10 @@ REVIEWED_NON_DOCUMENTATION_SHA256 = {
     # L20: only the facets visibility help literal differs from sealed L19.
     # Restoring that one literal reproduces the entire L19 AST; the erasure
     # algorithm remains unchanged; content_schema changes only this help literal.
-    "service.py": "8ec2ed634c1c12e55f10f9acdade1c0e60c38c4917c8201ebea430306df0c82a",
+    # Emotion layer: only _module_access_display, _compact_open_result and
+    # _selected_open_manual add the authorized static emotion-layer manual.
+    # Protected self-edit methods and the erasure algorithm remain unchanged.
+    "service.py": "e277b8c9d70474e585653d9369e7ef3153aedc8df1adf932dd5bfc6b063aaba4",
 }
 PROTECTED_SELF_METHODS = (
     '_action_for_public_intent', '_bound_public_write', '_candidate_for_this_model',
@@ -317,8 +320,9 @@ class UsageConsistencyTests(unittest.TestCase):
 
     def test_daily_contract_requires_only_content(self):
         functions = tool_functions()
-        self.assertEqual(55, len(functions))  # 54 public actions plus host-only image transport.
-        self.assertEqual(55, len({node.name for node in functions}))
+        self.assertEqual(58, len(functions))  # 57 public actions (including 3 emotion tools) plus host-only image transport.
+        self.assertEqual(58, len({node.name for node in functions}))
+        self.assertTrue({"emotion_list", "emotion_manage", "memory_emotions"} <= {node.name for node in functions})
         daily = next(node for node in functions if node.name == "remember_memory")
         required = len(daily.args.args) - len(daily.args.defaults)
         self.assertEqual(["content"], [arg.arg for arg in daily.args.args[:required]])
@@ -404,7 +408,7 @@ class UsageConsistencyTests(unittest.TestCase):
     def test_document_current_route_and_historical_evidence_are_distinct(self):
         document = (MCP / "OPEN_RESPONSE.md").read_text(encoding="utf-8")
         self.assertIn("public-tools/21 / brain-open/2", document.splitlines()[0])
-        self.assertIn("54 个公开工具", document)
+        self.assertIn("57 个公开工具", document)
         self.assertIn('stbrain_open(view="recall", query="查询内容")', document)
         self.assertIn("官端直连 MCP 和网关注入模型均可写入、修改普通记忆", document)
         self.assertIn("不需要每次先 `stbrain_open`", document)

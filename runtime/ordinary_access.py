@@ -12,9 +12,10 @@ import uuid
 
 ORDINARY_SCOPES = frozenset({
     'emotional_memory', 'learning_memory', 'tool_guidance', 'planning_memory',
-    'self_governance', 'injection_control', 'shared_person_authoring', 'memory_relations',
+    'self_governance', 'injection_control', 'shared_person_authoring', 'memory_relations', 'emotion_layer',
 })
 ORDINARY_TOOLS = {
+    'emotion_list': 'emotion_layer', 'emotion_manage': 'emotion_layer',
     **dict.fromkeys(('attach_memory_relation', 'detach_memory_relation', 'read_memory_relations'), 'memory_relations'),
     **dict.fromkeys(('remember_work_memory', 'recall_work_memory', 'revise_work_memory'), 'learning_memory'),
     **dict.fromkeys(('remember_emotional_memory', 'revise_emotional_memory',
@@ -64,6 +65,12 @@ _CURRENT = ContextVar('st_authenticated_ordinary_operation', default=None)
 _SEQUENCE = itertools.count(time.time_ns() // 1000000)
 
 def tool_scope(name, arguments):
+    if name == 'memory_emotions':
+        from .emotion_layer import SCOPES, parse_ref, EmotionLayerError
+        try:
+            return SCOPES[parse_ref(arguments.get('memory_ref'))[0]]
+        except EmotionLayerError:
+            return None
     if name in {'store_memory_image', 'list_memory_images', 'read_memory_image', 'remove_memory_image'}:
         ref = arguments.get('target_ref')
         if isinstance(ref, str):

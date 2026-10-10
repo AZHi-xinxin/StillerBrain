@@ -62,7 +62,8 @@ def check_ports_stopped(config: dict[str, str]) -> None:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             probe.settimeout(0.25)
             if probe.connect_ex(("127.0.0.1", int(config[f"STBRAIN_{name}_PORT"]))) == 0:
-                raise OperationError("A configured service port is occupied; stop services first")
+                raise OperationError("A configured service port is occupied: " + name + " 127.0.0.1:"
+                                     + str(int(config[f"STBRAIN_{name}_PORT"])) + "; stop services first")
 
 
 def await_ports_stopped(config: dict[str, str]) -> None:
@@ -78,10 +79,12 @@ def await_ports_stopped(config: dict[str, str]) -> None:
 
 
 def child_environment(config: dict[str, str]) -> dict[str, str]:
-    environment = {key: value for key, value in os.environ.items() if not key.startswith("STBRAIN_")}
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("STBRAIN_")
+                   and key not in ("PYTHONPATH", "PYTHONHOME")}
     environment.update(config)
     environment["PYTHONNOUSERSITE"] = "1"
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    environment["PYTHONUTF8"] = "1"
     return environment
 
 
@@ -132,14 +135,25 @@ def start_stack(config: dict[str, str], *, root: Path = ROOT, popen=None, sleepe
         flags |= job.creationflags
     try:
         for component in ("control", "mcp", "gateway"):
-            children.append(popen([sys.executable, "-B", "-m", starter.COMPONENTS[component]],
-                                  cwd=root, env=environment, creationflags=flags))
+            try:
+                children.append(popen([sys.executable, "-B", "-m", starter.COMPONENTS[component]],
+                                      cwd=root, env=environment, creationflags=flags,
+                                      stdin=subprocess.DEVNULL))
+            except (OSError, subprocess.SubprocessError) as error:
+                # OS messages/command strings may contain private paths or values.
+                number = getattr(error, "errno", None)
+                code = str(number) if type(number) is int else "unknown"
+                raise OperationError(component + " service could not be launched (errno=" + code + ")") from None
             if job is not None:
                 job.assign_and_resume(children[-1])
         print("Three service processes launched; Ctrl+C stops this group. Startup health is not yet verified.", flush=True)
         while True:
-            if any(child.poll() is not None for child in children):
-                raise OperationError("A service process exited; the remaining processes from this command were stopped")
+            for component, child in zip(("control", "mcp", "gateway"), children):
+                exit_code = child.poll()
+                if exit_code is not None:
+                    code = str(exit_code) if type(exit_code) is int else "unknown"
+                    raise OperationError("A service process exited: " + component + " (exit_code=" + code
+                                         + "); the remaining processes from this command were stopped")
             sleeper(0.25)
     except KeyboardInterrupt:
         return 0

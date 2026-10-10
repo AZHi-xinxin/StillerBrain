@@ -287,8 +287,30 @@ def run_private(command, log, timeout=900):
 
 def private_log(private):
     name = private / ("install-" + uuid.uuid4().hex[:12] + ".log")
-    descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    return os.fdopen(descriptor, "wb")
+    return open(name, "xb", opener=lambda path, flags:
+                os.open(path, flags | getattr(os, "O_NOFOLLOW", 0), 0o600))
+
+
+def start_services(config, private):
+    """Supervise this installation without inheriting terminal/nohup stdin."""
+    ops = helper("stiller_ops")
+    with private_log(private) as log:
+        # Only the path is public output. Child tracebacks may contain private
+        # configuration, so retain them in the same protected directory as it.
+        print("本次启动日志（可能含私人信息，请勿原样公开）：" + str(log.name), flush=True)
+        def launch(command, **kwargs):
+            kwargs["stdin"] = subprocess.DEVNULL
+            return subprocess.Popen(command, stdout=log, stderr=log, **kwargs)
+        try:
+            return ops.start_stack(config, popen=launch)
+        except ops.OperationError as error:
+            # OperationError is explicitly restricted to fixed, credential-free
+            # messages. Do not include arbitrary ValueError/OS exception text.
+            raise InstallError("启动未完成：" + str(error) + "。请核对上面的私有启动日志。") from None
+        except (OSError, subprocess.SubprocessError) as error:
+            number = getattr(error, "errno", None)
+            code = str(number) if type(number) is int else "unknown"
+            raise InstallError("启动或收尾未完成（errno=" + code + "）。请核对私有启动日志及目录权限。") from None
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -344,7 +366,8 @@ def verify_services(config, private):
 
     with private_log(private) as log:
         def launch(command, **kwargs):
-            child = subprocess.Popen(command, stdout=log, stderr=log, stdin=subprocess.DEVNULL, **kwargs)
+            kwargs["stdin"] = subprocess.DEVNULL
+            child = subprocess.Popen(command, stdout=log, stderr=log, **kwargs)
             children.append(child)
             return child
         with contextlib.redirect_stdout(io.StringIO()):
@@ -397,7 +420,7 @@ def main(argv=None):
                 verify_services(config, private)
                 return 0
             print("ST 已进入启动流程。连接资料位于私有目录；按 Ctrl+C 停止本次服务。", flush=True)
-            return helper("stiller_ops").start_stack(config)
+            return start_services(config, private)
         print("给 AI 准备一份新的 ST。向导安装本机服务，记忆内容由 AI 接入后自行设置。")
         default_directory = Path.home() / "StillerBrain-private"
         selected = args.directory or Path(input("私有安装目录（回车采用 " + str(default_directory) + "）：").strip() or str(default_directory))

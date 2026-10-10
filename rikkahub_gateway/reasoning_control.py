@@ -10,14 +10,16 @@ from .routes import GatewayRoute
 def apply_upstream_reasoning_control(payload: dict[str, Any], route: GatewayRoute) -> None:
     """Adapt an explicit OpenAI-compatible OFF on an already copied payload.
 
-    DeepSeek Chat Completions uses thinking.type, not reasoning_effort=none,
-    to disable thinking. Only the operator-owned, exact official HTTPS route
-    establishes this dialect. AUTO (no field), enabled effort levels, other
-    hosts and unsupported/malformed custom values are untouched.
+    This adapter maps explicit OFF to DeepSeek's thinking.type=disabled.
+    Current official documentation also accepts reasoning_effort=none; this
+    mapping retains the adapter's explicit native-control precedence. Only the
+    operator-owned, exact official HTTPS route establishes this dialect. AUTO
+    (no field), enabled effort levels, other hosts and unsupported/malformed
+    custom values are untouched.
 
     An explicit native enabled/disabled control wins over the generic OFF,
-    e.g. a client's advanced customBody override. Remove none in either case
-    because DeepSeek's effort field accepts enabled levels, not an OFF token.
+    e.g. a client's advanced customBody override. Remove the generic OFF in
+    either case so only the selected native control is sent.
     https://api-docs.deepseek.com/guides/thinking_mode/
     """
     upstream = urlsplit(route.upstream_base_url)

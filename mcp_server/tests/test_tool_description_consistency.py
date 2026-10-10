@@ -25,14 +25,15 @@ class ToolDescriptionConsistencyTests(unittest.TestCase):
                 cls.functions[node.name] = node
         cls.docs = {name: ast.get_docstring(node) or "" for name, node in cls.functions.items()}
 
-    def test_tool_inventory_has_56_and_all_descriptions_exist(self):
-        self.assertEqual(56, len(self.docs))  # Includes the new host-only transport, not a model action.
+    def test_tool_inventory_has_59_and_all_descriptions_exist(self):
+        self.assertEqual(59, len(self.docs))  # Includes 3 emotion tools and the host-only transport, not a model action.
+        self.assertTrue({"emotion_list", "emotion_manage", "memory_emotions"} <= set(self.docs))
         self.assertTrue(set(ORDINARY_TOOLS) <= set(self.docs))
         self.assertTrue(all(self.docs.values()))
 
     def test_every_ordinary_write_documents_activation_and_internal_binding(self):
         names = (set(ORDINARY_TOOLS) - set(ORDINARY_READ_TOOLS)) | {
-            "remember_memory", "revise_memory", "advance_plan",
+            "remember_memory", "revise_memory", "advance_plan", "memory_emotions",
         }
         for name in sorted(names):
             with self.subTest(tool=name):

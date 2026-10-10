@@ -1371,6 +1371,8 @@ class EmotionalMemoryStore:
                 )
             except AuthoringError as exc:
                 raise EmotionalMemoryError(str(exc)) from exc
+            from .emotion_layer import attach_pending_emotions
+            attach_pending_emotions(connection, owner_id, model_id, f"emotion://{memory_id}@1")
             return result
 
     def revise_ordinary(

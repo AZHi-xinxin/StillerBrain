@@ -553,6 +553,70 @@ class InstallerPrivateTests(unittest.TestCase):
         install.assert_not_called()
         self.assertEqual(before, self.snapshot())
 
+    def test_main_start_preserves_safe_port_failure_and_private_log_location(self):
+        self.create()
+        (self.private / "venv").mkdir()
+        before = self.snapshot()
+        ops = installer.helper("stiller_ops")
+        original_helper = installer.helper
+        def load(name):
+            return ops if name == "stiller_ops" else original_helper(name)
+        output = io.StringIO()
+        with patch.object(installer, "helper", side_effect=load), self.source_check_passes(), \
+                patch.object(sys, "prefix", str(self.private / "venv")), \
+                patch.object(ops, "check_ports_stopped", side_effect=ops.OperationError("CONTROL port is occupied")), \
+                patch.object(ops, "stop_children") as stop, \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            result = installer.main(["--start", str(self.private)])
+        self.assertEqual(1, result)
+        self.assertIn("CONTROL port is occupied", output.getvalue())
+        self.assertIn("启动日志", output.getvalue())
+        stop.assert_not_called()
+        self.assertNotIn(SYNTHETIC_KEY, output.getvalue())
+        after = self.snapshot()
+        self.assertTrue(all(after.get(name) == contents for name, contents in before.items()))
+        self.assertEqual(1, len(set(after) - set(before)))
+
+    def test_runtime_start_has_private_log_no_inherited_stdin_or_raw_os_error(self):
+        self.private.mkdir()
+        config = self.make()
+        ops = installer.helper("stiller_ops")
+        output = io.StringIO()
+        observed = []
+        def stack(config, popen):
+            popen(["synthetic-python"], stdin=installer.subprocess.DEVNULL)
+        def launch(command, **kwargs):
+            observed.append(kwargs)
+            kwargs["stderr"].write(b"synthetic-private-child-detail")
+            raise OSError(13, "synthetic-secret-not-for-terminal")
+        with patch.object(installer, "helper", return_value=ops), \
+                patch.object(ops, "start_stack", side_effect=stack), \
+                patch.object(installer.subprocess, "Popen", side_effect=launch), \
+                contextlib.redirect_stdout(output), self.assertRaises(installer.InstallError) as error:
+            installer.start_services(config, self.private)
+        self.assertEqual(installer.subprocess.DEVNULL, observed[0]["stdin"])
+        self.assertEqual(observed[0]["stdout"], observed[0]["stderr"])
+        self.assertIn("errno=13", str(error.exception))
+        self.assertNotIn("synthetic-secret", str(error.exception))
+        self.assertNotIn("synthetic-private-child-detail", output.getvalue())
+        logs = list(self.private.glob("install-*.log"))
+        self.assertEqual(1, len(logs))
+        self.assertIn(str(logs[0]), output.getvalue())
+        self.assertEqual(b"synthetic-private-child-detail", logs[0].read_bytes())
+
+    def test_private_log_uses_fresh_file_and_does_not_overwrite_collision(self):
+        self.private.mkdir()
+        fake_uuid = SimpleNamespace(hex="a" * 32)
+        with patch.object(installer.uuid, "uuid4", return_value=fake_uuid):
+            with installer.private_log(self.private) as log:
+                path = Path(log.name)
+                log.write(b"synthetic-first-run")
+            with self.assertRaises(FileExistsError):
+                installer.private_log(self.private)
+        self.assertEqual(b"synthetic-first-run", path.read_bytes())
+        if os.name != "nt":
+            self.assertEqual(0o600, stat.S_IMODE(path.stat().st_mode))
+
     def test_connection_document_persists_correct_private_start_command(self):
         self.create()
         documents = [path for path in self.private.iterdir() if path.suffix == ".txt"]

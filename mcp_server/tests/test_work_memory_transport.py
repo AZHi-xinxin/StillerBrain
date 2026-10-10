@@ -42,7 +42,7 @@ async def probe():
             return [line for line in db.iterdump() if "work_memory_" not in line]
 
     tools = server.mcp._tool_manager.list_tools()
-    check(len(tools) == 57, "host image transport added without replacing existing tools")
+    check(len(tools) == 60, "feeling tools and host image transport preserve existing tools")
     required = server.mcp._tool_manager.get_tool("remember_work_memory").parameters.get("required", [])
     check(set(required) == {"content"}, "content-only scratchpad write schema")
     check(server.mcp._tool_manager.get_tool("remember_work_memory").parameters["properties"]["tag"]["default"] == "随手记",

@@ -500,6 +500,7 @@ class SelfModelAccessService:
         ordinary_modules = {
             "emotional_memory", "learning_memory", "tool_guidance", "planning_memory",
             "self_governance_profile", "injection_control", "shared_person_authoring",
+            "emotion_layer",
         }
         return bool(status["module_one_unlocked"]) or (
             self.ordinary_memory_access and module in ordinary_modules
@@ -1196,6 +1197,8 @@ class SelfModelAccessService:
         result["continuation"] = None
         result["review_material_presented"] = False
         available_modules = ["self_revision"]
+        if self.onboarding is not None:
+            available_modules.append("emotion_layer")
         versioned_modules = (
             ("emotional_memory", self.emotional, "row_version"),
             ("learning_memory", self.learning, "learning_row_version"),
@@ -1279,6 +1282,11 @@ class SelfModelAccessService:
         result["manual_module"] = module
         # No blanket claim that an entire brain or every candidate was presented.
         result.pop("review_material_presented", None)
+        if module == "emotion_layer":
+            from .usage_guide import module_usage_guide
+            result[module] = module_usage_guide(module, simple=self.ordinary_memory_access)
+            result["manual_available"] = True
+            return result
         ref = self._manual_context_ref(module, open_context, current_status)
         if module == "self_revision":
             state = current_status["state"]

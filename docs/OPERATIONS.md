@@ -53,7 +53,7 @@ python -B scripts/stiller_ops.py check --config C:/stiller-private/stiller.env
 python -B scripts/stiller_ops.py start --config C:/stiller-private/stiller.env
 ```
 
-同一个终端会启动并监督控制面、MCP 服务和兼容网关。启动时会先确认三个配置端口空闲；三个组件仍只绑定 `127.0.0.1`。终端保持打开，服务日志会显示在这里。脚本不额外保存日志文件；分享终端日志前仍应检查其中是否有私人信息。
+同一个终端会启动并监督控制面、MCP 服务和兼容网关。启动时会先确认三个配置端口空闲；三个组件仍只绑定 `127.0.0.1`。上面的直接 `stiller_ops.py start` 入口将服务日志输出到终端，不额外保存日志文件；向导的 `install_stiller.py --start` 则将子进程日志写入私有目录中的新 `install-*.log`，启动时显示具体路径。两种入口都不从标准输入读取命令；子进程不继承终端／`nohup` 的输入，也不继承 `PYTHONHOME`、`PYTHONPATH` 覆盖。分享日志前应检查其中是否有私人信息。
 
 按 **Ctrl+C** 结束本次启动的三个子进程。一个子进程提前退出时，其余由本命令启动的子进程也会停止，并给出失败提示。它不会查找、终止其他实例的进程。
 

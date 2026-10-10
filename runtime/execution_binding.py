@@ -41,6 +41,7 @@ EXECUTION_REF_FIELD = "execution_ref"
 EXECUTION_TOOLS = frozenset({
     "store_memory_image", "list_memory_images", "read_memory_image", "remove_memory_image",
     "attach_memory_relation", "detach_memory_relation", "read_memory_relations",
+    "emotion_list", "emotion_manage", "memory_emotions",
     "stbrain_manage",
     "remember_work_memory", "recall_work_memory", "revise_work_memory",
     "stbrain_open", "remember_memory", "revise_memory", "advance_plan", "submit_self_model_candidate", "activate_self_model_candidate",

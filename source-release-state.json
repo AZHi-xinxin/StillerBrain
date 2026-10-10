@@ -1,43 +1,35 @@
 {
   "format": "stiller-source-release-state/1",
-  "version": "0.2.0-preview.4",
+  "version": "0.2.0-preview.5",
   "distribution": "source-available-development-preview",
   "license": "PolyForm-Noncommercial-1.0.0",
-  "base_public_commit": "b8cdf5dbc9af4ed8eb460f9c9feb5cdaa494663b",
-  "historical_public_state": "source-release-state-0.2.0-preview.3.json",
-  "accepted_functional_revisions": "L49-L51 explicit reasoning-off adaptation, exact host turn control, terminal receipts, thread recovery and request-bound streaming disconnect cleanup",
-  "preserved_public_regressions": [
-    "strict cross-Python AST serialization",
-    "control-client proxy isolation"
-  ],
+  "base_public_commit": "16286498d4a9cee63aeec78217db2ead41cb26d2",
+  "historical_public_state": "source-release-state-0.2.0-preview.4.json",
+  "accepted_functional_revisions": "Self-defined emotion layer, atomic optional memory labels, bounded related recall, installer diagnostics and gateway stream/tool-tail compatibility",
   "synthetic_only_this_publication": true,
   "real_model_calls_this_publication": 0,
   "live_service_changes_this_publication": false,
   "production_readiness_certified": false,
   "linux_new_installer_end_to_end_verified_this_publication": false,
   "user_acceptance": {
-    "ordinary_memory": "passed_user_report",
-    "tool_card_storage": "passed_user_report",
-    "work_memory_save_and_read": "passed_user_report",
-    "orbis_atlas_connect_tap_and_reopen": "passed_user_report",
-    "orbis_original_image_store_and_read": "passed_user_report_on_paired_dev61_client",
+    "emotion_layer_local_and_vps": "passed_user_report_for_existing_paired_deployments",
+    "orbis_paired_feature_acceptance": "passed_user_report_before_separate_new_sentinel_queue_feedback; no claim that Orbis sentinel is resolved",
+    "ordinary_memory": "preserved_previous_acceptance_and_current_regressions",
     "legacy_import_ui": "deferred_not_end_to_end_accepted",
     "ob_direct_bulk_migration": "not_implemented_deferred",
     "galaxy_visual_redesign": "not_implemented",
     "consultation_end_to_end": "pending_separate_scope",
-    "all_provider_cache_hit_issues_resolved": false,
-    "gateway_video_after_paired_client_fix": "passed_user_report_for_specific_deployment_and_client_not_all_providers"
+    "all_provider_cache_hit_issues_resolved": false
   },
   "catalog": {
-    "transport_full": 55,
-    "model_full": 54,
-    "model_daily": 8,
-    "host_only_transport": 1
+    "discovery": "Use the current instance tools/list or stbrain_tools(category=feelings); host-only routes are not model permissions",
+    "emotion_help": "stbrain_help(module=emotion_layer)"
   },
-  "atlas_onboarding": {
-    "new_installer": "enabled_with_separate_device_credentials",
-    "existing_config": "complete_enabled_config_or_explicit_one_time_preparation_required",
-    "orbis_connection": "existing_ST_gateway_connection_not_MCP_only"
+  "database_upgrade": {
+    "new_tables_and_indexes": true,
+    "stop_writes_and_backup_before_upgrade": true,
+    "preserve_private_config_and_identity": true,
+    "unverified_in_place_downgrade_supported": false
   },
   "validation_details": "docs/UPDATE-VALIDATION.md",
   "integrity_manifest": "SOURCE-PACKAGE-MANIFEST.json",
@@ -51,57 +43,37 @@
       "failures": 0,
       "errors": 0,
       "skipped": 0,
-      "skips": [],
       "passed": true,
-      "returncode": 0,
-      "seconds": 193.382,
       "source_unchanged": true
     },
     {
       "group": "mcp",
-      "run": 585,
+      "run": 594,
       "failures": 0,
       "errors": 0,
       "skipped": 0,
-      "skips": [],
       "passed": true,
-      "returncode": 0,
-      "seconds": 445.997,
       "source_unchanged": true
     },
     {
       "group": "gateway",
-      "run": 800,
+      "run": 811,
       "failures": 0,
       "errors": 0,
       "skipped": 1,
-      "skips": [
-        [
-          "test_posix_permissions (rikkahub_gateway.tests.test_route_management.PathGuardTests.test_posix_permissions)",
-          "POSIX permission test; Windows DACL tested separately"
-        ]
-      ],
       "passed": true,
-      "returncode": 0,
-      "seconds": 179.832,
-      "source_unchanged": true
+      "source_unchanged": true,
+      "skip_reason": "POSIX permission test; Windows DACL tested separately"
     },
     {
       "group": "packaging",
-      "run": 142,
+      "run": 147,
       "failures": 0,
       "errors": 0,
       "skipped": 1,
-      "skips": [
-        [
-          "test_private_generated_files_have_owner_only_mode (test_install_stiller.InstallerPrivateTests.test_private_generated_files_have_owner_only_mode)",
-          "POSIX modes; Windows ACL helper is mocked"
-        ]
-      ],
       "passed": true,
-      "returncode": 0,
-      "seconds": 37.993,
-      "source_unchanged": true
+      "source_unchanged": true,
+      "skip_reason": "POSIX modes; Windows ACL helper is mocked"
     },
     {
       "group": "migration",
@@ -109,26 +81,13 @@
       "failures": 0,
       "errors": 0,
       "skipped": 0,
-      "skips": [],
       "passed": true,
-      "returncode": 0,
-      "seconds": 20.935,
       "source_unchanged": true
     }
   ],
-  "current_python_inventory_sha256": "d6eafb19720ba228f6046c1fae3fdc09ea65a8bb8a3b5a5187a161cb1144e56c",
-  "linux_same_functional_source_validation": {
-    "tests": 2475,
-    "failures": 0,
-    "errors": 0,
-    "skipped": 2,
-    "source_files": 371,
-    "source_sha256": "0f20e1a09e0cfc7d6d306e54ab05a4b804436b13be589a7a2849fc9ee4d05165",
-    "scope": "Deployment-candidate evidence with the same eight imported gateway files, not a new public-release Linux full-tree rerun"
-  },
-  "cache_observation": {
-    "scope": "Historical preview.3 observation, not rerun this publication; see archived validation. No all-provider cache guarantee."
-  },
+  "current_python_file_count": 296,
+  "current_python_inventory_sha256": "d4ff38a27397f9ceb462fc648858ad34fa2fbc7b98fdb43cc3e917723897bdc4",
+  "linux_validation_this_publication": "No full public-tree Linux rerun; prior deployed feature acceptance is not substituted for one",
   "publication_preparation_complete": true,
   "maintainer_prepublication_review_required": true
 }

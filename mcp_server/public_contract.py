@@ -31,15 +31,16 @@ BrainOpenView: TypeAlias = Literal["summary", "manual", "review", "recall"]
 BrainManualModule: TypeAlias = Literal[
     "self_revision", "emotional_memory", "learning_memory", "tool_guidance",
     "planning_memory", "self_governance_profile", "injection_control",
-    "hallucination_vault", "shared_person_authoring",
+    "hallucination_vault", "shared_person_authoring", "emotion_layer",
 ]
 BRAIN_MANUAL_MODULES = (
     "self_revision", "emotional_memory", "learning_memory", "tool_guidance",
     "planning_memory", "self_governance_profile", "injection_control",
-    "hallucination_vault", "shared_person_authoring",
+    "hallucination_vault", "shared_person_authoring", "emotion_layer",
 )
 
 PUBLIC_TOOL_NAMES: tuple[str, ...] = (
+    "emotion_list", "emotion_manage", "memory_emotions",
     "store_memory_image",
     "list_memory_images",
     "read_memory_image",

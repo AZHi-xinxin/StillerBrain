@@ -53,6 +53,7 @@ from .work_memory_service import WorkMemoryAccessService
 from runtime.work_memory import WorkMemoryStore
 from runtime.memory_relations import MemoryRelationStore
 from .memory_relation_service import MemoryRelationAccessService
+from .emotion_layer_service import EmotionLayerAccessService
 from runtime.memory_images import MemoryImageStore, MAX_BASE64, MAX_MCP_REQUEST_BYTES
 from runtime.memory_image_uploads import UPLOAD_REF_PATTERN
 from .memory_image_service import MemoryImageAccessService
@@ -465,6 +466,10 @@ learning_service = LearningMemoryAccessService(
 # This uses ordinary learning-write authorization, not a new identity module.
 work_memory_service = WorkMemoryAccessService(
     WorkMemoryStore(DATABASE), onboarding=onboarding, owner_id=OWNER_ID, model_id=MODEL_ID,
+    protected_values=(MCP_TOKEN, WAKE_SECRET),
+)
+emotion_layer_service = EmotionLayerAccessService(
+    onboarding.emotion_layer_store, onboarding=onboarding, owner_id=OWNER_ID, model_id=MODEL_ID,
     protected_values=(MCP_TOKEN, WAKE_SECRET),
 )
 memory_relation_service = MemoryRelationAccessService(
@@ -887,6 +892,59 @@ async def revise_work_memory(
 
 
 @mcp.tool()
+async def emotion_list(write_context_ref: str | None = None) -> dict[str, Any]:
+    """查看我自定义的情绪与浮现设置。喜怒哀乐仅为可改可删占位；名称/id均可用。
+
+    The first authorized access may create the initial editable placeholders,
+    so this is not a pre-activation read-only operation. In simple-memory-v1,
+    first module-one activation is required. After activation, direct MCP and
+    gateway callers omit internal context and mechanical module fields; no new
+    author confirmation is required. Legacy mode retains its authorized context.
+    """
+    return emotion_layer_service.list(write_context_ref)
+
+
+@mcp.tool()
+async def emotion_manage(
+    action: Literal["create", "update", "archive", "restore", "delete", "settings"],
+    emotion: str | None = None, name: str | None = None, description: str | None = None,
+    secondary_limit: StrictInt | None = None, cooldown_rounds: StrictInt | None = None,
+    write_context_ref: str | None = None,
+) -> dict[str, Any]:
+    """自由定义情绪。create给name，其他词条动作给emotion名字/id；定义可空，最多200字。
+
+    archive可恢复，delete只解绑、不删除记忆。settings可调secondary_limit 0–3（默认1）
+    和cooldown_rounds 0–10000（默认20）。不需要理由。详见stbrain_help(module='emotion_layer')。
+
+    In simple-memory-v1 the profile is read-only before first module-one
+    activation. After activation, direct MCP and gateway callers omit internal
+    context and mechanical module fields; no new author confirmation is required.
+    Legacy mode retains its authorized context.
+    """
+    return emotion_layer_service.manage(action, write_context_ref, emotion=emotion, name=name,
+        description=description, secondary_limit=secondary_limit, cooldown_rounds=cooldown_rounds)
+
+
+@mcp.tool()
+async def memory_emotions(
+    memory_ref: str, emotions: list[StrictStr], action: Literal["add", "remove", "replace"] = "add",
+    write_context_ref: str | None = None,
+) -> dict[str, Any]:
+    """为任意已授权普通记忆增减情绪，复制当前版本ref，emotions填名字或id。
+
+    传replace和[]可清空。可挂多个或不挂，不改记忆正文，隔离/禁用记录不可绕过。
+    工作脑仍只主动读取；情绪关联不会自动带出工作脑正文。
+
+    In simple-memory-v1 the profile is read-only before first module-one
+    activation. After activation, direct MCP and gateway callers omit internal
+    context and mechanical module fields; no new author confirmation is required.
+    Legacy mode retains its authorized context. The exact current memory_ref
+    determines the authorized ordinary module; stale references are rejected.
+    """
+    return emotion_layer_service.tag(memory_ref, emotions, action, write_context_ref)
+
+
+@mcp.tool()
 async def remember_memory(
     content: Annotated[StrictStr, StringConstraints(min_length=1, max_length=2000)],
     module: StrictStr | None = "auto",
@@ -898,6 +956,7 @@ async def remember_memory(
     write_context_ref: str | None = None, parent_ref: str | None = None,
     due_at: str | None = None, timezone: str = "UTC",
     rewrite_receipt: StrictStr | None = None,
+    emotions: list[StrictStr] | None = None,
 ) -> dict[str, Any]:
     """日常存入：remember_memory(content="想留下的原文")，只需 content。
 
@@ -910,6 +969,8 @@ async def remember_memory(
     未标注的情绪为 other、重要度为 50，来源 unmarked、可信度 null，
     不表示独立核验或把普通片段判成重要对话。以回执的 module、ref 和 input_warnings 核对结果。
     keywords 可给短语数组或兼容字符串；不必为了存入临时编一组标签。
+    emotions 是另外可选的自定义感觉名字/id数组，不是旧 emotion 分类字段；
+    名称由 AI 自己管理，存入回执返回可用名称，同标签可以在以后命中时连带短摘要。
 
     Save one ordinary memory with one call. Only content is required.
 
@@ -944,13 +1005,13 @@ async def remember_memory(
     scenario_tags 仍只用于公布这些字段的专用工具。自动召回受已有记录、模式、
     预算与授权限制；存入不保证每轮浮现，也不强制任何模型优先使用 ST。
     """
-    return daily_service.remember(
+    return emotion_layer_service.remember(daily_service.remember, dict(
         module=module, content=content, title=title, summary=summary, kind=kind,
         track=track, keywords=keywords, importance=importance, emotion=emotion,
         source_basis=source_basis, confidence=confidence, reason=reason,
         write_context_ref=write_context_ref, parent_ref=parent_ref,
         due_at=due_at, timezone=timezone, rewrite_receipt=rewrite_receipt,
-    )
+    ), emotions=emotions)
 
 
 @mcp.tool()
@@ -1346,6 +1407,7 @@ async def remember_emotional_memory(
     referent_bindings: list[dict[str, Any]] | None = None,
     source_timestamp: StrictStr | None = None,
     rewrite_receipt: StrictStr | None = None,
+    emotions: list[StrictStr] | None = None,
 ) -> dict[str, Any]:
     """Advanced emotional-memory creation with explicit policies and context.
 
@@ -1370,8 +1432,10 @@ async def remember_emotional_memory(
     is reported, and interpretation is inferred. secondary_emotions has at most
     one item from the published enum. associations, when present, is a list of
     {target_memory_id, edge_type, weight, occurred_at?} objects.
+    emotions separately accepts optional AI-authored feeling names/ids. These
+    cross-brain tags do not change sensitivity or automatic-recall policy.
     """
-    return emotional_service.remember(
+    return emotion_layer_service.remember_emotional(emotional_service.remember, dict(
         write_context_ref=write_context_ref,
         expected_emotion_version=expected_emotion_version,
         memory_type=memory_type,
@@ -1396,7 +1460,7 @@ async def remember_emotional_memory(
         source_timestamp=source_timestamp,
         reason=reason,
         rewrite_receipt=rewrite_receipt,
-    )
+    ), emotions=emotions)
 
 
 @mcp.tool()

@@ -72,7 +72,7 @@ DIRECT_CONTEXT_CONTRACT = "human-attested-direct-context/1"
 DIRECT_CONTEXT_MODE = "human_attested_direct"
 DIRECT_WRITE_SCOPES = frozenset(
     {
-        "memory_relations",
+        "memory_relations", "emotion_layer",
         "self_revision",
         "self_governance",
         "injection_control",
@@ -729,6 +729,8 @@ class ModuleOneOnboardingStore:
         Path(self.database).parent.mkdir(parents=True, exist_ok=True)
         self.self_store = SelfModelStore(self.database)
         self._initialize()
+        from .emotion_layer import EmotionLayerStore
+        self.emotion_layer_store = EmotionLayerStore(self.database)
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -2949,6 +2951,18 @@ class ModuleOneOnboardingStore:
                     emotional=(emotional_outcome or {}).get("injection"),
                     estimate_tokens=_estimate_tokens,
                     budget=1200,
+                    decorate_primary=lambda selected: self.emotion_layer_store.append_recall(
+                        connection, owner_id=owner_id, model_id=model_id, wake_id=wake_id,
+                        query=query_text, dynamic=selected, enabled=automatic_scope_enabled,
+                        estimate_tokens=_estimate_tokens, budget=1200,
+                        tool_candidates=(tool_outcome or {}).get("envelopes", []),
+                    ),
+                )
+                dynamic = self.emotion_layer_store.append_recall(
+                    connection, owner_id=owner_id, model_id=model_id, wake_id=wake_id,
+                    query=query_text, dynamic=dynamic, enabled=automatic_scope_enabled,
+                    estimate_tokens=_estimate_tokens, budget=1200,
+                    tool_candidates=(tool_outcome or {}).get("envelopes", []),
                 )
                 # Keep the stable identity/cache prefix unchanged. Automatic
                 # facets use only residual shared space after ordinary recall;

@@ -5488,12 +5488,16 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                             )
                         )
                         terminal = event.done or _sse_payload_has_finish(event.payload)
-                        usage_event = isinstance(event.payload, Mapping) and isinstance(event.payload.get("usage"), Mapping)
                         if tool_related:
                             tool_tail_started = True
                             if performance is not None:
                                 performance.tool_tail = True
-                        if tool_tail_started or defer_started or terminal or usage_event:
+                        # Some compatible upstreams report usage before finish,
+                        # including on every content/reasoning event. Usage is
+                        # not a terminal signal: it follows the normal inspected
+                        # stream until an actual tool/terminal event starts the
+                        # ordered commit barrier. Later usage remains behind it.
+                        if tool_tail_started or defer_started or terminal:
                             # From the first tool/terminal event onward preserve
                             # exact upstream ordering behind one commit barrier.
                             defer_started = True

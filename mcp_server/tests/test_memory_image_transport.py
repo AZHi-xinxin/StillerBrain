@@ -38,7 +38,7 @@ def probe():
     fixture = ModuleOneOnboardingTests()
     fixture.database, fixture.store, fixture.owner, fixture.model = database, server.onboarding, server.OWNER_ID, server.MODEL_ID
     tools = server.mcp._tool_manager.list_tools()
-    check(len(tools) == 57, "existing tools plus one host-only transport capability")
+    check(len(tools) == 60, "existing tools, three feeling tools and one host-only transport capability")
     app = server.mcp.streamable_http_app()
     # ASGI transport invokes actual bearer/host validation, JSON-RPC parsing,
     # compact dispatch, execution gates and result serialization, without listen().

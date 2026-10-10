@@ -18,6 +18,7 @@ READ_ONLY_TOOLS = frozenset({
     "query_injection_control", "recall_planning_memory", "open_hallucination_vault",
 })
 _DIRECT_SCOPES = {
+    'emotion_list': 'emotion_layer', 'emotion_manage': 'emotion_layer',
     **dict.fromkeys(("attach_memory_relation", "detach_memory_relation"), "memory_relations"),
     **dict.fromkeys(("remember_work_memory", "revise_work_memory"), "learning_memory"),
     **dict.fromkeys(("submit_self_model_candidate", "activate_self_model_candidate"), "self_revision"),
@@ -84,7 +85,7 @@ def install_execution_guard(mcp: Any, *, store: ExecutionStore, onboarding: Any,
     def is_direct(name: str, args: dict[str, Any]) -> bool:
         ref = args.get("write_context_ref")
         scope = _DIRECT_SCOPES.get(name)
-        if name in {"remember_memory", "store_memory_image", "remove_memory_image"}:
+        if name in {"remember_memory", "store_memory_image", "remove_memory_image", "memory_emotions"}:
             from runtime.ordinary_access import tool_scope
             scope = tool_scope(name, args)
         if name in {"revise_memory", "advance_plan"}:

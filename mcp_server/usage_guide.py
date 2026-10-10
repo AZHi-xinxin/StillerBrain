@@ -45,6 +45,18 @@ def module_usage_guide(module: str, *, simple: bool) -> dict[str, Any]:
     if module not in BRAIN_MANUAL_MODULES:
         raise ValueError("unknown_manual_module")
     modules = {
+        "emotion_layer": {
+            "title": "情绪层 · 我定义的感觉",
+            "purpose": "任意普通记忆可自选0到多个情绪。它是跨脑标签，情感脑仍保存具体经历。",
+            "freedom": "喜怒哀乐只是可改可删占位；名称、定义、增减均由AI自由选择。删除后不会重新生成占位。定义可空，最多200字；无需理由。",
+            "read": [{"tool": "emotion_list", "use": "查看可用名称/id和浮现设置。"}],
+            "write_tools": ["emotion_manage", "memory_emotions", "remember_memory"],
+            "workflow": ["emotion_manage(action='create',name='幸福',description='...')创建；update改名/定义，archive暂存，restore恢复，delete只解绑不删记忆。",
+                "remember_memory(content='原文',emotions=['幸福'])可同时保存；标签失败与正文一起回滚。省略emotions仍正常保存，存入回执给可用名称。",
+                "memory_emotions(memory_ref='查询所得当前ref',emotions=['幸福'],action='add')追加；remove移除，replace替换，replace+[]清空。",
+                "已选中的最高相关主记忆可连带同情绪的短摘要（最多160字）和该情绪定义；按相关度、最久未浮现排序，不随机。默认1条，可用settings调整为0–3；cooldown_rounds默认20。",
+                "连带与原浮现共用1200 token动态预算；预算不足省略。同wake/工具续轮重用快照，只计一次；跨助手/所有者、隔离、归档、禁用或需先询问的记录不连带。工作脑保持只主动读取，工具卡仍遵守原目录授权。"],
+        },
         "self_revision": {
             "title": "模块一 · 自我定义",
             "purpose": "由 AI 编写、复核和决定是否激活自己的自我定义。",
@@ -262,16 +274,16 @@ def simple_usage_guide() -> dict[str, Any]:
 def usage_guide() -> dict[str, Any]:
     return {
         "contract_version": "daily-memory/1", "state_changed": False,
-        "work_memory": "随手记：remember_work_memory(content=原文)，tag默认“随手记”；recall_work_memory读取，revise_work_memory整理。仅主动查阅，不参与长期回忆、网关注入、混合查询或星图；沿用学习脑权限。",
+        "work_memory": "remember_work_memory(content=原文)，tag默认“随手记”；recall_work_memory查阅，revise_work_memory整理；仅主动读，不进长期回忆、网关注入、混合查询或星图；沿用学习脑权限。",
         "module_help": {"tool": "stbrain_help", "parameter": "module", "modules": [
-                            "self_revision", "emotional_memory", "learning_memory", "tool_guidance",
-                            "planning_memory", "self_governance_profile", "injection_control",
-                            "hallucination_vault", "shared_person_authoring"],
-                        },
+            "self_revision", "emotional_memory", "learning_memory", "tool_guidance",
+            "planning_memory", "self_governance_profile", "injection_control",
+            "hallucination_vault", "shared_person_authoring", "emotion_layer",
+        ]},
         "daily_memory": {
             "tool": "remember_memory", "required": ["content"],
             "modules": ["emotional_memory", "learning_memory", "planning_memory"],
-            "instruction": "普通新增仅需真实content，一次调用；module默认auto，无明确元数据线索时为emotional_memory/unclassified，不猜正文。无需为存入先查目录、open、手填版本或另轮审核；旧直连仍保留其真实上下文授权。",
+            "instruction": "仅需真实content，一次调用；module默认auto，元数据不明确时为emotional_memory/unclassified，不猜正文。无需为存入先查目录、open、手填版本或另轮审核；旧直连仍保留其真实上下文授权。",
             "result": "真实 stored=保存；回执不完整先核查，不自动重试。",
             "uncertainty": "来源/可信度默认unmarked/null（未标注），不代表已独立核实；情感kind默认unclassified（未分类）。",
             "plan_effect": "计划active，不授权或自动执行外部操作。",
@@ -312,7 +324,7 @@ def usage_guide() -> dict[str, Any]:
             "instruction": "使用查询返回的目标版本与event_seq；完成需真实证据，不手填模块行版本。",
         },
         "self_reminders": {
-            "title": "给自己写轻提醒与自定义安全阀",
+            "title": "轻提醒与自定义安全阀",
             "purpose": "AI自写、默认空白。",
             "help": {"tool": "stbrain_help", "arguments": {"module": "self_governance_profile"}},
             "read_entry": {"tool": "query_self_governance_profile", "arguments": {"view": "status", "include_content": True}},

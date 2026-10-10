@@ -75,6 +75,7 @@ def select_mixed_recall(
     emotional: Mapping[str, Any] | None,
     estimate_tokens: Callable[[Any], int],
     budget: int = 1200,
+    decorate_primary: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Select only supplied, disclosure-gated entries under the exact shared cap.
 
@@ -156,7 +157,16 @@ def select_mixed_recall(
     # missing-field zero only for emotion would create a module-specific tie
     # penalty; use the same content-key tie rule for every ordinary candidate.
     ranked.sort(key=lambda entry: entry[:2])
+    primary_decorated = False
     for _, _, module, item in ranked:
+        associated = {entry["memory_ref"].rsplit("@", 1)[0]
+                      for entry in dynamic.get("emotion_layer", {}).get("memories", [])}
+        item_ref = item.get("item_ref") or item.get("card_ref")
+        if module == "emotional_memory" and isinstance(item.get("memory_id"), str):
+            item_ref = "emotion://" + item["memory_id"]
+        if isinstance(item_ref, str) and item_ref.rsplit("@", 1)[0] in associated:
+            continue
+        before = dynamic
         if module == "planning_memory":
             if len(selected_plans) < 3 and accept(module, plan_payload([*selected_plans, item])):
                 selected_plans.append(item)
@@ -187,6 +197,12 @@ def select_mixed_recall(
                 selected.append(projected_item)
                 if module == "tool_guidance":
                     tool_tokens += cost
+        # The strongest actually accepted ordinary hit keeps its full body.
+        # Attach its bounded authored feeling/one association before lower-ranked
+        # candidates compete, instead of being permanently starved by a full cap.
+        if dynamic is not before and not primary_decorated and decorate_primary:
+            dynamic = decorate_primary(dynamic)
+            primary_decorated = True
 
     # Spend remaining space only after all ordinary candidates have competed.
     # Upgrading a reminder preserves its author text; it never adds authority.

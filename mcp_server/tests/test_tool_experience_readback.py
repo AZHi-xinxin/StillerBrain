@@ -316,12 +316,12 @@ async def native_probe():
             full = (await handler(types.ListToolsRequest(method="tools/list"))).root.tools
         with http_context(query="tool_profile=daily"):
             daily = (await handler(types.ListToolsRequest(method="tools/list"))).root.tools
-        assert len(full) == 55, len(full)  # 54 public actions + the host transport capability.
+        assert len(full) == 58, len(full)  # 57 public actions + the host transport capability.
         assert len(daily) == 9 and {tool.name for tool in daily} == EXPECTED_DAILY_NAMES | {"stage_memory_image_upload"}
-        assert len(server.mcp._tool_manager.list_tools()) == 57
+        assert len(server.mcp._tool_manager.list_tools()) == 60
         for tool in daily:
             if tool.name in {"stbrain_tools", "stbrain_manage"}:
-                assert "可按需访问 55 项操作" in tool.description and "常用" in tool.description and "分类" in tool.description
+                assert "可按需访问 58 项操作" in tool.description and "常用" in tool.description and "分类" in tool.description
                 assert tool.inputSchema == server.mcp._tool_manager.get_tool(tool.name).parameters
         full_schema = next(tool for tool in full if tool.name == "recall_tool_guidance").inputSchema
         assert "experiences" in full_schema["properties"]["view"]["enum"]

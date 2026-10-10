@@ -18,7 +18,7 @@ DISCOVERY_DESCRIPTION = (
     "我可以自行来这里找，不必等人类提醒。"
     "按分类找 ST 功能，不必切换 MCP 档位。省略参数列分类；category 列该类操作；"
     "action 返回一个操作的完整参数说明。分类：self 自我定义、person 人称与存前提醒、"
-    "diy 自写提示词/安全阀/浮现开关、images 记忆图片附件、emotion 情感、learning 学习、tools 工具、"
+    "diy 自写提示词/安全阀/浮现开关、images 记忆图片附件、emotion 情感、feelings 自定义感觉、learning 学习、tools 工具、"
     "planning 计划、work 随手记（只填正文，标签可选；仅主动查询，不日常浮现）、vault 黑匣子、system 状态/手册、memory 通用记忆。"
     "已知参数可直接 stbrain_manage，不强制先读说明。"
 )

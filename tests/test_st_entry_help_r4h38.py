@@ -44,7 +44,8 @@ class StEntryHelpTests(unittest.TestCase):
             r"\b(?:remember|recall|stbrain|query|preview|revise|advance)_[a-z_]+", serialized))
         mentioned -= {field for fields in help_['ordinary_revision']['allowed_fields'].values() for field in fields}
         self.assertTrue(mentioned <= public_names(), mentioned - public_names())
-        self.assertEqual(54, len(public_names()))
+        self.assertEqual(57, len(public_names()))
+        self.assertTrue({"emotion_list", "emotion_manage", "memory_emotions"} <= public_names())
         self.assertFalse({"breath", "stbrain_breath"} & public_names())
         self.assertNotIn("stbrain_breath", serialized)
 

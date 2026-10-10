@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import os
 import time
@@ -69,8 +70,60 @@ class SmallRecordingWriter:
         pass
 
 
+class DigestRecordingWriter(SmallRecordingWriter):
+    """Verify complete event order without retaining the synthetic long wire."""
+
+    def __init__(self):
+        super().__init__()
+        self.digest = hashlib.sha256()
+
+    def write(self, raw):
+        self.digest.update(raw)
+        return super().write(raw)
+
+
+class UsageChunks(Chunks):
+    def __init__(self, count, *, initial_usage=None, per_chunk=False, tail=ANSWER):
+        super().__init__(count, tail=tail)
+        self.initial_usage = initial_usage
+        self.per_chunk = per_chunk
+        self.wire_bytes = 0
+
+    def events(self):
+        if self.initial_usage is not None:
+            yield b"data: " + json.dumps({"choices": [], "usage": self.initial_usage}).encode() + b"\n\n"
+        for index in range(self.count):
+            if self.per_chunk:
+                payload = json.loads(THINKING[6:])
+                payload["usage"] = {"prompt_tokens": 17, "completion_tokens": index + 1}
+                yield b"data: " + json.dumps(payload).encode() + b"\n\n"
+            else:
+                yield THINKING
+        for segment in self.tail.split(b"\n\n"):
+            if segment:
+                yield segment + b"\n\n"
+
+    def __iter__(self):
+        for raw in self.events():
+            self.wire_bytes += len(raw)
+            yield raw
+
+    def expected_client_digest(self, public_model):
+        digest = hashlib.sha256()
+        for raw in self.events():
+            if raw == DONE:
+                digest.update(raw)
+            else:
+                payload = json.loads(raw[6:])
+                payload["model"] = public_model
+                digest.update(b"data: " + json.dumps(
+                    payload, ensure_ascii=False, separators=(",", ":"),
+                ).encode() + b"\n\n")
+        return digest.hexdigest()
+
+
 class LongStreamLimitTests(unittest.TestCase):
-    def run_stream(self, stream, *, cfg=None, protected=False, tools=False, measure_memory=False):
+    def run_stream(self, stream, *, cfg=None, protected=False, tools=False, measure_memory=False, writer=None):
         requests = []
         def upstream(request):
             requests.append(request)
@@ -84,7 +137,7 @@ class LongStreamLimitTests(unittest.TestCase):
             "messages": [{"role": "user", "content": "capability-1" if protected else "synthetic test"}],
             **({"tools": TOOLS} if tools else {}),
         }, {"Authorization": f"Bearer {chosen.gateway_token}"})
-        writer = SmallRecordingWriter()
+        writer = writer or SmallRecordingWriter()
         handler = object.__new__(_GatewayHandler)
         handler.server = SimpleNamespace(application=app)
         handler.wfile = writer
@@ -136,6 +189,33 @@ class LongStreamLimitTests(unittest.TestCase):
         count = (DEFAULT_MAX_BODY_BYTES // len(THINKING)) + 50
         code, writer, _ = self.run_stream(Chunks(count, tail=TOOL_TAIL), tools=True)
         self.assertIsNone(code)
+        self.assertEqual(1, writer.tail.count(b"synthetic-call-1"))
+        self.assertEqual(1, writer.tail.count(DONE))
+
+    def test_early_empty_or_populated_usage_does_not_buffer_three_mib_reply(self):
+        count = 3 * 1024 * 1024 // len(THINKING) + 1
+        for usage in ({}, {"prompt_tokens": 17, "completion_tokens": 0}):
+            with self.subTest(empty_usage=not usage):
+                stream = UsageChunks(count, initial_usage=usage)
+                code, writer, _ = self.run_stream(stream, writer=DigestRecordingWriter())
+                self.assertIsNone(code)
+                self.assertGreater(stream.wire_bytes, 3 * 1024 * 1024)
+                self.assertEqual(count + 3, writer.count)
+                self.assertEqual(stream.expected_client_digest(config().public_model), writer.digest.hexdigest())
+
+    def test_per_chunk_usage_does_not_buffer_three_mib_reasoning(self):
+        stream = UsageChunks(3 * 1024 * 1024 // len(THINKING) + 1, per_chunk=True)
+        code, writer, _ = self.run_stream(stream, writer=DigestRecordingWriter())
+        self.assertIsNone(code)
+        self.assertGreater(stream.wire_bytes, 3 * 1024 * 1024)
+        self.assertEqual(stream.expected_client_digest(config().public_model), writer.digest.hexdigest())
+
+    def test_early_usage_long_reasoning_still_reaches_validated_tool_tail(self):
+        stream = UsageChunks(3 * 1024 * 1024 // len(THINKING) + 1,
+                             initial_usage={"completion_tokens": 0}, tail=TOOL_TAIL)
+        code, writer, _ = self.run_stream(stream, tools=True)
+        self.assertIsNone(code)
+        self.assertGreater(stream.wire_bytes, 3 * 1024 * 1024)
         self.assertEqual(1, writer.tail.count(b"synthetic-call-1"))
         self.assertEqual(1, writer.tail.count(DONE))
 

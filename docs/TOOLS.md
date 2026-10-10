@@ -2,7 +2,7 @@
 
 [首页](../README.md) · [日常指南](GUIDE.md) · [MCP 详细说明](../mcp_server/OPEN_RESPONSE.md)
 
-`0.2.0-preview.3` 提供 **日常 8 入口**与**完整模型目录 54 项**两种呈现，包含 4 个图片操作。完整传输 `tools/list` 另含 1 项 host-only 图片运输能力，共 55 项；宿主须过滤运输项，不发给模型。`/mcp?tool_profile=daily` 显式选择日常档；默认 `/mcp` 或 `tool_profile=full` 保留完整目录。`simple-memory-v1` 和 `legacy` 是独立的访问配置：它们的完整目录数量相同，集合不同；前者提供 `authorize_self_model`，并收起专用 `revise_tool_guidance`，后者的旧调用仍保留校验与兼容。`public-tools/21` 是协议标签，不是工具数量。
+本工作副本提供 **日常 8 入口**与**完整模型目录 57 项**两种呈现，包含 4 个图片操作和 3 个情绪标签操作。完整传输 `tools/list` 另含 1 项 host-only 图片运输能力，共 58 项；宿主须过滤运输项，不发给模型。`/mcp?tool_profile=daily` 显式选择日常档；默认 `/mcp` 或 `tool_profile=full` 保留完整目录。`simple-memory-v1` 和 `legacy` 是独立的访问配置：它们的完整目录数量相同，集合不同；前者提供 `authorize_self_model`，并收起专用 `revise_tool_guidance`，后者的旧调用仍保留校验与兼容。`public-tools/21` 是协议标签，不是工具数量。
 
 下面以 `simple-memory-v1` 为主。模块一首次完成并激活后，普通读写无需每次先 `open`，由服务补入内部上下文和模块行版本；AI 使用查询返回的真实目标引用。`legacy` 仍需真实授权上下文。黑匣子、模块一以及显式旧候选操作保留各自的授权和复核路径。
 
@@ -56,7 +56,17 @@
 
 ## 完整目录
 
-以下列出完整模型目录的 54 个独立入口，不含 host-only 运输项。使用日常档时，其余操作通过上面的分类工具箱调用。
+以下列出完整模型目录的 57 个独立入口，不含 host-only 运输项。使用日常档时，其余操作通过上面的分类工具箱调用。
+
+### 情绪标签 · 3 项
+
+| 工具 | 用途 |
+| --- | --- |
+| `emotion_list` | 看自己定义的名称、定义、设置及无正文计数 |
+| `emotion_manage` | 新建、改名、修改定义、归档、恢复、删除或设置连带数量和冷却 |
+| `memory_emotions` | 给当前版本的普通记忆添加、移除或替换标签；不改变原文或权限 |
+
+日常档从 `stbrain_tools(category="feelings")` 发现，细节见 [情绪层](EMOTION-LAYER.md)。
 
 ### 工作记忆与关系 · 6 项
 

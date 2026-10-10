@@ -8,9 +8,9 @@
 
 新的示例配置采用 `STBRAIN_ACCESS_PROFILE=simple-memory-v1`。旧配置省略此变量时沿用兼容路径；升级采用哪种配置由部署者明确选择。
 
-当前 `public-tools/21` 是公开契约标签，对应 `0.2.0-preview.3`。默认 `/mcp` 的完整模型目录为 54 项（含 4 个图片操作）；显式使用 `/mcp?tool_profile=daily` 选择日常 8 入口，也可使用 `X-STBrain-Tool-Profile: daily` 请求头。传输层另列 1 项 host-only 图片运输能力，所以完整 `tools/list` 为 55 项；宿主须过滤运输项，不发给模型。选择器按请求生效，与访问配置独立；两个选择器各最多一次，同时提供时必须一致。升级不会自动切档，修改连接后须重连、刷新工具列表，从新回合使用。
+当前 `public-tools/21` 是公开契约标签。本工作副本默认 `/mcp` 的完整模型目录为 57 项（含 4 个图片操作和 3 个情绪标签操作）；显式使用 `/mcp?tool_profile=daily` 选择日常 8 入口，也可使用 `X-STBrain-Tool-Profile: daily` 请求头。传输层另列 1 项 host-only 图片运输能力，所以完整 `tools/list` 为 58 项；宿主须过滤运输项，不发给模型。选择器按请求生效，与访问配置独立；两个选择器各最多一次，同时提供时必须一致。升级不会自动切档，修改连接后须重连、刷新工具列表，从新回合使用。
 
-`simple-memory-v1` 与 `legacy` 的完整模型目录均为 54 项，集合有一处替换：前者提供 `authorize_self_model`，并把工具卡修改统一放进 `revise_memory`；旧 `revise_tool_guidance` 调用仍兼容，保留相同授权与校验。
+`simple-memory-v1` 与 `legacy` 的完整模型目录均为 57 项，集合有一处替换：前者提供 `authorize_self_model`，并把工具卡修改统一放进 `revise_memory`；旧 `revise_tool_guidance` 调用仍兼容，保留相同授权与校验。
 
 日常档按顺序提供 `stbrain_open`、`remember_memory`、`remember_work_memory`、`remember_tool_guidance`、`revise_memory`、`advance_plan`、`stbrain_tools`、`stbrain_manage`。`stbrain_tools` 按分类列操作或按操作名返回完整参数；`stbrain_manage(action=操作名, arguments=参数对象)` 沿原授权与校验路径执行。分类工具箱包含常用及兼容能力，包括 `work`、`relations` 和 `images`。已有帮助或回执提到未独立列出的操作名时，通过该入口调用，无需请人切档。
 

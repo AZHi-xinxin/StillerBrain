@@ -115,7 +115,7 @@ async def probe():
             return result
 
         catalog = {tool.name: tool for tool in server.mcp._tool_manager.list_tools()}
-        assert len(catalog) == 57  # Includes two compact facades and one host-only transport.
+        assert len(catalog) == 60  # Includes three feeling tools, two compact facades and one host-only transport.
         assert ('revise_tool_guidance' in catalog) is (not server.SIMPLE_MEMORY_ACCESS)
         assert ('authorize_self_model' in catalog) is server.SIMPLE_MEMORY_ACCESS
         help_tool = catalog['stbrain_help']

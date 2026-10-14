@@ -1,6 +1,6 @@
 {
   "format": "stiller-public-release-state/1",
-  "version": "0.2.0-preview.5",
+  "version": "0.2.0-preview.6",
   "scope": "production-readiness-not-source-archive-integrity",
   "source_frozen": true,
   "license_approved": true,
@@ -8,7 +8,7 @@
   "complete_regressions_verified": false,
   "dependency_audit_complete": false,
   "privacy_review_complete": false,
-  "user_acceptance_complete": true,
+  "user_acceptance_complete": false,
   "publication_authorized": true,
-  "notes": "Source preview for the user-accepted emotion layer, installer diagnostics and gateway fixes. See source-release-state.json and docs/UPDATE-VALIDATION.md for current evidence. General production gates remain independent: no new clean-machine, universal-provider, full dependency or full-history privacy certification. No live service changes or paid model calls in this publication."
+  "notes": "Source preview with experimental Android ARM64 phone-local installation bridge and Linux ARM64 dependency lock. Existing feature acceptance is preserved, not a phone acceptance claim. See source-release-state.json and docs/UPDATE-VALIDATION.md. No Android/PRoot end-to-end or lock-screen reliability certification. General production gates remain independent. No live service changes or paid model calls in this candidate."
 }

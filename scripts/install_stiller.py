@@ -50,15 +50,20 @@ def select_lock(system=None, machine=None, version=None, implementation=None,
     libc = platform.libc_ver() if libc is None else libc
     free_threaded = bool(sysconfig.get_config_var("Py_GIL_DISABLED")) if free_threaded is None else free_threaded
     bits = (64 if sys.maxsize > 2**32 else 32) if bits is None else bits
-    if implementation != "CPython" or machine.lower() not in ("amd64", "x86_64") or free_threaded or bits != 64:
-        raise InstallError("向导支持 x64 标准版 CPython：Windows 3.14 或 Linux 3.12。请核对系统和 Python。")
-    if system == "Windows" and tuple(version) == (3, 14):
+    machine = machine.lower()
+    x64 = machine in ("amd64", "x86_64")
+    arm64 = machine in ("arm64", "aarch64")
+    if implementation != "CPython" or not (x64 or arm64) or free_threaded or bits != 64:
+        raise InstallError("向导需要 64 位常规 GIL 版 CPython：Windows x64 3.14，或 Linux x64/ARM64 3.12。")
+    if system == "Windows" and x64 and tuple(version) == (3, 14):
         return "requirements-windows-py314.lock"
     if system == "Linux" and tuple(version) == (3, 12) and libc[0] == "glibc":
         match = re.fullmatch(r"(\d+)\.(\d+)(?:\.\d+)?", libc[1])
         if match and tuple(map(int, match.group(1, 2))) >= (2, 34):
-            return "requirements-linux-py312.lock"
-    raise InstallError("环境暂未纳入向导：Windows x64 请用 Python 3.14；Linux x64 请用 Python 3.12、glibc ≥ 2.34（已验 Ubuntu 24.04）。")
+            return "requirements-linux-arm64-py312.lock" if arm64 else "requirements-linux-py312.lock"
+    raise InstallError("环境不匹配：Windows x64 请用 Python 3.14；Linux x64/ARM64 请用 Python 3.12、glibc ≥ 2.34。"
+                       "安卓原生 Termux 不能混用 Linux wheel；手机部署入口见 python -B scripts/install_phone.py --help，"
+                       "不要删除平台或依赖哈希检查。")
 
 
 def check_text(value, label, allow_empty=False):
@@ -186,7 +191,7 @@ def validate_config(config, private, root=ROOT):
 
 def connection_text(config):
     return ("ST 客户端连接资料（含访问密钥，请私下保存）\n\n"
-            "仅供同一台电脑使用；手机需要另行配置受保护的远程连接。\n\n"
+            "仅供运行 ST 的同一台设备使用（含手机本机）；其他设备需要另行配置受保护的远程连接。\n\n"
             "一、模型网关（自动浮现）\n接口类型：OpenAI 兼容 Chat Completions\nBase URL：http://127.0.0.1:"
             + config["STBRAIN_GATEWAY_PORT"] + "/v1\n路径：/chat/completions\n模型 ID："
             + config["STBRAIN_GATEWAY_MODEL"] + "\nAPI Key：" + config["STBRAIN_GATEWAY_TOKEN"]

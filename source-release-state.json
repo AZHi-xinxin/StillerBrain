@@ -1,41 +1,41 @@
 {
   "format": "stiller-source-release-state/1",
-  "version": "0.2.0-preview.5",
+  "version": "0.2.0-preview.6",
   "distribution": "source-available-development-preview",
   "license": "PolyForm-Noncommercial-1.0.0",
-  "base_public_commit": "16286498d4a9cee63aeec78217db2ead41cb26d2",
-  "historical_public_state": "source-release-state-0.2.0-preview.4.json",
-  "accepted_functional_revisions": "Self-defined emotion layer, atomic optional memory labels, bounded related recall, installer diagnostics and gateway stream/tool-tail compatibility",
-  "synthetic_only_this_publication": true,
-  "real_model_calls_this_publication": 0,
-  "live_service_changes_this_publication": false,
+  "base_public_commit": "faa46f081ff8233cd925adfb01589c3383ced918",
+  "historical_public_state": "source-release-state-0.2.0-preview.5.json",
+  "implemented_revisions": "Experimental Termux/Ubuntu phone-local installer, Linux ARM64 CPython 3.12 hash lock, storage preflight and owned POSIX process shutdown",
+  "synthetic_only_this_candidate": true,
+  "real_model_calls_this_candidate": 0,
+  "live_service_changes_this_candidate": false,
   "production_readiness_certified": false,
-  "linux_new_installer_end_to_end_verified_this_publication": false,
-  "user_acceptance": {
-    "emotion_layer_local_and_vps": "passed_user_report_for_existing_paired_deployments",
-    "orbis_paired_feature_acceptance": "passed_user_report_before_separate_new_sentinel_queue_feedback; no claim that Orbis sentinel is resolved",
-    "ordinary_memory": "preserved_previous_acceptance_and_current_regressions",
-    "legacy_import_ui": "deferred_not_end_to_end_accepted",
-    "ob_direct_bulk_migration": "not_implemented_deferred",
-    "galaxy_visual_redesign": "not_implemented",
-    "consultation_end_to_end": "pending_separate_scope",
-    "all_provider_cache_hit_issues_resolved": false
+  "linux_new_installer_end_to_end_verified_this_candidate": false,
+  "phone_validation": {
+    "android_proot_end_to_end": false,
+    "arm64_python_runtime_imports": false,
+    "lock_screen_background_reliability": false,
+    "existing_phone_migration": false,
+    "notes": "No phone connected. QEMU ARM64 CPython startup was blocked by WSL1 address mapping; this is not a phone/ST failure or successful runtime verification."
   },
-  "catalog": {
-    "discovery": "Use the current instance tools/list or stbrain_tools(category=feelings); host-only routes are not model permissions",
-    "emotion_help": "stbrain_help(module=emotion_layer)"
+  "user_acceptance": {
+    "existing_features": "Historical preview.5 acceptance preserved; see historical state",
+    "new_phone_route": "Pending real Android/Termux/PRoot/Orbis acceptance"
   },
   "database_upgrade": {
-    "new_tables_and_indexes": true,
-    "stop_writes_and_backup_before_upgrade": true,
+    "schema_changed_this_candidate": false,
+    "automatic_migration": false,
     "preserve_private_config_and_identity": true,
-    "unverified_in_place_downgrade_supported": false
+    "stop_writes_and_backup_before_upgrade": true
   },
-  "validation_details": "docs/UPDATE-VALIDATION.md",
-  "integrity_manifest": "SOURCE-PACKAGE-MANIFEST.json",
-  "integrity_check": "python -B scripts/check_source_package.py",
-  "github_publication_authorized": true,
-  "production_gate": "python -B scripts/check_release.py",
+  "dependency_validation": {
+    "windows_31_package_fresh_venv_hash_install_and_pip_check": true,
+    "arm64_30_official_wheels_hash_size_metadata_tags_closure_checked": true,
+    "arm64_versions_match_linux_x64": true,
+    "arm64_target_wheel_installation": true,
+    "arm64_native_elf_architecture_checked": true,
+    "arm64_runtime_execution_verified": false
+  },
   "current_candidate_regression": [
     {
       "group": "runtime",
@@ -62,18 +62,16 @@
       "errors": 0,
       "skipped": 1,
       "passed": true,
-      "source_unchanged": true,
-      "skip_reason": "POSIX permission test; Windows DACL tested separately"
+      "source_unchanged": true
     },
     {
       "group": "packaging",
-      "run": 147,
+      "run": 231,
       "failures": 0,
       "errors": 0,
-      "skipped": 1,
+      "skipped": 14,
       "passed": true,
-      "source_unchanged": true,
-      "skip_reason": "POSIX modes; Windows ACL helper is mocked"
+      "source_unchanged": true
     },
     {
       "group": "migration",
@@ -85,9 +83,22 @@
       "source_unchanged": true
     }
   ],
-  "current_python_file_count": 296,
-  "current_python_inventory_sha256": "d4ff38a27397f9ceb462fc648858ad34fa2fbc7b98fdb43cc3e917723897bdc4",
-  "linux_validation_this_publication": "No full public-tree Linux rerun; prior deployed feature acceptance is not substituted for one",
-  "publication_preparation_complete": true,
+  "linux_targeted_regression": {
+    "environment": "Isolated Ubuntu 24.04 x64 WSL1 / CPython 3.12.3 / glibc 2.39 on private Linux filesystem",
+    "run": 163,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "scope": "Installer, operations, phone bootstrap, real storage and POSIX signals; not full Linux service or phone E2E",
+    "lf_normalized_tested_source_matches_frozen_candidate": true
+  },
+  "current_python_file_count": 301,
+  "current_python_inventory_sha256": "2152eed376017533c79fba94ad6c6db89b3d790e1c17a80fed16bc3865fcf403",
+  "validation_details": "docs/UPDATE-VALIDATION.md",
+  "phone_guide": "docs/PHONE-LOCAL.md",
+  "integrity_manifest": "SOURCE-PACKAGE-MANIFEST.json",
+  "integrity_check": "python -B scripts/check_source_package.py",
+  "github_publication_authorized": true,
+  "production_gate": "python -B scripts/check_release.py",
   "maintainer_prepublication_review_required": true
 }

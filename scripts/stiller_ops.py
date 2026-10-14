@@ -12,11 +12,13 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import socket
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -120,6 +122,40 @@ def create_process_job():
     return module.WindowsProcessJob()
 
 
+@contextmanager
+def _posix_stop_requests():
+    """Defer catchable POSIX shutdown until owned children are registered.
+
+    Keep these handlers active throughout cleanup so repeated signals cannot
+    interrupt it. SIGKILL/OS process destruction cannot run Python cleanup.
+    Windows and calls from worker threads retain their existing signal policy.
+    """
+    requested = False
+    previous = {}
+
+    def request_stop(_number, _frame):
+        nonlocal requested
+        # Do not raise here: a signal may arrive between Popen and list.append.
+        requested = True
+
+    try:
+        if os.name == "posix" and threading.current_thread() is threading.main_thread():
+            for name in ("SIGTERM", "SIGHUP"):
+                number = getattr(signal, name, None)
+                if number is not None:
+                    handler = signal.getsignal(number)
+                    if handler is None:
+                        # A handler installed outside Python cannot be restored
+                        # through signal.signal; leave that host policy alone.
+                        continue
+                    signal.signal(number, request_stop)
+                    previous[number] = handler
+        yield lambda: requested
+    finally:
+        for number, handler in reversed(tuple(previous.items())):
+            signal.signal(number, handler)
+
+
 def start_stack(config: dict[str, str], *, root: Path = ROOT, popen=None, sleeper=None, job_factory=None) -> int:
     """Supervise only children started by this invocation; never stop unrelated PIDs."""
     popen = subprocess.Popen if popen is None else popen
@@ -130,40 +166,49 @@ def start_stack(config: dict[str, str], *, root: Path = ROOT, popen=None, sleepe
     children = []
     environment = child_environment(config)
     flags = (getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)) if os.name == "nt" else 0
-    job = (create_process_job if job_factory is None else job_factory)()
-    if job is not None:
-        flags |= job.creationflags
-    try:
-        for component in ("control", "mcp", "gateway"):
-            try:
-                children.append(popen([sys.executable, "-B", "-m", starter.COMPONENTS[component]],
-                                      cwd=root, env=environment, creationflags=flags,
-                                      stdin=subprocess.DEVNULL))
-            except (OSError, subprocess.SubprocessError) as error:
-                # OS messages/command strings may contain private paths or values.
-                number = getattr(error, "errno", None)
-                code = str(number) if type(number) is int else "unknown"
-                raise OperationError(component + " service could not be launched (errno=" + code + ")") from None
-            if job is not None:
-                job.assign_and_resume(children[-1])
-        print("Three service processes launched; Ctrl+C stops this group. Startup health is not yet verified.", flush=True)
-        while True:
-            for component, child in zip(("control", "mcp", "gateway"), children):
-                exit_code = child.poll()
-                if exit_code is not None:
-                    code = str(exit_code) if type(exit_code) is int else "unknown"
-                    raise OperationError("A service process exited: " + component + " (exit_code=" + code
-                                         + "); the remaining processes from this command were stopped")
-            sleeper(0.25)
-    except KeyboardInterrupt:
-        return 0
-    finally:
+    with _posix_stop_requests() as stop_requested:
+        job = (create_process_job if job_factory is None else job_factory)()
+        if job is not None:
+            flags |= job.creationflags
         try:
-            if job is not None:
-                job.close()
+            for component in ("control", "mcp", "gateway"):
+                if stop_requested():
+                    return 0
+                try:
+                    children.append(popen([sys.executable, "-B", "-m", starter.COMPONENTS[component]],
+                                          cwd=root, env=environment, creationflags=flags,
+                                          stdin=subprocess.DEVNULL))
+                except (OSError, subprocess.SubprocessError) as error:
+                    # OS messages/command strings may contain private paths or values.
+                    number = getattr(error, "errno", None)
+                    code = str(number) if type(number) is int else "unknown"
+                    raise OperationError(component + " service could not be launched (errno=" + code + ")") from None
+                if job is not None:
+                    job.assign_and_resume(children[-1])
+                if stop_requested():
+                    return 0
+            print("Three service processes launched; Ctrl+C stops this group. Startup health is not yet verified.", flush=True)
+            while True:
+                if stop_requested():
+                    return 0
+                for component, child in zip(("control", "mcp", "gateway"), children):
+                    exit_code = child.poll()
+                    if stop_requested():
+                        return 0
+                    if exit_code is not None:
+                        code = str(exit_code) if type(exit_code) is int else "unknown"
+                        raise OperationError("A service process exited: " + component + " (exit_code=" + code
+                                             + "); the remaining processes from this command were stopped")
+                sleeper(0.25)
+        except KeyboardInterrupt:
+            return 0
         finally:
-            stop_children(children)
-        await_ports_stopped(config)
+            try:
+                if job is not None:
+                    job.close()
+            finally:
+                stop_children(children)
+            await_ports_stopped(config)
 
 
 def digest(path: Path) -> str:

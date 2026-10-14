@@ -1,0 +1,93 @@
+{
+  "format": "stiller-source-release-state/1",
+  "version": "0.2.0-preview.5",
+  "distribution": "source-available-development-preview",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "base_public_commit": "16286498d4a9cee63aeec78217db2ead41cb26d2",
+  "historical_public_state": "source-release-state-0.2.0-preview.4.json",
+  "accepted_functional_revisions": "Self-defined emotion layer, atomic optional memory labels, bounded related recall, installer diagnostics and gateway stream/tool-tail compatibility",
+  "synthetic_only_this_publication": true,
+  "real_model_calls_this_publication": 0,
+  "live_service_changes_this_publication": false,
+  "production_readiness_certified": false,
+  "linux_new_installer_end_to_end_verified_this_publication": false,
+  "user_acceptance": {
+    "emotion_layer_local_and_vps": "passed_user_report_for_existing_paired_deployments",
+    "orbis_paired_feature_acceptance": "passed_user_report_before_separate_new_sentinel_queue_feedback; no claim that Orbis sentinel is resolved",
+    "ordinary_memory": "preserved_previous_acceptance_and_current_regressions",
+    "legacy_import_ui": "deferred_not_end_to_end_accepted",
+    "ob_direct_bulk_migration": "not_implemented_deferred",
+    "galaxy_visual_redesign": "not_implemented",
+    "consultation_end_to_end": "pending_separate_scope",
+    "all_provider_cache_hit_issues_resolved": false
+  },
+  "catalog": {
+    "discovery": "Use the current instance tools/list or stbrain_tools(category=feelings); host-only routes are not model permissions",
+    "emotion_help": "stbrain_help(module=emotion_layer)"
+  },
+  "database_upgrade": {
+    "new_tables_and_indexes": true,
+    "stop_writes_and_backup_before_upgrade": true,
+    "preserve_private_config_and_identity": true,
+    "unverified_in_place_downgrade_supported": false
+  },
+  "validation_details": "docs/UPDATE-VALIDATION.md",
+  "integrity_manifest": "SOURCE-PACKAGE-MANIFEST.json",
+  "integrity_check": "python -B scripts/check_source_package.py",
+  "github_publication_authorized": true,
+  "production_gate": "python -B scripts/check_release.py",
+  "current_candidate_regression": [
+    {
+      "group": "runtime",
+      "run": 918,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": true,
+      "source_unchanged": true
+    },
+    {
+      "group": "mcp",
+      "run": 594,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": true,
+      "source_unchanged": true
+    },
+    {
+      "group": "gateway",
+      "run": 811,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1,
+      "passed": true,
+      "source_unchanged": true,
+      "skip_reason": "POSIX permission test; Windows DACL tested separately"
+    },
+    {
+      "group": "packaging",
+      "run": 147,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1,
+      "passed": true,
+      "source_unchanged": true,
+      "skip_reason": "POSIX modes; Windows ACL helper is mocked"
+    },
+    {
+      "group": "migration",
+      "run": 30,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": true,
+      "source_unchanged": true
+    }
+  ],
+  "current_python_file_count": 296,
+  "current_python_inventory_sha256": "d4ff38a27397f9ceb462fc648858ad34fa2fbc7b98fdb43cc3e917723897bdc4",
+  "linux_validation_this_publication": "No full public-tree Linux rerun; prior deployed feature acceptance is not substituted for one",
+  "publication_preparation_complete": true,
+  "maintainer_prepublication_review_required": true
+}

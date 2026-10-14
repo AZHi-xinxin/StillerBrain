@@ -1,8 +1,8 @@
 {
   "format": "stiller-source-package/1",
   "distribution": "source-available-development-preview",
-  "version": "0.2.0-preview.5",
-  "base_public_commit": "16286498d4a9cee63aeec78217db2ead41cb26d2",
+  "version": "0.2.0-preview.6",
+  "base_public_commit": "faa46f081ff8233cd925adfb01589c3383ced918",
   "files": [
     {
       "path": ".env.example",
@@ -42,7 +42,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "2efe809fa2ef7ddead850354138449fb806999f4a4b4c13b040af8ec3eea1129"
+      "sha256": "e8fefc22c6ef57a45f047ebbea0814d7fc41a879b1cf6e69da6b55c439f7dca5"
     },
     {
       "path": "RELEASE-NOTES-0.2.0-preview.1.md",
@@ -65,6 +65,10 @@
       "sha256": "c7b655035cd47ad4c40db912497452bf2f65517dc8a3caa41d617d9ddc513ac1"
     },
     {
+      "path": "RELEASE-NOTES-0.2.0-preview.6.md",
+      "sha256": "d8accfc2c780cb93a50e168bd534ae80982a839eaa1c41eeeef3d573359524fd"
+    },
+    {
       "path": "RELEASE-NOTES-preview.3.md",
       "sha256": "e3a19379b7dccb2a479d856c5e11901284d029c30607a61e46254bdd3e220aef"
     },
@@ -82,7 +86,7 @@
     },
     {
       "path": "SOURCE-PROVENANCE.md",
-      "sha256": "fa95e09a0a050e7861b89a70595a2d29659dc715b5594e909bb5fc6322bd6029"
+      "sha256": "036bcd345e1dd5a8075c082e6c8e5b87106bdfd992290d4f7f5ce84656caf313"
     },
     {
       "path": "THIRD_PARTY_NOTICES.md",
@@ -110,7 +114,7 @@
     },
     {
       "path": "docs/DEPENDENCIES.md",
-      "sha256": "f339c40a301d854f0a95b8c5f7b713c2df998a1dbd45980b66bc3be03598dd3b"
+      "sha256": "e36d8fee6d085e46e2e880743d802473fe0b5b6b09e3d31d5eec9d731fc25218"
     },
     {
       "path": "docs/EMOTION-LAYER.md",
@@ -126,7 +130,7 @@
     },
     {
       "path": "docs/INSTALL.md",
-      "sha256": "1852694c79f7d08471ec14b549bf25d085d86f210c6c6b0221861deab5c2fced"
+      "sha256": "1149ff3c263ca5878555ed56ec949c84cb1795d6120daade1fa376f3067a043a"
     },
     {
       "path": "docs/LICENSING-DECISION.md",
@@ -161,8 +165,12 @@
       "sha256": "aedcd29564882a573be7574ef423e29f29ec7fbe9a417da71c3891239f4f7880"
     },
     {
+      "path": "docs/PHONE-LOCAL.md",
+      "sha256": "d6378fc87735cffb2948b1299b7a5546521bfc0cddf3ae74194c0f4f44f0de25"
+    },
+    {
       "path": "docs/RELEASE-CHECKLIST.md",
-      "sha256": "60de57f1dcc515699290f562129cc469ac6fb5bcabaddf325c81417227adb965"
+      "sha256": "a240ef4a9adb83dabfd6c7fb97c866bfe8f2f7e0984a47c8247fe4ce2eef7464"
     },
     {
       "path": "docs/RETRIEVAL.md",
@@ -189,6 +197,10 @@
       "sha256": "4ef16af526e3774d3d5fe5738d807bb809d4f99517d7f5ae94730e35ae7cf663"
     },
     {
+      "path": "docs/UPDATE-VALIDATION-0.2.0-preview.5.md",
+      "sha256": "fb03d374e0030968ea25a9dc2e3172257e6b24fc706c0b2508a673c2da66c60e"
+    },
+    {
       "path": "docs/UPDATE-VALIDATION-preview.3.md",
       "sha256": "6f70259dd87640679b2a97ce615a54e2432c0f6a6ea36d96a936cc7d49ab8910"
     },
@@ -198,11 +210,15 @@
     },
     {
       "path": "docs/UPDATE-VALIDATION.md",
-      "sha256": "fb03d374e0030968ea25a9dc2e3172257e6b24fc706c0b2508a673c2da66c60e"
+      "sha256": "b47ded3b325d20e612542be71787b86188143dd75b195887ef3d0f8df5ead08b"
     },
     {
       "path": "docs/assets/stiller-cover.svg",
       "sha256": "55f96ad43b2f3fbe42be4e652d04a091c7d9dc8f10e7063d2418708a77a356c5"
+    },
+    {
+      "path": "docs/dependency-inventory-linux-arm64-py312.json",
+      "sha256": "9a366b2feaeea783911c6290dcd5c90d284807857164466fba7fd5e3c2c94e68"
     },
     {
       "path": "docs/dependency-inventory-linux-py312.json",
@@ -733,8 +749,12 @@
       "sha256": "b7575c4829f457e63ec483074b7d529696d27325422fab901d88696fda625a9f"
     },
     {
+      "path": "packaging_tests/test_install_phone.py",
+      "sha256": "b5433a3eb295d746f0dbd4d67ed9b40d13b219a526dbf0fae4de4659c1b71029"
+    },
+    {
       "path": "packaging_tests/test_install_stiller.py",
-      "sha256": "f096a924fc3f534b2160d40986b929969bb6db9940d8f6770ab114f47c621e6c"
+      "sha256": "6af55c1b422d7a0bb055649b0258fd4c81c07852a15c7459009282f9d8a4ca3e"
     },
     {
       "path": "packaging_tests/test_memory_images_backup.py",
@@ -747,6 +767,14 @@
     {
       "path": "packaging_tests/test_operations_local_smoke.py",
       "sha256": "ddc5a8e59d173d8e13e9bf7f7e2e84f804a84ce7d64c26aba1e36209d0911b51"
+    },
+    {
+      "path": "packaging_tests/test_phone_storage.py",
+      "sha256": "7fe82b4d40d61c7507a85eb90e782ef3a073acaa59cdd89a5d6f223b1573bf7f"
+    },
+    {
+      "path": "packaging_tests/test_posix_supervisor.py",
+      "sha256": "97c887001c21c4ef5c370b8e1f93645dbe8bc2f3d43554504fe03850cd68a598"
     },
     {
       "path": "packaging_tests/test_prepare_atlas_config.py",
@@ -770,7 +798,11 @@
     },
     {
       "path": "release-state.json",
-      "sha256": "2a2d02467c106b60a89ecb1134f02e17bc15dd577d0a252480384906758ec7f7"
+      "sha256": "55362a50ecf0fd04e691a3b9f4482a5972d2b65755824a37e15e9de246008f51"
+    },
+    {
+      "path": "requirements-linux-arm64-py312.lock",
+      "sha256": "21d93748859694359252989ecd3879c68493c11fe31f87f14d47723b14a00716"
     },
     {
       "path": "requirements-linux-py312.lock",
@@ -1205,12 +1237,16 @@
       "sha256": "e00fd40cfcde2fcb5c5e729ae3ac97d85e93b06d376824f5d56f32868aafc930"
     },
     {
+      "path": "scripts/check_phone_storage.py",
+      "sha256": "aa3ee6448bb310334cdc68897ddf09289e5840428a146abf60059297c5dc7392"
+    },
+    {
       "path": "scripts/check_release.py",
       "sha256": "34d566ede77980d847c748fc3cdc52a88d6c8350d4d83bdcdd1406b0c2b2d79e"
     },
     {
       "path": "scripts/check_source_package.py",
-      "sha256": "c1b0b85c741d4e51955b259d644459bf95ca0722935a488a159e737c79391328"
+      "sha256": "02bc601ee3c4b21a5d1df5f956c2ca1495b33850e9ba3a3beea1034077aef5db"
     },
     {
       "path": "scripts/compare_final_payloads.py",
@@ -1221,8 +1257,12 @@
       "sha256": "ed038c79eef7297f6d886782b85e6c48e3ec302e44b737c567af577b932a2788"
     },
     {
+      "path": "scripts/install_phone.py",
+      "sha256": "6b0186154e22466f1de1e7a6de8b1f7a714fba258d184cbcb67acaac31a8d8bb"
+    },
+    {
       "path": "scripts/install_stiller.py",
-      "sha256": "453b3f4e6add78787115be2c75d518623fda7ab47ffa2dab4149a81848ba66f9"
+      "sha256": "6f0b9fcbd17e9e5cf71cb65eb5325b7027cd392f62917883260ecaa4e3302678"
     },
     {
       "path": "scripts/memory_images.py",
@@ -1238,7 +1278,7 @@
     },
     {
       "path": "scripts/stiller_ops.py",
-      "sha256": "3353b9bf16fec1e6b4551062484b62383efa351e5fe1ee62cf5963a4c9abe14f"
+      "sha256": "ba95fd666c18872d72a8b15cc243c839401bd07ee41d45ffbd7c8a3957250648"
     },
     {
       "path": "scripts/windows_process_job.py",
@@ -1261,12 +1301,16 @@
       "sha256": "50f3ba7b3caeb68613779e1743592b75e706acc38a44b3ddf711621b100e7312"
     },
     {
+      "path": "source-release-state-0.2.0-preview.5.json",
+      "sha256": "5c5e3acc6cc0483bdbe3f06532ec0f870de8e6f8691cfd27946f13424844157c"
+    },
+    {
       "path": "source-release-state-preview.5.json",
       "sha256": "5f21cbf24d9d098a1ee1522268d5763e179958a48fa638eb2a162e9cb5848ab7"
     },
     {
       "path": "source-release-state.json",
-      "sha256": "5c5e3acc6cc0483bdbe3f06532ec0f870de8e6f8691cfd27946f13424844157c"
+      "sha256": "02d307579b56555244064548b387b28916faaaa90baadca803ef6e43eb7090e3"
     },
     {
       "path": "tests/__init__.py",

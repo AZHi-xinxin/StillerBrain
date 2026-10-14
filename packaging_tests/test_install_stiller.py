@@ -27,6 +27,7 @@ SPEC.loader.exec_module(installer)
 
 WINDOWS_LOCK = "requirements-windows-py314.lock"
 LINUX_LOCK = "requirements-linux-py312.lock"
+LINUX_ARM64_LOCK = "requirements-linux-arm64-py312.lock"
 SYNTHETIC_KEY = "synthetic-upstream-only-do-not-use-0001"
 SYNTHETIC_MODEL = "synthetic-provider/model-v2"
 PORTS = (18794, 18795, 18796)
@@ -55,6 +56,11 @@ class InstallerPlatformTests(unittest.TestCase):
             with self.subTest(machine=machine):
                 self.assertEqual(LINUX_LOCK, self.linux(machine=machine))
 
+    def test_linux_arm64_has_separate_pinned_lock(self):
+        for machine in ("aarch64", "arm64", "AARCH64", "ARM64"):
+            with self.subTest(machine=machine):
+                self.assertEqual(LINUX_ARM64_LOCK, self.linux(machine=machine))
+
     def test_linux_glibc_minimum_and_newer(self):
         for version in ("2.34", "2.35", "2.39", "2.100", "3.0"):
             with self.subTest(version=version):
@@ -69,13 +75,34 @@ class InstallerPlatformTests(unittest.TestCase):
                 self.windows(**changes)
 
     def test_linux_unsupported_python_and_libc(self):
-        cases = [dict(version=(3, 14)), dict(version=(3, 11)), dict(machine="arm64"),
+        cases = [dict(version=(3, 14)), dict(version=(3, 11)), dict(machine="armv7l"),
                  dict(libc=("musl", "1.2.5")), dict(libc=("glibc", "2.33")),
                  dict(libc=("glibc", "2.9")), dict(libc=("", "")),
                  dict(libc=("glibc", "invalid")), dict(free_threaded=True)]
         for changes in cases:
             with self.subTest(changes=changes), self.assertRaises(installer.InstallError):
                 self.linux(**changes)
+
+    def test_arm64_requires_its_python_glibc_and_64bit_gil_abi(self):
+        cases = [dict(version=(3, 14)), dict(version=(3, 13)), dict(version=(3, 11)),
+                 dict(libc=("bionic", "")), dict(libc=("musl", "1.2.5")),
+                 dict(libc=("", "")), dict(libc=("glibc", "2.33")),
+                 dict(libc=("glibc", "invalid")), dict(bits=32), dict(free_threaded=True),
+                 dict(system="Android"), dict(system="Darwin"), dict(system="Windows")]
+        for changes in cases:
+            with self.subTest(changes=changes), self.assertRaises(installer.InstallError):
+                self.linux(machine="aarch64", **changes)
+
+    def test_termux_failure_explains_phone_route_before_install(self):
+        with self.assertRaises(installer.InstallError) as caught:
+            self.linux(machine="aarch64", version=(3, 14), libc=("", ""))
+        self.assertIn("install_phone.py", str(caught.exception))
+        self.assertIn("哈希", str(caught.exception))
+
+    def test_arm64_glibc_minimum_and_newer(self):
+        for version in ("2.34", "2.39", "2.100", "3.0"):
+            with self.subTest(version=version):
+                self.assertEqual(LINUX_ARM64_LOCK, self.linux(machine="aarch64", libc=("glibc", version)))
 
     def test_32_bit_interpreter_rejected_despite_x64_machine(self):
         for choose in (self.windows, self.linux):
@@ -208,6 +235,14 @@ class InstallerPrivateTests(unittest.TestCase):
             self.assertEqual("127.0.0.1", config[f"STBRAIN_{name}_HOST"])
             self.assertEqual(str(port), config[f"STBRAIN_{name}_PORT"])
         self.assertEqual("http://127.0.0.1:18795", config["STBRAIN_CONTROL_URL"])
+
+    def test_connection_instructions_include_same_device_phone_without_exposing_to_lan(self):
+        config = self.make()
+        text = installer.connection_text(config)
+        self.assertIn("含手机本机", text)
+        self.assertIn("127.0.0.1:18796/v1", text)
+        self.assertIn("127.0.0.1:18794/mcp", text)
+        self.assertNotIn("0.0.0.0", text)
 
     def test_config_has_three_separate_private_database_paths(self):
         config = self.make()

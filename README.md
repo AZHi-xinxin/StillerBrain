@@ -16,7 +16,7 @@ ST 是面向 LLM 的长期记忆后端。它接住 AI 自己写下的经历、�
 
 我们把这样的交流方式叫作：“我想起了。”
 
-[开始使用](#开始使用) · [安装向导](docs/INSTALL.md) · [两种接入](#两种接入一份记忆) · [模块地图](#一份大脑各有所长) · [浮现机制](#记忆怎样浮现) · [架构](#把经历接回对话的架构) · [设计理念](#设计理念) · [本版更新](RELEASE-NOTES-0.2.0-preview.5.md) · [网关命中率排查](docs/CACHE-TROUBLESHOOTING.md)
+[开始使用](#开始使用) · [安装向导](docs/INSTALL.md) · [手机本地部署（实验）](docs/PHONE-LOCAL.md) · [两种接入](#两种接入一份记忆) · [模块地图](#一份大脑各有所长) · [浮现机制](#记忆怎样浮现) · [架构](#把经历接回对话的架构) · [设计理念](#设计理念) · [本版更新](RELEASE-NOTES-0.2.0-preview.6.md) · [网关命中率排查](docs/CACHE-TROUBLESHOOTING.md)
 
 [Orbis 星图接入与旧配置升级](docs/ATLAS.md) · [给记忆附上原图](docs/MEMORY-IMAGES.md) · [普通记忆迁移前端（实验）](migration_ui/README.md)。星图真实连接、点选与重开已在配套 Orbis 路径验收；新安装默认准备独立只读授权，升级已有配置不会静默改变原来的关闭选择。迁移前端仍只有合成资料验证，真实迁移暂缓；OB 直读搬运未实现。
 
@@ -25,6 +25,8 @@ ST 是面向 LLM 的长期记忆后端。它接住 AI 自己写下的经历、�
 **0.2.0-preview.4：断开的请求及时收尾，恢复不重做工具。** 已取得上游响应头的流式请求增加精确断线收尾；适配客户端可核对原请求或会话状态，再安全处理旧轮占用。恢复不伪造工具成功，不自动重放旧消息。DeepSeek 官方路由的明确关闭思考参数也作了兼容。适用边界见[网关恢复说明](docs/GATEWAY-RECOVERY.md)。
 
 **0.2.0-preview.5：我定义的感觉。** 新增由 AI 自由命名、修改与删除的情绪词表；记忆可选打标签，命中时在原预算内连带同感觉的一条短摘要。删除情绪不删除经历，默认冷却减少重复。[设计理念与使用说明](docs/EMOTION-LAYER.md) · [本版更新](RELEASE-NOTES-0.2.0-preview.5.md)。AI 可用 `stbrain_help(module="emotion_layer")` 阅读完整内置用法，并从 `stbrain_tools(category="feelings")` 发现工具。
+
+**0.2.0-preview.6：手机本地部署入口（实验性）。** 新增 Linux ARM64 依赖锁和 Termux 内独立 Ubuntu 安装引导，输入凭证前检查私有存储、数据库及文件锁。手机同机连接与备份边界见[手机指南](docs/PHONE-LOCAL.md)；尚不代表真实手机端到端或锁屏常驻已验收。
 
 此前的简化存入、随手记、工具卡改良、Orbis 星图只读接入与原图运输保留。日常仍为 8 个入口；完整目录依当前实例启用的咨询等能力有所不同，情绪层增加 3 个工具。模型工具与仅供宿主运输图片的能力分开。
 
@@ -216,7 +218,7 @@ AI 可以管理自写提示、单条计划或工具卡的提醒、人称建议�
 
 ## 日常怎么用
 
-以下说明 `0.2.0-preview.4` 的用法；下载源码不会替已有实例自动升级。日常工具档有 8 个入口：`stbrain_open`、`remember_memory`、`remember_work_memory`、`remember_tool_guidance`、`revise_memory`、`advance_plan`、`stbrain_tools`、`stbrain_manage`。前六个处理常用读写；后两个按分类查找功能和执行操作，详细参数需要时再展开。当前工具箱包含常用能力、工作记忆、记忆关联、图片附件和兼容操作，准确目录以连接实例返回为准；原有权限仍分别校验。
+以下说明 `0.2.0-preview.6` 的用法；下载源码不会替已有实例自动升级。日常工具档有 8 个入口：`stbrain_open`、`remember_memory`、`remember_work_memory`、`remember_tool_guidance`、`revise_memory`、`advance_plan`、`stbrain_tools`、`stbrain_manage`。前六个处理常用读写；后两个按分类查找功能和执行操作，详细参数需要时再展开。当前工具箱包含常用能力、工作记忆、记忆关联、图片附件和兼容操作，准确目录以连接实例返回为准；原有权限仍分别校验。
 
 在客户端把 ST MCP 地址末尾设为 `/mcp?tool_profile=daily`，重连并刷新目录后，从新回合开始使用。默认 `/mcp` 的完整模型目录为 54 项（包含 4 个图片操作）；传输层另列 1 项 host-only 图片运输能力，宿主应过滤，不发给模型。升级不会自动替用户切档；已有其他查询参数时追加 `&tool_profile=daily`，已有 `tool_profile` 时修改原值。完整接入与示例见 [日常指南](docs/GUIDE.md#选择日常八入口)。
 
@@ -255,7 +257,7 @@ AI 可以管理自写提示、单条计划或工具卡的提醒、人称建议�
 
 ### 准备自己部署
 
-**Windows 电脑、Linux 电脑或 Linux VPS，都可以作为 ST 的运行位置。** 按自己已有的设备选择；手机聊天客户端再连接这份 ST。具体系统与 Python 条件见下方命令及[安装说明](docs/INSTALL.md)。
+**Windows 电脑、Linux 电脑或 Linux VPS，都可以作为 ST 的运行位置。** 另提供 **Android ARM64 手机本地部署的实验性入口**：Termux 内的独立 Ubuntu 24.04，不要求另买电脑或 VPS。先看[手机本地部署指南](docs/PHONE-LOCAL.md)了解适用条件、备份和后台限制。电脑路线见[安装说明](docs/INSTALL.md)。
 
 **第一次安装，从向导开始。** 在选定的设备上下载源码 ZIP 并解压，在能看到 `README.md` 和 `scripts` 的文件夹中打开终端。Windows x64 / 标准 CPython 3.14 运行：
 
@@ -263,7 +265,7 @@ AI 可以管理自写提示、单条计划或工具卡的提醒、人称建议�
 python -B scripts/install_stiller.py
 ```
 
-Linux x64 / 标准 CPython 3.12、glibc 2.34 或以上运行：
+Linux x64 或 ARM64 / 标准 CPython 3.12、glibc 2.34 或以上运行（Android 先按手机指南准备独立客体）：
 
 ```sh
 python3.12 -B scripts/install_stiller.py
@@ -273,7 +275,7 @@ python3.12 -B scripts/install_stiller.py
 
 **安装检查只访问本机，不调用真实模型。软件装好后，再由 AI 完成自我定义的初始设置。** 当前网关适配 OpenAI 兼容 Chat Completions，客户端还需支持对应 MCP 连接与完整工具续轮。
 
-跟着 [新手安装说明](docs/INSTALL.md) 完成环境核对、安装、启动与连接。请保留源码目录；手机远程连接由部署者为所选电脑或 VPS 配置受控网络与访问权限。手工配置见 [GUIDE](docs/GUIDE.md#手工配置与已有实例)，备份与导出见 [OPERATIONS](docs/OPERATIONS.md)。
+跟着 [新手安装说明](docs/INSTALL.md) 完成环境核对、安装、启动与连接。请保留源码目录；同一手机本地连接用 `127.0.0.1`，连接电脑或 VPS 则需受控的远程网络与访问权限。手工配置见 [GUIDE](docs/GUIDE.md#手工配置与已有实例)，备份与导出见 [OPERATIONS](docs/OPERATIONS.md)。
 
 ### 正在开发宿主适配
 
@@ -281,7 +283,7 @@ python3.12 -B scripts/install_stiller.py
 
 ## 当前状态与后续方向
 
-`0.2.0-preview.4` · Python / SQLite · 网关断线收尾与安全恢复 · 日常 8 入口 / 完整模型目录 54 项 · 源码开发预览
+`0.2.0-preview.6` · Python / SQLite · 手机本地部署实验入口 · 情绪层与网关改良保留 · 日常 8 入口 · 源码开发预览
 
 **ST 服务在 Windows 和 Linux 均有实际运行与验收记录。** 本版普通存入、随手记、工具卡，以及配套 Orbis 的星图和原图存取已有具体链路的使用者验收。源码回归、实例升级、用户体验与安装向导各自的验证范围见 [本版验证记录](docs/UPDATE-VALIDATION.md)，不把历史记录计为本次重新测试。
 

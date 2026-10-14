@@ -1,8 +1,26 @@
 # 源码来源与审查范围
 
-对应发布：`0.2.0-preview.4`，ST 源码开发预览。公开项目署名：**昕昕 & 阿止**。
+对应发布：`0.2.0-preview.6`，ST 源码开发预览。公开项目署名：**昕昕 & 阿止**。
 
-## 0.2.0-preview.4 当前增量来源
+## 0.2.0-preview.6 当前增量来源
+
+基于公开提交 `faa46f081ff8233cd925adfb01589c3383ced918`，在独立源码候选中新增实验性手机本地安装引导、私有存储探针、Linux ARM64／CPython 3.12 完整哈希锁及相应合成测试、安装和验收文档。ARM64 锁沿用既有 Linux x64 精确依赖版本，使用官方 PyPI 对应分发物；不分发第三方 wheel、Ubuntu rootfs 或虚拟环境。原 Windows、Linux x64 锁不变。
+
+现有安装器的 POSIX 退出收尾及新版 Termux 宿主识别另有定向测试。此轮不改变生产业务模块、数据库结构、模型路由或长期记忆语义；不是从私人服务目录、记忆数据库或用户手机整包复制。已有服务的原生主管与部署流程不会因公开源码更新而自动替换。
+
+冻结候选包含 301 个 Python 文件，Windows 五组回归共运行 2,584 项（2,569 通过、15 平台跳过、零失败／错误），另有隔离 Linux x64 定向 163 项通过。ARM64 分发物安装及 ELF 架构核验不等于 Python／原生扩展实际运行。真实 Android／Termux／PRoot／Orbis 端到端、锁屏常驻及手机备份恢复仍未验收。完整范围见[本版验证记录](docs/UPDATE-VALIDATION.md)及[手机指南](docs/PHONE-LOCAL.md)。
+
+发布准备仅校正本页和[发布检查表](docs/RELEASE-CHECKLIST.md)的版本与范围说明，并重新生成源码 manifest 和归档；Python 文件保持与已测冻结候选逐字节一致。文档校正与包装复核不是重新执行完整回归，也不新增真机验收证据。
+
+当前候选文件集合已逐项核对，凭证样式命中已按上下文审阅；这不构成全部 Git 历史隐私、完整依赖漏洞或通用生产认证。上传前仍须复核最终暂存区、提交、远程基线和标签。源码分发不包含私人配置、数据库、附件、日志或任何真实凭据。未完成的门槛保留在 [release-state.json](release-state.json)，源码证据另见 [source-release-state.json](source-release-state.json)。
+
+## 0.2.0-preview.5 历史增量来源
+
+preview.5 的情绪层、安装诊断及网关改良及其指定实例验收沿用公开基线，不计为本版新手机路线验收。历史验证和状态分别保存在 [preview.5 验证记录](docs/UPDATE-VALIDATION-0.2.0-preview.5.md)及 [preview.5 源码状态](source-release-state-0.2.0-preview.5.json)；许可证和使用者数据保护边界继续保留。
+
+## 0.2.0-preview.4 历史增量来源
+
+以下段落仅记录 preview.4 当时的来源与验证，不表示本版重复执行了相同部署或验收。
 
 基于公开提交 `b8cdf5dbc9af4ed8eb460f9c9feb5cdaa494663b`，取用已部署 L51 冻结候选中的八个精确文件：网关 `server.py`、`reasoning_control.py`，以及 reasoning、turn-control、preview3 兼容、terminal-receipt、thread-recovery、client-disconnect 六份测试。八文件逐字节对应冻结来源，原有公开包装与安全测试保留，不从运行服务或私人数据目录直接打包。
 

@@ -1,8 +1,8 @@
 {
   "format": "stiller-source-package/1",
   "distribution": "source-available-development-preview",
-  "version": "0.2.0-preview.6",
-  "base_public_commit": "faa46f081ff8233cd925adfb01589c3383ced918",
+  "version": "0.2.0-preview.7",
+  "base_public_commit": "d8ed3c78de0b5d18da4235dfd416f6e750b8e406",
   "files": [
     {
       "path": ".env.example",

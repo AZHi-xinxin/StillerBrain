@@ -306,6 +306,17 @@ async def synthetic_probe(scenario: str) -> dict:
             }
             setup = await call("hold_hallucination_record", fields)
             require(setup["decision"] == "setup_required", "vault_missing_warning_not_rejected")
+            bad_suffix = await call("hold_hallucination_record", {
+                **fields, "warning_text": WARNING, "warning_suffix": "继续保持谨慎。",
+            })
+            require(bad_suffix["invalid_fields"] == ["warning_suffix"], "vault_warning_field_not_identified")
+            edit_attempt = await call("hold_hallucination_record", {
+                **fields, "intent": "update_warning", "expected_warning_version": 0,
+                "warning_text": "错误开头", "warning_suffix": "错误结尾",
+            })
+            require(edit_attempt["reason_codes"] == ["hallucination_record_immutable"], "vault_record_fields_silently_dropped")
+            require(edit_attempt["state_changed"] is False, "vault_rejected_edit_changed_state")
+            require(fields["isolated_content"] not in json.dumps(edit_attempt, ensure_ascii=False), "vault_error_exposed_body")
             stored = await call("hold_hallucination_record", {**fields, "warning_text": WARNING, "warning_suffix": SUFFIX})
             require(stored["decision"] == "stored_quarantined", "vault_create_failed")
             directory = await call("open_hallucination_vault", {})

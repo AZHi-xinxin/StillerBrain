@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import tempfile
 import unittest
 
@@ -145,6 +146,104 @@ class HallucinationVaultAccessServiceTests(unittest.TestCase):
         )
         self.assertEqual(missing["decision"], "reject")
         self.assertEqual(missing["reason_codes"], ["restore_candidate_not_pending"])
+
+
+    def test_warning_errors_identify_fields_without_echoing_values(self) -> None:
+        cases = (
+            ("他需要保持谨慎。", SUFFIX, ["warning_text"]),
+            (WARNING, "继续保持谨慎。", ["warning_suffix"]),
+            ("他需要保持谨慎。", "继续保持谨慎。", ["warning_text", "warning_suffix"]),
+        )
+        for warning, suffix, invalid in cases:
+            with self.subTest(invalid=invalid):
+                before = self.service.status()
+                result = self.service.hold(
+                    write_context_ref="artifact-wake-1", expected_vault_version=0,
+                    warning_text=warning, warning_suffix=suffix, **self._record_fields(),
+                )
+                self.assertEqual(result["reason_codes"], ["warning_must_be_ai_first_person"])
+                self.assertEqual(result["invalid_fields"], invalid)
+                self.assertIn("不是隔离原文", result["message"])
+                self.assertFalse(result["state_changed"])
+                self.assertEqual(self.service.status(), before)
+                self.assertNotIn(warning, json.dumps(result, ensure_ascii=False))
+                self.assertNotIn(suffix, json.dumps(result, ensure_ascii=False))
+
+    def test_missing_suffix_and_setup_have_distinct_guidance(self) -> None:
+        setup = self.service.hold(
+            write_context_ref="artifact-wake-1", expected_vault_version=0,
+            **self._record_fields(),
+        )
+        self.assertEqual(setup["reason_codes"], ["ai_authored_warning_required"])
+        self.assertIn("warning_suffix", setup["message"])
+        missing = self.service.hold(
+            write_context_ref="artifact-wake-1", expected_vault_version=0,
+            intent="update_warning", expected_warning_version=0,
+            warning_text=WARNING, warning_suffix=None,
+            reason="我只更新警示词。", ai_confirmation=True,
+        )
+        self.assertEqual(missing["reason_codes"], ["warning_suffix_required"])
+        self.assertNotIn("人称", missing["message"])
+        self.assertEqual(self.service.status()["row_version"], 0)
+
+    def test_record_edit_rejected_before_warning_check_after_context_check(self) -> None:
+        for field in ("neutral_title", "isolated_content", "current_account", "basis", "reflection"):
+            with self.subTest(field=field):
+                arguments = dict(
+                    expected_vault_version=0, intent="update_warning",
+                    expected_warning_version=0, warning_text="旧提示", warning_suffix="旧结尾",
+                    reason="我尝试改变原文。", ai_confirmation=True,
+                    **{field: "synthetic-original-must-not-echo"},
+                )
+                blocked = self.service.hold(write_context_ref="stale-ref", **arguments)
+                self.assertEqual(blocked["reason_codes"], ["brain_open_required"])
+                result = self.service.hold(write_context_ref="artifact-wake-1", **arguments)
+                self.assertEqual(result["reason_codes"], ["hallucination_record_immutable"])
+                self.assertEqual(result["invalid_fields"], [field])
+                self.assertIn("不允许覆盖、修改或删除", result["message"])
+                self.assertIn("新存一条", result["message"])
+                self.assertFalse(result["state_changed"])
+                self.assertNotIn("synthetic-original-must-not-echo", json.dumps(result))
+        self.assertEqual(self.service.status()["counts"]["quarantined"], 0)
+
+    def test_warning_update_and_append_leave_first_record_unchanged(self) -> None:
+        fields = {**self._record_fields(), "isolated_content": "他曾作出一个未证实的判断。"}
+        first = self.service.hold(
+            write_context_ref="artifact-wake-1", expected_vault_version=0,
+            warning_text=WARNING, warning_suffix=SUFFIX, **fields,
+        )
+        self.assertEqual(first["decision"], "stored_quarantined")
+        before = self.service.open(
+            record_id=first["record_id"], warning_confirmation=WARNING, expected_warning_version=1,
+        )
+        new_warning = "我只更新开库前的自我提醒。"
+        updated = self.service.hold(
+            write_context_ref="artifact-wake-1", expected_vault_version=1,
+            intent="update_warning", expected_warning_version=1,
+            warning_text=new_warning, warning_suffix=SUFFIX,
+            reason="我修订两段警示词。", ai_confirmation=True,
+        )
+        self.assertEqual(updated["decision"], "warning_updated")
+        appended = self.service.hold(
+            write_context_ref="artifact-wake-1", expected_vault_version=2,
+            **{**self._record_fields(), "current_account": "我补充另一个待核验的认识。"},
+        )
+        self.assertNotEqual(first["record_id"], appended["record_id"])
+        after = self.service.open(
+            record_id=first["record_id"], warning_confirmation=new_warning, expected_warning_version=2,
+        )
+        self.assertEqual(before["content"], after["content"])
+        self.assertEqual(self.service.open()["total"], 2)
+        self.assertIn("原记录", self.service.manual()["record_write_policy"])
+
+    def test_explicit_edit_intents_never_write(self) -> None:
+        for intent in ("edit", "update", "revise", "overwrite", "delete", "update_record"):
+            result = self.service.hold(
+                write_context_ref="artifact-wake-1", expected_vault_version=0, intent=intent,
+            )
+            self.assertEqual(result["reason_codes"], ["hallucination_record_immutable"])
+            self.assertFalse(result["state_changed"])
+        self.assertEqual(self.service.status()["row_version"], 0)
 
 
 if __name__ == "__main__":

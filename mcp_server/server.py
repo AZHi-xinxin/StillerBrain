@@ -2873,12 +2873,27 @@ async def hold_hallucination_record(
     warning_text: StrictStr | None = None,
     warning_suffix: StrictStr | None = None,
 ) -> dict[str, Any]:
-    """Save AI-selected isolated content or revise the AI's own warning text.
+    """Append a new isolated record, or update only the AI's opening/closing warnings.
 
     The server validates structure and CAS only; it never decides that the
     content is false.  The first record and first warning are one transaction.
+    Stored record bodies cannot be overwritten, edited or deleted. Add a new
+    record for supplemental information. update_warning never edits a record;
+    do not supply record-body fields for that intent. Both warning_text and
+    warning_suffix must begin in the AI's first person; record bodies do not
+    undergo that pronoun check.
     """
     if intent == "update_warning":
+        record_fields = {
+            name: value for name, value in (
+                ("neutral_title", neutral_title), ("isolated_content", isolated_content),
+                ("current_account", current_account), ("basis", basis),
+            ) if value is not None
+        }
+        if reflection:
+            record_fields["reflection"] = reflection
+        if uncertainty_status != "ai_isolated":
+            record_fields["uncertainty_status"] = uncertainty_status
         return hallucination_service.hold(
             write_context_ref=write_context_ref,
             expected_vault_version=expected_vault_version,
@@ -2888,6 +2903,7 @@ async def hold_hallucination_record(
             warning_suffix=warning_suffix,
             reason=reason,
             ai_confirmation=ai_confirmation,
+            **record_fields,
         )
     return hallucination_service.hold(
         write_context_ref=write_context_ref,

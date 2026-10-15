@@ -1448,6 +1448,7 @@ def install_public_tool_input_contracts(mcp: Any) -> None:
             schema = {"anyOf": [schema, {"type": "null"}], "default": None}
         hold_vault["properties"][field] = schema
     hold_vault["properties"]["warning_text"] = {
+        "description": "开库前警示词：AI 自写并以‘我’或 I / My 开头；仅警示词检查人称，不检查隔离原文。首次 record 时和 warning_suffix 一起提交。",
         "anyOf": [
             {"type": "string", "minLength": 1, "maxLength": 2000},
             {"type": "null"},
@@ -1455,12 +1456,17 @@ def install_public_tool_input_contracts(mcp: Any) -> None:
         "default": None,
     }
     hold_vault["properties"]["warning_suffix"] = {
+        "description": "读完后的结束警示词：独立于 warning_text，也必须以‘我’或 I / My 开头。只改 warning_text 不能修复本字段的错误。",
         "anyOf": [
             {"type": "string", "minLength": 1, "maxLength": 1000},
             {"type": "null"},
         ],
         "default": None,
     }
+    hold_vault["properties"]["intent"]["description"] = (
+        "record 只新建记录，补充也另存一条，不能覆盖原文；update_warning 只更新两段警示词，"
+        "不得携带记录正文。已存黑匣子原记录不可修改、覆盖或删除。"
+    )
     hold_vault["allOf"] = [
         {
             "if": {"properties": {"intent": {"const": "record"}}},

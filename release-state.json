@@ -1,6 +1,6 @@
 {
   "format": "stiller-public-release-state/1",
-  "version": "0.2.0-preview.6",
+  "version": "0.2.0-preview.7",
   "scope": "production-readiness-not-source-archive-integrity",
   "source_frozen": true,
   "license_approved": true,
@@ -10,5 +10,5 @@
   "privacy_review_complete": false,
   "user_acceptance_complete": false,
   "publication_authorized": true,
-  "notes": "Source preview with experimental Android ARM64 phone-local installation bridge and Linux ARM64 dependency lock. Existing feature acceptance is preserved, not a phone acceptance claim. See source-release-state.json and docs/UPDATE-VALIDATION.md. No Android/PRoot end-to-end or lock-screen reliability certification. General production gates remain independent. No live service changes or paid model calls in this candidate."
+  "notes": "Source preview correcting hallucination-vault diagnostics and explicit rejection of record-body changes during warning updates. Append-only records and authorization boundaries remain unchanged. Runtime and MCP regressions passed; other suites were not rerun. No live service changes or paid model calls. Prior external-platform limitations remain; general production gates are independent. See source-release-state.json and docs/UPDATE-VALIDATION.md."
 }

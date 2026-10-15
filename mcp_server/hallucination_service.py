@@ -14,6 +14,44 @@ from runtime.hallucination_vault import (
 
 HALLUCINATION_RESTORE_ACTION_CONTRACT_VERSION = "hallucination-restore-action/0.1"
 
+RECORD_WRITE_POLICY = (
+    "已存入黑匣子的原记录不允许覆盖、修改或删除；补充说明请以 intent=record 新存一条，"
+    "保留原记录。intent=update_warning 只更新开库警示词和结束警示词，不修改隔离原文。"
+)
+
+
+def _validation_guidance(reason: str, fields: tuple[str, ...] = ()) -> dict[str, Any]:
+    messages = {
+        "hallucination_record_immutable": RECORD_WRITE_POLICY,
+        "warning_must_be_ai_first_person": (
+            "开库警示词 warning_text 与结束警示词 warning_suffix 都须以 AI 自己的第一人称开头"
+            "（例如‘我’或英文 I / My）。请查看 invalid_fields，只修正对应的警示字段。"
+            "这不是隔离原文的人称检查，也不要求删除正文中对其他人的指称。"
+        ),
+        "ai_authored_warning_required": (
+            "首次存入时须同时提供 AI 自写的 warning_text 和 warning_suffix；两者都以第一人称开头。"
+            "请随 intent=record 提交首条记录，不要用 update_warning 初始化。"
+        ),
+        "warning_text_required": "缺少开库警示词 warning_text；它与 warning_suffix 是两个独立字段。",
+        "warning_suffix_required": "缺少结束警示词 warning_suffix；只填写 warning_text 不够。",
+        "warning_not_configured": "尚未配置警示词；请用 intent=record 随首条记录同时提交两段警示词。",
+        "warning_already_configured": (
+            "警示词已经配置。追加记录时请省略 warning_text 和 warning_suffix；"
+            "仅修改警示词时使用 intent=update_warning，不要携带原记录正文。"
+        ),
+        "brain_open_required": (
+            "需要本轮 stbrain_open 返回的、具有 hallucination_vault 范围的 write_context_ref。"
+            "仅有 self_revision 范围的 Direct 授权不能替代黑匣子写入上下文；这不是人称错误。"
+        ),
+        "invalid_hold_intent": "只支持 record（新存或补充一条）和 update_warning（仅更新警示词）。" + RECORD_WRITE_POLICY,
+    }
+    details: dict[str, Any] = {}
+    if reason in messages:
+        details["message"] = messages[reason]
+    if fields:
+        details["invalid_fields"] = list(fields)
+    return details
+
 
 class HallucinationVaultAccessService:
     """Bind all vault mutations to an explicitly opened real AI wake."""
@@ -37,7 +75,10 @@ class HallucinationVaultAccessService:
         return self.store.status(owner_id=self.owner_id, model_id=self.model_id)
 
     @staticmethod
-    def _reject(reason: str, *, status: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _reject(
+        reason: str, *, status: dict[str, Any] | None = None,
+        fields: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
         return {
             "module": HALLUCINATION_VAULT_MODULE,
             "contract_version": HALLUCINATION_VAULT_CONTRACT_VERSION,
@@ -46,6 +87,7 @@ class HallucinationVaultAccessService:
             "status": status,
             "state_changed": False,
             "pointer_changed": False,
+            **_validation_guidance(reason, fields),
         }
 
     def _permission(self) -> dict[str, Any]:
@@ -88,7 +130,7 @@ class HallucinationVaultAccessService:
         try:
             result = callback(binding)
         except HallucinationVaultError as exc:
-            return self._reject(str(exc), status=self.status())
+            return self._reject(str(exc), status=self.status(), fields=exc.fields)
         except TypeError:
             # Public tools are intentionally flat and several intents share one
             # facade.  A missing/irrelevant intent field is an ordinary
@@ -97,6 +139,7 @@ class HallucinationVaultAccessService:
         return {
             "module": HALLUCINATION_VAULT_MODULE,
             "contract_version": HALLUCINATION_VAULT_CONTRACT_VERSION,
+            **_validation_guidance(next(iter(result.get("reason_codes", [])), "")),
             **result,
         }
 
@@ -163,10 +206,11 @@ class HallucinationVaultAccessService:
                 "目录只显示六项中性元数据；正文一次只开一条，并先回填我自己写的警示词。",
                 "迁移是转移而非静默删除：普通位置只留 redirect，正文与关系快照进入独立 Vault。",
                 "解封先形成候选，必须跨新的真实外部唤醒、重新开正文后才可激活。",
+                RECORD_WRITE_POLICY,
                 "我可以保存、迁移、查询、解封、更新警示词，也可以完全不使用。",
             ],
             "tools": {
-                "hold_hallucination_record": "原子配置安全带并保存首条，或保存后续条目/更新警示词。",
+                "hold_hallucination_record": "新存或补充一条隔离记录；update_warning 仅更新警示词，不改原记录。",
                 "open_hallucination_vault": "无 ID 看安全目录；带 ID 先看警示；回填警示后一次看一条正文。",
                 "transfer_hallucination_record": "预检并原子迁移普通记忆；当前支持 learning://，未知模块故障关闭。",
                 "review_hallucination_restore": "在较晚真实唤醒激活、拒绝或撤回解封候选。",
@@ -175,6 +219,7 @@ class HallucinationVaultAccessService:
                 "所有写入先调用 stbrain_open，复用本轮 write_context_ref，并使用上一成功结果"
                 "返回的 vault_row_version 作为下一次 expected_vault_version。"
             ),
+            "record_write_policy": RECORD_WRITE_POLICY,
             "automatic_injection": False,
             "automatic_exposure": status["automatic_exposure"],
             "vault_row_version": status["row_version"],
@@ -196,6 +241,8 @@ class HallucinationVaultAccessService:
         intent: str = "record",
         **fields: Any,
     ) -> dict[str, Any]:
+        if intent in {"edit", "update", "revise", "overwrite", "delete", "update_record"}:
+            return self._reject("hallucination_record_immutable", status=self.status())
         if intent not in {"record", "update_warning"}:
             return self._reject("invalid_hold_intent", status=self.status())
         if intent == "record":
@@ -215,6 +262,27 @@ class HallucinationVaultAccessService:
                     **fields,
                 ),
             )
+        def update_warning(binding: dict[str, Any]) -> dict[str, Any]:
+            # A flat public tool must not silently discard record fields and
+            # then misreport a warning error as the reason an edit was blocked.
+            record_fields = tuple(
+                name for name in (
+                    "neutral_title", "isolated_content", "current_account", "basis",
+                    "reflection", "uncertainty_status", "record_id",
+                ) if name in fields
+            )
+            if record_fields:
+                raise HallucinationVaultError(
+                    "hallucination_record_immutable", fields=record_fields
+                )
+            return self.store.update_warning(
+                owner_id=self.owner_id,
+                model_id=self.model_id,
+                wake_id=binding["wake_id"],
+                expected_row_version=expected_vault_version,
+                **fields,
+            )
+
         return self._write(
             write_context_ref,
             {
@@ -222,13 +290,7 @@ class HallucinationVaultAccessService:
                 "intent": intent,
                 "fields": fields,
             },
-            lambda binding: self.store.update_warning(
-                owner_id=self.owner_id,
-                model_id=self.model_id,
-                wake_id=binding["wake_id"],
-                expected_row_version=expected_vault_version,
-                **fields,
-            ),
+            update_warning,
         )
 
     def open(

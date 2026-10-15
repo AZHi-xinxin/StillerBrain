@@ -42,6 +42,11 @@ _LEARNING_REF = re.compile(r"^learning://(?P<id>[A-Za-z0-9_-]+)@(?P<version>[1-9
 class HallucinationVaultError(ValueError):
     """Stable validation or transition failure."""
 
+    def __init__(self, reason: str, *, fields: tuple[str, ...] = ()) -> None:
+        super().__init__(reason)
+        # Field names only: never put quarantined text into validation metadata.
+        self.fields = fields
+
 
 def _now_dt() -> datetime:
     return datetime.now(timezone.utc)
@@ -782,8 +787,14 @@ class HallucinationVaultStore:
     def _validate_warning(warning_text: Any, warning_suffix: Any) -> tuple[str, str]:
         text = _text("warning_text", warning_text, 2000)
         suffix = _text("warning_suffix", warning_suffix, 1000)
-        if _FIRST_PERSON.match(text) is None or _FIRST_PERSON.match(suffix) is None:
-            raise HallucinationVaultError("warning_must_be_ai_first_person")
+        invalid_fields = tuple(
+            name for name, value in (("warning_text", text), ("warning_suffix", suffix))
+            if _FIRST_PERSON.match(value) is None
+        )
+        if invalid_fields:
+            raise HallucinationVaultError(
+                "warning_must_be_ai_first_person", fields=invalid_fields
+            )
         if _contains_secret({"warning_text": text, "warning_suffix": suffix}):
             raise HallucinationVaultError("credential_or_secret_detected")
         return text, suffix

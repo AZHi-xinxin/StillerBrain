@@ -394,18 +394,21 @@ def explain(action):
     print("不使用 Termux 原生 Python 安装 ST 依赖；不 root、不改 SELinux、不迁移已有发行版。")
     print("prepare 下载 Ubuntu 与系统 Python；install 下载锁定依赖并隐藏输入模型配置。")
     print("start 前台运行；check 短暂启动本实例的本机服务检查，结束后停止，不请求真实模型。")
+    print("upgrade 从独立新源码显式升级：先停服务，使用 --from-source 指向保留的旧源码；自动核验数据库备份，保留原实例。")
+    print("rollback 从本次新源码回退，保留升级后的副本；升级/回退都不会自动常驻启动。")
     print("请预留至少 3 GiB 可用存储（不是保证足够；后续记忆另占空间），联网下载会产生流量。")
     print("源码和专用目录仅限 Termux 私有 home。保留备份；卸载 Termux/清除其数据会丢失本地安装与记忆。")
     print("PRoot 不是安全隔离边界；后台可靠性、厂商省电策略仍需对应手机验证。")
     if action:
         print("当前为预览，未执行 " + action + "。确认后在命令末尾加 --execute。")
     else:
-        print("用法：python -B scripts/install_phone.py {prepare,install,start,check} [--directory 私有专用目录] [--name stiller-别名] --execute")
+        print("用法：python -B scripts/install_phone.py {prepare,install,start,check,upgrade,rollback} [--directory 私有专用目录] [--name stiller-别名] [--from-source 旧源码] --execute")
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="实验性手机 ST 引导；默认仅说明，不安装任何内容。")
-    parser.add_argument("action", nargs="?", choices=("prepare", "install", "start", "check"))
+    parser.add_argument("action", nargs="?", choices=("prepare", "install", "start", "check", "upgrade", "rollback"))
+    parser.add_argument("--from-source", type=Path, help="升级使用：保留的旧源码目录；当前脚本应来自独立新源码目录")
     parser.add_argument("--execute", action="store_true", help="明确执行当前步骤；不传时仅预览")
     parser.add_argument("--directory", type=Path, help="Termux 私有 home 下的专用目录；与源码分开")
     parser.add_argument("--name", default=DEFAULT_NAME, help="专用发行版别名，须以 stiller- 开头")
@@ -417,12 +420,26 @@ def main(argv=None):
         ctx = host_layout(args)
         digest = source_digest(ctx)  # Before any download, apt, ownership creation or login.
         validate_proot(ctx)
+        if args.action in ("upgrade", "rollback"):
+            spec = importlib.util.spec_from_file_location("phone_upgrade", ROOT / "scripts/phone_upgrade.py")
+            upgrade_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(upgrade_module)
+            with state_lock(ctx):
+                upgrade_module.transition(sys.modules[__name__], ctx, digest, args.action, args.from_source)
+            return 0
+        pending = ctx["state"] / "phone-upgrade.json"
+        if pending.exists() and read_json(pending).get("phase") not in ("complete", "rolled_back"):
+            raise PhoneError("本实例升级尚未结束。请从新源码目录继续 upgrade 或显式 rollback，未启动不匹配的代码。")
         if args.action == "prepare":
             import shutil
             if shutil.disk_usage(ctx["home"]).free < MIN_FREE:
                 raise PhoneError("可用存储不足 3 GiB，未创建新安装；请先自行腾出空间。")
         record = state_record(ctx, digest, create=args.action == "prepare")
         with state_lock(ctx):
+            # Re-read under the same lock as upgrade. A completed preflight is not a lease.
+            if pending.exists() and read_json(pending).get("phase") not in ("complete", "rolled_back"):
+                raise PhoneError("本实例升级尚未结束。请从新源码目录继续 upgrade 或显式 rollback，未启动不匹配的代码。")
+            record = state_record(ctx, digest)
             if args.action == "prepare":
                 prepare(ctx, record)
             else:

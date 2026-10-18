@@ -15,7 +15,8 @@ REQUIRED = {"LICENSE", "NOTICE", "README.md", "COMMERCIAL-LICENSE.md",
             "requirements-linux-arm64-py312.lock",
             "docs/dependency-inventory-linux-arm64-py312.json",
             "scripts/run_component.py", "scripts/install_stiller.py", "docs/INSTALL.md",
-            "scripts/install_phone.py", "scripts/check_phone_storage.py", "docs/PHONE-LOCAL.md"}
+            "scripts/install_phone.py", "scripts/check_phone_storage.py", "docs/PHONE-LOCAL.md",
+            "scripts/phone_upgrade.py", "scripts/phone_update_guest.py", "docs/PHONE-UPGRADE.md"}
 DENIED_DIRS = {".venv", "venv", "node_modules", "__pycache__", "data", "real-data",
                "logs", "backups", "recovery", "private", "secrets", "verification",
                "evidence", "private-verification", "build", "dist"}

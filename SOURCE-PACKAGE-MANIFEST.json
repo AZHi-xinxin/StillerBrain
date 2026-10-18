@@ -2,7 +2,7 @@
   "format": "stiller-source-package/1",
   "distribution": "source-available-stable-release",
   "version": "0.2.1",
-  "base_public_commit": "f0693716e2f7ffa1dafa72890a3c94b3fcd538aa",
+  "base_public_commit": "c1fd3efd658b468cd666205c0f71514a74e29f65",
   "files": [
     {
       "path": ".env.example",
@@ -182,7 +182,11 @@
     },
     {
       "path": "docs/PHONE-LOCAL.md",
-      "sha256": "d6378fc87735cffb2948b1299b7a5546521bfc0cddf3ae74194c0f4f44f0de25"
+      "sha256": "59ce9fddc592721e5d66e38f4fc8a9ee3034adf88ec284ba84460e3f61e7148c"
+    },
+    {
+      "path": "docs/PHONE-UPGRADE.md",
+      "sha256": "4a93c82d080d92d478e490bbd7d62f901b9375f111e034c65026a79a47d6d612"
     },
     {
       "path": "docs/RELEASE-CHECKLIST.md",
@@ -793,6 +797,10 @@
       "sha256": "7fe82b4d40d61c7507a85eb90e782ef3a073acaa59cdd89a5d6f223b1573bf7f"
     },
     {
+      "path": "packaging_tests/test_phone_upgrade.py",
+      "sha256": "0f6beebd744b409e83824e53bcb6421e8712ff123a78dbf2f82207759a82351c"
+    },
+    {
       "path": "packaging_tests/test_posix_supervisor.py",
       "sha256": "97c887001c21c4ef5c370b8e1f93645dbe8bc2f3d43554504fe03850cd68a598"
     },
@@ -1290,7 +1298,7 @@
     },
     {
       "path": "scripts/check_source_package.py",
-      "sha256": "5afedbb0fdd2e7b527c0de48d86263771f9b3bed898209e27b10e6857abee2ed"
+      "sha256": "49a3bc0e76b571181d07a85b8ad822a1739e9c57bf2aa63e37a1019526a05a95"
     },
     {
       "path": "scripts/compare_final_payloads.py",
@@ -1302,7 +1310,7 @@
     },
     {
       "path": "scripts/install_phone.py",
-      "sha256": "6b0186154e22466f1de1e7a6de8b1f7a714fba258d184cbcb67acaac31a8d8bb"
+      "sha256": "90ac98fa9348dc1410e33964b51dd70c4be96e7e8f37e87820f7ae66d379d907"
     },
     {
       "path": "scripts/install_stiller.py",
@@ -1311,6 +1319,14 @@
     {
       "path": "scripts/memory_images.py",
       "sha256": "a3a4a2e0cb99efbb8285ec9270955e2ce599d80ff6be9b540623596945762228"
+    },
+    {
+      "path": "scripts/phone_update_guest.py",
+      "sha256": "7d6217ae4e13f4327afec22f93e0c6ba467b733a14588b9206f7db913a694322"
+    },
+    {
+      "path": "scripts/phone_upgrade.py",
+      "sha256": "8bd342a5ed64775b825e8077fee71adc7f12c282f39d4c23fd16fbf3d80a191b"
     },
     {
       "path": "scripts/prepare_atlas_config.py",

@@ -201,6 +201,40 @@ def connection_text(config):
             "连接后请让 AI 先调用 stbrain_help，完成自己的初始设置。\n")
 
 
+def connection_file_text(config, private, root=ROOT):
+    launch = quote_command([venv_python(private), "-B", root / "scripts/install_stiller.py", "--start", private])
+    return (connection_text(config) + "\n今后启动命令（运行时保留终端，Ctrl+C 停止）：\n" + launch
+            + "\n\n请保留源码与私有目录的现有位置。\n")
+
+
+def refresh_connection_file(config, private, root=ROOT):
+    """Refresh derived instructions after config edits, retaining the previous private file.
+
+    No credential is regenerated, no running process is changed, and the backup
+    remains in the same private directory. Call only after installation validation.
+    """
+    private = safe_directory(private, root)
+    target = safe_directory(private / "连接资料（请勿公开）.txt", root)
+    expected = connection_file_text(config, private, root)
+    previous = None
+    if target.exists():
+        if not target.is_file() or target.stat().st_size > 65536:
+            raise InstallError("连接资料文件异常；原文件未改动，请检查私有目录。")
+        previous = target.read_text(encoding="utf-8-sig")
+        if previous == expected:
+            return False
+        backup = private / ("连接资料-旧版-" + uuid.uuid4().hex + ".txt")
+        exclusive_write(backup, previous)
+    temporary = private / (".connection-" + uuid.uuid4().hex + ".tmp")
+    exclusive_write(temporary, expected)
+    # Do not replace a file edited while preparing the new instructions.
+    safe_directory(target, root)
+    if (target.read_text(encoding="utf-8-sig") if target.exists() else None) != previous:
+        raise InstallError("连接资料在更新时发生变化；已保留原文件及临时文件，请核对后再启动。")
+    os.replace(temporary, target)
+    return True
+
+
 def create_installation(private, base_url, model, api_key, ports, password="", root=ROOT):
     lock = select_lock()
     private = safe_directory(private, root)
@@ -218,10 +252,7 @@ def create_installation(private, base_url, model, api_key, ports, password="", r
         helper("configure_self_password").create_hash(target, password, password, root=root)
         config["STBRAIN_SELF_PASSWORD_HASH_FILE"] = str(target)
     exclusive_write(private / "config.env", "".join(key + "=" + value + "\n" for key, value in config.items()))
-    launch = quote_command([venv_python(private), "-B", root / "scripts/install_stiller.py", "--start", private])
-    exclusive_write(private / "连接资料（请勿公开）.txt", connection_text(config)
-                    + "\n今后启动命令（运行时保留终端，Ctrl+C 停止）：\n" + launch
-                    + "\n\n请保留源码与私有目录的现有位置。\n")
+    exclusive_write(private / "连接资料（请勿公开）.txt", connection_file_text(config, private, root))
     exclusive_write(private / "installer.json", json.dumps({"format": FORMAT, "source": str(root.resolve()),
                                                             "lock": lock}, ensure_ascii=False, indent=2) + "\n")
     return config
@@ -400,6 +431,8 @@ def install(private):
         print("依赖已安装。正在检查三个本机服务及 MCP 工具目录……", flush=True)
         run_private([python, "-B", str(Path(__file__).resolve()), "--verify", str(private)], log, timeout=75)
     print("安装与本机服务检查通过。检查进程已停止；未调用真实模型。")
+    if refresh_connection_file(read_installation(private), private):
+        print("连接资料已按当前配置更新，旧版资料保留在同一私有目录，请勿公开。")
     print("连接资料：" + str(private / "连接资料（请勿公开）.txt"))
     print("今后启动 ST（运行期间保留终端，按 Ctrl+C 停止）：")
     print(quote_command([venv_python(private), "-B", Path(__file__).resolve(), "--start", private]))
@@ -424,6 +457,8 @@ def main(argv=None):
             if args.verify:
                 verify_services(config, private)
                 return 0
+            if refresh_connection_file(config, private):
+                print("连接资料已按当前配置更新，旧版资料保留在同一私有目录，请勿公开。")
             print("ST 已进入启动流程。连接资料位于私有目录；按 Ctrl+C 停止本次服务。", flush=True)
             return start_services(config, private)
         print("给 AI 准备一份新的 ST。向导安装本机服务，记忆内容由 AI 接入后自行设置。")

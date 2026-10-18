@@ -25,6 +25,7 @@ from uuid import uuid4
 from .credential_guard import contains_credential_or_secret
 from .execution_binding import assert_bound_execution, expected_execution_wake
 from .lexical_retrieval import explicit_alias_match, prepare_explicit_alias_query
+from . import semantic_retrieval as dense
 
 from .authoring import (
     AUTHORING_ADVISORY,
@@ -3190,6 +3191,15 @@ class LearningMemoryStore:
                 for learning_id, content in content_by_id.items()
                 if recall_policy_allows(content)
             }
+            semantic_result = dense.search(
+                database=self.database, owner_id=owner_id, model_id=model_id, module="learning",
+                query=query, documents=[dense.Document(ref, version_by_id[ref],
+                    "\n".join([content_by_id[ref]["title"], content_by_id[ref]["summary"],
+                               " ".join(content_by_id[ref]["keywords"])]))
+                    for ref in sorted(eligible_ids)
+                    if content_by_id[ref]["sensitivity"] not in {"intimate", "restricted"}
+                    and content_by_id[ref]["context_policy"] == "normal"],
+            )
             integration_lineage = self._accepted_integration_lineage(
                 active_connection,
                 owner_id=owner_id,
@@ -3256,6 +3266,9 @@ class LearningMemoryStore:
                 # but a single keyword collision still cannot cross this gate.
                 if scene_match:
                     semantic = max(semantic, 0.82)
+                dense_hit = semantic_result.scores.get(row["learning_id"])
+                if dense_hit is not None:
+                    semantic = max(semantic, dense.candidate_priority(dense_hit))
                 if semantic < 0.50:
                     continue
                 freshness = _freshness(content)
@@ -3299,6 +3312,7 @@ class LearningMemoryStore:
                     "token_cost": max(1, len(_canonical(projected)) // 4),
                     "reason_codes": [
                         "semantic_match",
+                        *(["local_semantic_candidate"] if dense_hit is not None else []),
                         *(["scene_match"] if scene_match else []),
                         *(["integration_source_match"] if lineage_refs else []),
                         *(["low_confidence_neutral_hint"] if low_confidence_hint else []),
@@ -3340,7 +3354,8 @@ class LearningMemoryStore:
                 cluster = find(row["learning_id"]) if contrast else None
                 candidates.append((semantic * 0.75 + salience * 0.25, cluster, envelope))
             candidates.sort(key=lambda item: (-item[0], item[2]["item_ref"]))
-            qualified = [item for item in candidates if item[2]["semantic_score"] >= 0.80]
+            qualified = [item for item in candidates if item[2]["semantic_score"] >= 0.80
+                         or "local_semantic_candidate" in item[2]["reason_codes"]]
             if not qualified and candidates and candidates[0][2]["semantic_score"] >= 0.50:
                 qualified = [candidates[0]]
             selection_limit = max(0, min(limit, 3))

@@ -1,0 +1,2 @@
+# Optional CPU-only local semantic retrieval; core ST remains dependency-free here.
+fastembed==0.9.0

@@ -285,6 +285,51 @@ class InstallerPrivateTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(before, self.snapshot())
 
+    def test_refresh_unchanged_connection_file_is_noop(self):
+        config = self.create()
+        before = self.snapshot()
+        self.assertFalse(installer.refresh_connection_file(config, self.private, root=ROOT))
+        self.assertEqual(before, self.snapshot())
+
+    def test_refresh_changed_ports_preserves_old_instructions_and_config(self):
+        config = self.create()
+        target = self.private / "连接资料（请勿公开）.txt"
+        original = target.read_text(encoding="utf-8")
+        original_config = (self.private / "config.env").read_bytes()
+        changed = {**config, "STBRAIN_MCP_PORT": "18894", "STBRAIN_GATEWAY_PORT": "18897"}
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertTrue(installer.refresh_connection_file(changed, self.private, root=ROOT))
+        self.assertIn("127.0.0.1:18894/mcp", target.read_text(encoding="utf-8"))
+        self.assertIn("127.0.0.1:18897/v1", target.read_text(encoding="utf-8"))
+        backups = list(self.private.glob("连接资料-旧版-*.txt"))
+        self.assertEqual(1, len(backups))
+        self.assertEqual(original, backups[0].read_text(encoding="utf-8"))
+        self.assertEqual(original_config, (self.private / "config.env").read_bytes())
+        self.assertEqual("", output.getvalue())
+        self.assertFalse(installer.refresh_connection_file(changed, self.private, root=ROOT))
+        self.assertEqual(1, len(list(self.private.glob("连接资料-旧版-*.txt"))))
+
+    def test_refresh_rotated_token_does_not_regenerate_credentials(self):
+        config = self.create()
+        changed = {**config, "STBRAIN_MCP_TOKEN": "synthetic-rotated-credential-000000000000000"}
+        with patch.object(installer, "make_config", side_effect=AssertionError("no regeneration")):
+            installer.refresh_connection_file(changed, self.private, root=ROOT)
+        text = (self.private / "连接资料（请勿公开）.txt").read_text(encoding="utf-8")
+        self.assertIn(changed["STBRAIN_MCP_TOKEN"], text)
+        self.assertNotIn(config["STBRAIN_MCP_TOKEN"], text)
+
+    def test_refresh_preserves_modified_file_if_replacement_fails(self):
+        config = self.create()
+        target = self.private / "连接资料（请勿公开）.txt"
+        original = target.read_bytes()
+        changed = {**config, "STBRAIN_MCP_PORT": "18894"}
+        with patch.object(installer.os, "replace", side_effect=OSError("synthetic fail")):
+            with self.assertRaises(OSError):
+                installer.refresh_connection_file(changed, self.private, root=ROOT)
+        self.assertEqual(original, target.read_bytes())
+        self.assertEqual(1, len(list(self.private.glob("连接资料-旧版-*.txt"))))
+
     def test_missing_venv_does_not_prevent_readonly_resume(self):
         config = self.create()
         self.assertFalse((self.private / "venv").exists())

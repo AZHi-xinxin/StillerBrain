@@ -32,6 +32,7 @@ from .self_revision import (
 from .emotional_memory import EmotionalMemoryStore
 from .mixed_recall import select_mixed_recall
 from .facet_selection import append_facet_projection
+from . import session_continuity
 from .self_model_review import ReviewPageError, prepare_review_page, record_review_page
 from .self_governance import (
     LEARNING_EPISODE_BOUNDARY_SIGNAL,
@@ -930,6 +931,7 @@ class ModuleOneOnboardingStore:
                 """
             )
             initialize_profiles(connection)
+            session_continuity.initialize(connection)
             snapshot_columns = {
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(brain_context_snapshots)").fetchall()
@@ -2486,6 +2488,11 @@ class ModuleOneOnboardingStore:
             "advertised_tools": advertised_tools_snapshot,
             "context_layout": context_layout_snapshot,
         }
+        continuity_frame = session_continuity.validate_frame(
+            source_frame.get("continuity") if isinstance(source_frame, Mapping) else None
+        )
+        if continuity_frame is not None:
+            snapshot_persistence_payload["continuity"] = continuity_frame
         # These host-provided values are copied verbatim into the durable
         # context snapshot and prepare-context event.  Run a read-only global
         # credential check before ``ensure_state`` so a rejected request cannot
@@ -2633,6 +2640,9 @@ class ModuleOneOnboardingStore:
                 return {
                     "decision": "context_reused",
                     "message": message,
+                    "continuity_delivery_receipt": connection.execute(
+                        "SELECT 1 FROM continuity_proposals WHERE wake_id=?", (wake_id,)
+                    ).fetchone() is not None,
                     "short_term_policy": self._short_term_policy(connection, owner_id, model_id),
                     **({"context_bundle": bundle} if bundle is not None else {}),
                     "context_hash": snapshot["context_hash"],
@@ -2744,6 +2754,7 @@ class ModuleOneOnboardingStore:
             # for the shared budget. The current text is transiently scored and
             # is never written to the snapshot.
             dynamic: dict[str, Any] = {}
+            retrieval_diagnostics: dict[str, Any] = {}
             memory_notice_presented = False
             episode_reflection_presented = False
             if (
@@ -2943,7 +2954,21 @@ class ModuleOneOnboardingStore:
                     )
                     emotional_outcome = recall
 
+                if (continuity_frame is not None and wake["source_kind"] == "human_message"
+                        and wake_profile(connection, wake_id) == DEFAULT_PROFILE):
+                    recent = []
+                    if session_continuity.needs_candidates(connection, owner_id, model_id, continuity_frame):
+                        recent = session_continuity.candidates(
+                            self, connection, owner_id, model_id, query_text,
+                            automatic_scope_enabled, planning=planning_injection,
+                        )
+                    dynamic = session_continuity.prepare(
+                        connection, owner_id=owner_id, model_id=model_id,
+                        wake_id=wake_id, wake_seq=int(wake["wake_seq"]), frame=continuity_frame,
+                        items=recent, base=dynamic, estimate=_estimate_tokens,
+                    )
                 dynamic = select_mixed_recall(
+                    diagnostics=retrieval_diagnostics,
                     base=dynamic,
                     planning=planning_injection,
                     learning=learning_outcome or [],
@@ -3116,11 +3141,15 @@ class ModuleOneOnboardingStore:
                     "host_contract_digest": host_contract_digest,
                     "memory_opportunity_advisory_presented": memory_notice_presented,
                     "ai_owned_episode_reflection_presented": episode_reflection_presented,
+                    "retrieval_selection": retrieval_diagnostics,
                 },
             )
             return {
                 "decision": "context_prepared",
                 "message": message,
+                "continuity_delivery_receipt": connection.execute(
+                    "SELECT 1 FROM continuity_proposals WHERE wake_id=?", (wake_id,)
+                ).fetchone() is not None,
                 "short_term_policy": self._short_term_policy(connection, owner_id, model_id),
                 **({"context_bundle": bundle} if bundle is not None else {}),
                 "context_hash": context_hash,
@@ -4123,6 +4152,30 @@ class ModuleOneOnboardingStore:
                 "state_changed": False,
                 "pointer_changed": False,
             }
+
+    def acknowledge_context_delivery(
+        self, *, owner_id: str, model_id: str, wake_id: str,
+        wake_capability: str, context_hash: str,
+    ) -> dict[str, Any]:
+        """Host-only terminal delivery receipt, distinct from pre-send confirm."""
+        with self._connect() as connection:
+            self._begin(connection)
+            wake, reason = self._validate_wake(
+                connection, owner_id=owner_id, model_id=model_id, wake_id=wake_id,
+                wake_capability=wake_capability, require_current=False,
+                require_injected=True, allow_expired=True,
+            )
+            if reason or wake is None or wake["context_hash"] != context_hash:
+                return {"decision": "delivery_rejected"}
+            snapshot = connection.execute(
+                "SELECT status FROM brain_context_snapshots WHERE wake_id=?", (wake_id,)
+            ).fetchone()
+            if snapshot is None or snapshot["status"] != "closed":
+                return {"decision": "delivery_rejected"}
+            accepted = session_continuity.acknowledge(
+                connection, owner_id=owner_id, model_id=model_id, wake_id=wake_id,
+            )
+            return {"decision": "delivery_recorded", "cursor_changed": accepted}
 
     def close_context_snapshot(
         self,

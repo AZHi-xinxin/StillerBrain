@@ -76,6 +76,7 @@ def select_mixed_recall(
     estimate_tokens: Callable[[Any], int],
     budget: int = 1200,
     decorate_primary: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Select only supplied, disclosure-gated entries under the exact shared cap.
 
@@ -96,6 +97,11 @@ def select_mixed_recall(
         "pins": [], "memories": [], "ephemeral": [],
     }
     tool_tokens = 0
+    if diagnostics is not None:
+        diagnostics.clear()
+        diagnostics.update(candidate_counts={"planning": len(plan_items), "learning": len(learning),
+                                             "tool": len(tool), "emotion": len(emotional.get("memories", []))},
+                           budget_rejected_attempts=0, module_quota_skips=0, tool_budget_skips=0)
 
     def plan_payload(items: list[dict[str, Any]]) -> dict[str, Any]:
         return {"contract": planning["contract"], "frame": deepcopy(planning["frame"]),
@@ -110,6 +116,8 @@ def select_mixed_recall(
         nonlocal dynamic
         proposed = {**dynamic, module: payload}
         if estimate_tokens(proposed) > budget:
+            if diagnostics is not None:
+                diagnostics["budget_rejected_attempts"] += 1
             return False
         dynamic = proposed
         return True
@@ -168,7 +176,11 @@ def select_mixed_recall(
             continue
         before = dynamic
         if module == "planning_memory":
-            if len(selected_plans) < 3 and accept(module, plan_payload([*selected_plans, item])):
+            if len(selected_plans) >= 3:
+                if diagnostics is not None:
+                    diagnostics["module_quota_skips"] += 1
+                continue
+            if accept(module, plan_payload([*selected_plans, item])):
                 selected_plans.append(item)
         elif module == "emotional_memory":
             if accept(module, emotion_payload("memories", item)):
@@ -179,8 +191,12 @@ def select_mixed_recall(
             if type(cost) is not int or cost < 0:
                 cost = estimate_tokens(item)
             if len(selected) >= (3 if module == "learning_memory" else 2):
+                if diagnostics is not None:
+                    diagnostics["module_quota_skips"] += 1
                 continue
             if module == "tool_guidance" and tool_tokens + cost > 240:
+                if diagnostics is not None:
+                    diagnostics["tool_budget_skips"] += 1
                 continue
             frame = {"instruction_authority": "none", "permission_authority": "none", "optional": True}
             if module == "tool_guidance":
@@ -237,4 +253,9 @@ def select_mixed_recall(
         accept("emotional_memory", {"contract": emotional["contract"],
                "frame": deepcopy(emotional["frame"]), "pins": [], "memories": [],
                "ephemeral": [], "reminder": emotional["reminder"]})
+    if diagnostics is not None:
+        diagnostics["selected_counts"] = {"planning": len(selected_plans), "learning": len(selected_learning),
+                                          "tool": len(selected_tools), "emotion": len(selected_emotion["memories"])}
+        diagnostics["estimated_tokens"] = estimate_tokens(dynamic)
+        diagnostics["budget_tokens"] = budget
     return dynamic

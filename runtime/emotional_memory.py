@@ -24,6 +24,7 @@ from .credential_guard import contains_credential_or_secret
 from .execution_binding import assert_bound_execution, expected_execution_wake
 from .lexical_retrieval import LexicalQuery, alias_candidate_score, alias_query_families
 from .lexical_retrieval import explicit_alias_match, prepare_explicit_alias_query
+from . import semantic_retrieval as dense
 
 from .authoring import (
     AuthoringError,
@@ -2444,6 +2445,25 @@ class EmotionalMemoryStore:
         result.sort(key=lambda item: (-item[1], -item[0]["importance"], item[0]["memory_id"]))
         return result
 
+    def _semantic_candidates(self, connection, *, owner_id, model_id, query, explicit_wait=False):
+        """Index only ordinary current summaries; never promote original access."""
+        rows = connection.execute(
+            "SELECT * FROM emotion_memories WHERE owner_id=? AND model_id=? AND lifecycle='active'",
+            (owner_id, model_id),
+        ).fetchall()
+        rows = [row for row in rows
+                if row["sensitivity"] not in {"intimate", "restricted"}
+                and row["context_policy"] == "normal" and row["recall_mode"] == "normal"
+                and row["default_decision"] == "background_reference"
+                and not self._denied(row, query) and self._allowed_context(row, query)]
+        result = dense.search(
+            database=self.database, owner_id=owner_id, model_id=model_id, module="emotion",
+            explicit_wait=explicit_wait,
+            query=query, documents=[dense.Document(row["memory_id"], row["current_version"],
+                row["summary"] + "\n" + " ".join(_json(row["keywords_json"], []))) for row in rows],
+        )
+        return result, {row["memory_id"]: row for row in rows}
+
     def recall(
         self,
         *,
@@ -2474,7 +2494,18 @@ class EmotionalMemoryStore:
                 include_archived=include_archived,
                 lexical_candidates=lexical_candidates,
             )
+            semantic_result, semantic_rows = self._semantic_candidates(
+                connection, owner_id=owner_id, model_id=model_id, query=query)
             existing_ids = {row["memory_id"] for row, _, _, _ in scored}
+            semantic_only = {ref: cosine for ref, cosine in semantic_result.scores.items()
+                             if ref not in existing_ids}
+            scored = [(row, max(score, dense.candidate_priority(semantic_result.scores[row["memory_id"]]))
+                       if row["memory_id"] in semantic_result.scores else score, exact, depth)
+                      for row, score, exact, depth in scored]
+            scored.extend((semantic_rows[ref], dense.candidate_priority(cosine), False, 0)
+                          for ref, cosine in semantic_only.items())
+            scored.sort(key=lambda item: (-item[1], -item[0]["importance"], item[0]["memory_id"]))
+            existing_ids.update(semantic_only)
             result_limit = min(limit, 3) if safety_emergency is True else limit
             scored = scored[:result_limit]
             lexical_scores: dict[str, float] = {}
@@ -2511,6 +2542,7 @@ class EmotionalMemoryStore:
                 show_original = (
                     include_originals
                     and row["memory_id"] not in lexical_scores
+                    and row["memory_id"] not in semantic_only
                     and safety_emergency is not True
                     and (not sensitive or can_show_sensitive)
                 )
@@ -2530,17 +2562,24 @@ class EmotionalMemoryStore:
                         "candidate_only": True,
                         "match_interpretation": "按常见词句找到的相关候选，保留原记录的时间与语境。",
                     })
+                if row["memory_id"] in semantic_only:
+                    item.update({"retrieval_match": "local_semantic_candidate", "candidate_only": True,
+                                 "cosine_similarity": semantic_only[row["memory_id"]],
+                                 "match_interpretation": "含义相近的摘要候选，不代表同一事件或事实已确认。"})
                 if sensitive and show_original:
                     sensitive_reads.append(row["memory_id"])
                 results.append(item)
             reason_codes = ["explicit_query", "query_text_not_logged"]
             if lexical_scores:
                 reason_codes.append("lexical_alias_candidates_summary_only")
+            reason_codes.append("semantic_backend_" + semantic_result.status)
             reason_codes.extend(sorted(sensitive_withheld_reasons))
             if safety_emergency is True and "safety_emergency_summary_only" not in reason_codes:
                 reason_codes.append("safety_emergency_summary_only")
             if sensitive_reads:
                 reason_codes.append("sensitive_original_read")
+            if not results:
+                reason_codes.insert(0, "no_candidate")
             self._insert_audit(
                 connection,
                 owner_id=owner_id,
@@ -2548,7 +2587,7 @@ class EmotionalMemoryStore:
                 action="recall_query",
                 actor="ai",
                 decision="results_returned" if results else "defer",
-                reason_codes=reason_codes if results else ["no_candidate", "query_text_not_logged"],
+                reason_codes=reason_codes,
                 details={
                     "query_hash": _sha256(query),
                     "result_ids": [item["memory_id"] for item in results],
@@ -2559,7 +2598,7 @@ class EmotionalMemoryStore:
             )
             return {
                 "decision": "results_returned" if results else "defer",
-                "reason_codes": reason_codes if results else ["no_candidate"],
+                "reason_codes": reason_codes,
                 "results": results,
                 "query_logged": False,
             }
@@ -2687,6 +2726,20 @@ class EmotionalMemoryStore:
                     original_id_list.append(medium[0][0]["memory_id"])
             original_ids = set(original_id_list)
 
+            # Independent candidate channel: the old lexical cutoff must not
+            # discard paraphrases before they reach the semantic index.
+            semantic_result, semantic_rows = self._semantic_candidates(
+                active_connection, owner_id=owner_id, model_id=model_id, query=query)
+            eligible_ids = {row["memory_id"] for row, _, _, _ in eligible}
+            semantic_only = {ref: cosine for ref, cosine in semantic_result.scores.items()
+                             if ref not in eligible_ids}
+            eligible = [(row, max(score, dense.candidate_priority(semantic_result.scores[row["memory_id"]]))
+                         if row["memory_id"] in semantic_result.scores else score, exact, depth)
+                        for row, score, exact, depth in eligible]
+            eligible.extend((semantic_rows[ref], dense.candidate_priority(cosine), False, 0)
+                            for ref, cosine in semantic_only.items())
+            eligible.sort(key=lambda item: (-item[1], -item[0]["importance"], item[0]["memory_id"]))
+
             memories: list[dict[str, Any]] = []
             for row, score, exact, depth in eligible[:10]:
                 sensitive_content = row["sensitivity"] in {"intimate", "restricted"}
@@ -2728,6 +2781,9 @@ class EmotionalMemoryStore:
                     item["summary"] = row["summary"]
                     item["gate_decision"] = row["default_decision"]
                 memories.append(item)
+                if row["memory_id"] in semantic_only:
+                    item["retrieval_match"] = "local_semantic_candidate"
+                    item["candidate_only"] = True
 
             pending_pins = active_connection.execute(
                 "SELECT COUNT(*) FROM brain_pins WHERE owner_id = ? AND model_id = ? AND status = 'pending'",
@@ -2782,6 +2838,7 @@ class EmotionalMemoryStore:
                 reason_codes.append("budget_truncated")
             if expired:
                 reason_codes.append("ephemeral_expired_scrubbed")
+            reason_codes.append("semantic_backend_" + semantic_result.status)
             self._insert_audit(
                 active_connection,
                 owner_id=owner_id,

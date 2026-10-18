@@ -97,6 +97,67 @@ class DailyMemoryServiceTests(unittest.TestCase):
     def counts(self):
         return tuple(len(self.rows(table)) for table in ("emotion_memories", "learning_items", "planning_items"))
 
+    def test_short_daily_memory_surfaces_after_return_to_previous_window(self):
+        """A -> B -> real daily writer -> A; no live memory or model requests."""
+        from types import SimpleNamespace
+        from runtime import session_continuity as continuity
+        from runtime.onboarding import _estimate_tokens
+
+        store = SimpleNamespace(emotional_store=self.emotional.store,
+                                learning_store=None, tool_store=None, planning_store=None)
+        with closing(sqlite3.connect(self.database)) as db:
+            db.row_factory = sqlite3.Row
+            continuity.initialize(db)
+            db.commit()
+
+        def prepare(source, seq, budget=1200, delivered=True):
+            with closing(sqlite3.connect(self.database)) as db:
+                db.row_factory = sqlite3.Row
+                items = continuity.candidates(store, db, OWNER, MODEL, "hello again", lambda _: True)
+                result = continuity.prepare(db, owner_id=OWNER, model_id=MODEL,
+                    wake_id=f"synthetic-continuity-{seq}", wake_seq=seq,
+                    frame={"source_key":continuity._hash(source),"public_model":"synthetic",
+                           "upstream_model":"synthetic"}, items=items,base={},
+                    estimate=_estimate_tokens,budget=budget)
+                if delivered:
+                    continuity.acknowledge(db,owner_id=OWNER,model_id=MODEL,
+                                           wake_id=f"synthetic-continuity-{seq}")
+                db.commit()
+                return result.get("session_continuity",{})
+
+        prepare("A",1)
+        prepare("B",2)
+        receipt = self.daily.remember("emotional_memory", "Synthetic lunch note.", source_basis="reported")
+        self.assertTrue(receipt["stored"])
+        saved = self.rows("emotion_memories")[0]
+        self.assertEqual(saved["summary"], saved["original_text"])
+        first = prepare("A",3,delivered=False)
+        self.assertEqual("changed",first["source_transition"])
+        self.assertEqual([receipt["ref"]],[r["item_ref"] for r in first["recent_memories"]])
+        retry = prepare("A",4)
+        self.assertEqual(first["recent_memories"],retry["recent_memories"])
+        self.assertEqual([],prepare("A",5)["recent_memories"])
+        self.assertEqual(saved,self.rows("emotion_memories")[0])
+
+    def test_daily_short_summary_boundaries_and_original_spacing_are_preserved(self):
+        from types import SimpleNamespace
+        from runtime import session_continuity as continuity
+        store=SimpleNamespace(emotional_store=self.emotional.store,
+                              learning_store=None,tool_store=None,planning_store=None)
+        for index,size in enumerate((1,199,200,201)):
+            self.bound.return_value=replace(self.claim,call_id=f"synthetic-boundary-{index}")
+            text="  "+("字"*size)+"\n"
+            receipt=self.daily.remember("emotional_memory",text)
+            self.assertTrue(receipt["stored"])
+            with closing(sqlite3.connect(self.database)) as db:
+                db.row_factory=sqlite3.Row
+                items=continuity.candidates(store,db,OWNER,MODEL,"unrelated",lambda _:True)
+            found=next((i["envelope"] for i in items if i["envelope"]["item_ref"]==receipt["ref"]),None)
+            self.assertIsNotNone(found)
+            self.assertEqual("字"*min(size,200),found["summary"])
+            self.assertNotIn("original_text",found)
+            self.assertEqual(text,self.rows("emotion_memories")[-1]["original_text"])
+
     def test_one_call_per_module_stores_preserved_original_without_manual_or_ref_argument(self):
         original = "  Synthetic original\nwith unchanged spacing.  "
         for index, module in enumerate(self.daily.services):

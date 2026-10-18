@@ -66,7 +66,9 @@ def failures(root: Path) -> list[str]:
         result.append("Required source-package file missing: " + name)
     try:
         manifest = json.loads(files[MANIFEST].read_text(encoding="utf-8"))
-        if manifest.get("format") != "stiller-source-package/1" or manifest.get("distribution") != "source-available-development-preview":
+        if (manifest.get("format") != "stiller-source-package/1"
+                or manifest.get("distribution") not in {
+                    "source-available-development-preview", "source-available-stable-release"}):
             raise ValueError("manifest identity")
         rows = manifest["files"]
         if not isinstance(rows, list) or not rows:

@@ -1,7 +1,9 @@
 """Owner-scoped, summary-only ordinary recall with change-detecting pagination.
 
-This adapter reuses the existing explicit matchers, not automatic wake recall.
-It does not initialize stores, save queries, mint wakes, or cache memory bodies.
+This adapter reuses the existing explicit matchers and the optional local
+emotion-summary channel, not automatic wake recall. It does not initialize
+stores, save queries, mint wakes, or cache memory bodies. Only the disposable
+semantic vector index may be updated; business databases remain read-only.
 Same-file modules share a read transaction; separate files retain independent
 snapshots, explicitly identified in the response. Cursors contain only opaque
 hashes and an offset, authenticated with a process-local key (restart -> retry).
@@ -113,6 +115,7 @@ class UnifiedRecallAccessService:
             if previous['binding'] != binding:
                 return self._reject('cursor_query_or_identity_mismatch')
         items, errors, stamps, groups = [], [], {}, {}
+        semantic_status = {}
         with ExitStack() as stack:
             connections = {}
             for name in selected:
@@ -132,7 +135,8 @@ class UnifiedRecallAccessService:
                     if path not in connections:
                         connections[path] = stack.enter_context(_read_connection(path))
                     groups[name] = list(connections).index(path)
-                    found, fingerprint = self._module(name, service.store, connections[path], query)
+                    found, fingerprint = self._module(name, service.store, connections[path], query,
+                                                      semantic_status)
                     # Recheck projected data, including old records predating the
                     # credential guard. Errors never echo stored content or paths.
                     safe = []
@@ -150,7 +154,7 @@ class UnifiedRecallAccessService:
         # Stable grouping, never compare unrelated per-brain scores as probabilities.
         items.sort(key=lambda item: (MODULES.index(item['module']), item['ref']))
         errors.sort(key=lambda item: (item['module'], item['reason_code']))
-        snapshot = _digest([stamps, errors])
+        snapshot = _digest([stamps, errors, semantic_status])
         if previous is not None and previous['snapshot'] != snapshot:
             return self._reject('cursor_stale')
         offset = previous['offset'] if previous else 0
@@ -163,17 +167,24 @@ class UnifiedRecallAccessService:
         # Recovery/failure or content changes invalidate the old result snapshot.
         next_cursor = (_encode({'v': 1, 'binding': binding, 'snapshot': snapshot, 'offset': end})
                        if has_more else None)
+        semantic_complete = all(status in {'ready', 'disabled', 'empty'}
+                                for status in semantic_status.values())
+        retrieval_complete = not errors and semantic_complete
+        guidance = '按 detail_lookup 读取原文与历史；查询结果是线索，不是事实核验。续页原样保留 query/module，带返回的 cursor。数据变化时重新查询。'
+        if not semantic_complete:
+            guidance += ' 本次语义检索尚未完成或不可用，当前仅返回已完成通道的候选；零条结果不代表没有相关记忆。'
         return {'decision': 'recalled' if query else 'directory', 'view': 'recall',
                 'mode': 'search' if query else 'directory', 'items': page,
                 'searched_modules': [name for name in selected if name in stamps],
                 'requested_modules': list(selected), 'errors': errors, 'partial': bool(errors),
                 'returned_count': len(page), 'matched_count': len(items), 'offset': offset,
                 'limit': limit, 'has_more': has_more, 'truncated': has_more,
-                'next_cursor': next_cursor, 'exhaustive': not errors and offset == 0 and not has_more,
+                'next_cursor': next_cursor, 'exhaustive': retrieval_complete and offset == 0 and not has_more,
+                'semantic_status': semantic_status, 'retrieval_complete': retrieval_complete,
                 'snapshot_scope': ('shared_database' if len(set(groups.values())) <= 1 else 'per_database'),
                 'ordering': 'module_then_versioned_reference', 'summary_only': True,
                 'state_changed': False, 'write_context_created': False,
-                'guidance': '按 detail_lookup 读取原文与历史；查询结果是线索，不是事实核验。续页原样保留 query/module，带返回的 cursor。数据变化时重新查询。'}
+                'guidance': guidance}
 
     @staticmethod
     def _entry(module: str, ref: str, title: str, summary: str, lifecycle: str,
@@ -189,7 +200,7 @@ class UnifiedRecallAccessService:
         return result
 
     def _module(self, name: str, store: Any, connection: sqlite3.Connection,
-                query: str) -> tuple[list[dict[str, Any]], Any]:
+                query: str, semantic_status: dict[str, str]) -> tuple[list[dict[str, Any]], Any]:
         identity = {'owner_id': self.owner_id, 'model_id': self.model_id}
         values = (self.owner_id, self.model_id)
         result = []
@@ -197,7 +208,7 @@ class UnifiedRecallAccessService:
             # Deliberately excludes emotion_ephemeral (including expired rows),
             # pins and injection caches. Their retention is not a directory write.
             rows = connection.execute("SELECT * FROM emotion_memories WHERE owner_id=? AND model_id=? AND lifecycle IN ('active','archived') ORDER BY memory_id", values).fetchall()
-            hints, eligible = set(), None
+            hints, eligible, semantic_hints = set(), None, {}
             if query:
                 aliases = []
                 scored = store._scored_rows(connection, **identity, query=query,
@@ -205,15 +216,26 @@ class UnifiedRecallAccessService:
                 eligible = {row['memory_id'] for row, *_ in scored}
                 hints = {row['memory_id'] for row, *_ in aliases} - eligible
                 eligible |= hints
+                semantic, semantic_rows = store._semantic_candidates(
+                    connection, **identity, query=query, explicit_wait=True)
+                semantic_status[name] = semantic.status
+                semantic_hints = {ref: score for ref, score in semantic.scores.items()
+                                  if ref in semantic_rows and ref not in eligible}
+                eligible.update(semantic_hints)
             for row in rows:
                 if eligible is not None and row['memory_id'] not in eligible:
                     continue
                 public = store._public_memory(row, include_original=False)
                 ref = f"emotion://{row['memory_id']}@{row['current_version']}"
-                result.append(self._entry(name, ref, '情感与经历', public['summary'], row['lifecycle'],
+                entry = self._entry(name, ref, '情感与经历', public['summary'], row['lifecycle'],
                     'recall_emotional_memory', {'memory_id': row['memory_id'], 'include_originals': True},
                     restricted=row['sensitivity'] in {'intimate', 'restricted'},
-                    hint={} if row['memory_id'] in hints else None))
+                    hint={} if row['memory_id'] in hints else None)
+                if row['memory_id'] in semantic_hints:
+                    entry.update({'retrieval_match': 'local_semantic_candidate', 'candidate_only': True,
+                                  'cosine_similarity': semantic_hints[row['memory_id']],
+                                  'retrieval_note': '含义相近的摘要候选，不代表同一事件或事实已确认。'})
+                result.append(entry)
             return result, [dict(row) for row in rows]
         if name == 'learning_memory':
             # Match inventory(include_archived=True, include_pending=True).

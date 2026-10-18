@@ -103,13 +103,15 @@ class ControlClientProxyTests(unittest.TestCase):
 
     def test_all_default_transports_ignore_environment_proxies(self):
         settings = replace(config(), human_token="synthetic-human-token-at-least-32-characters", timeout_seconds=120.0)
-        with patch("rikkahub_gateway.server.httpx.Client", side_effect=[sentinel.host, sentinel.human, sentinel.upstream]) as factory:
+        with patch("rikkahub_gateway.server.httpx.Client", side_effect=[sentinel.host, sentinel.receipt, sentinel.human, sentinel.upstream]) as factory:
             app = GatewayApplication(settings)
         self.assertIs(app.control.client, sentinel.host)
+        self.assertIs(app.continuity_control.client, sentinel.receipt)
         self.assertIs(app.human_control.client, sentinel.human)
         self.assertIs(app.upstream, sentinel.upstream)
         self.assertEqual(factory.call_args_list, [
             call(timeout=30.0, trust_env=False),
+            call(timeout=2.0, trust_env=False),
             call(timeout=30.0, trust_env=False),
             call(timeout=120.0, follow_redirects=False, trust_env=False),
         ])

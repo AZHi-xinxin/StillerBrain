@@ -117,6 +117,7 @@ def _source_frame(body: Mapping[str, Any]) -> dict[str, Any] | None:
         "first_user_turn",
         "source_event_id",
         "capture_items",
+        "continuity",
     }
     if set(value) - allowed:
         raise ValueError("source_frame contains unknown fields")
@@ -159,6 +160,8 @@ def _source_frame(body: Mapping[str, Any]) -> dict[str, Any] | None:
         cleaned_items.append({"role": role, "content": content})
     if lineage_stable and (not thread_id or not source_event_id):
         raise ValueError("stable source_frame requires thread_id and source_event_id")
+    from runtime.session_continuity import validate_frame
+    continuity = validate_frame(value.get("continuity"))
     return {
         "query_text": query_text,
         "thread_id": thread_id,
@@ -167,6 +170,7 @@ def _source_frame(body: Mapping[str, Any]) -> dict[str, Any] | None:
         "first_user_turn": first_user_turn,
         "source_event_id": source_event_id,
         "capture_items": cleaned_items,
+        **({"continuity": continuity} if continuity is not None else {}),
     }
 
 
@@ -489,6 +493,13 @@ class ControlApplication:
                 **common,
                 wake_id=_required_text(body, "wake_id"),
                 wake_capability=_required_text(body, "wake_capability"),
+            )
+        if route == "/v1/host/context/delivered":
+            return self.onboarding.acknowledge_context_delivery(
+                **common,
+                wake_id=_required_text(body, "wake_id"),
+                wake_capability=_required_text(body, "wake_capability"),
+                context_hash=_required_text(body, "context_hash"),
             )
         if route == "/v1/human/objections":
             return self.onboarding.record_human_objection(

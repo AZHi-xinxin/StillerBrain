@@ -7,6 +7,7 @@ or evidence that an external action succeeded.
 """
 
 from __future__ import annotations
+from . import semantic_retrieval as dense
 
 import hashlib
 import json
@@ -2967,6 +2968,7 @@ class ToolGuidanceStore:
         with connection_scope as connection:
             eligible: list[tuple[float, float, sqlite3.Row, sqlite3.Row, dict[str, Any]]] = []
             now = _now_dt()
+            prepared = []
             for card, version in self._candidate_rows(
                 connection, owner_id=owner_id, model_id=model_id
             ):
@@ -2974,7 +2976,16 @@ class ToolGuidanceStore:
                 if (card["lifecycle"] != "active" or content["lifecycle"] != "active"
                         or content["auto_recall_mode"] == "never_auto"):
                     continue
+                prepared.append((card, version, content))
+            semantic_result = dense.search(
+                database=self.database, owner_id=owner_id, model_id=model_id, module="tool",
+                query=query, documents=[dense.Document(card["card_id"], version["version"],
+                    _reminder_text(content, self.limits.summary_chars)) for card, version, content in prepared],
+            )
+            for card, version, content in prepared:
                 semantic = _scene_score(query, content)
+                if card["card_id"] in semantic_result.scores:
+                    semantic = max(semantic, dense.candidate_priority(semantic_result.scores[card["card_id"]]))
                 salience = content["salience"] / 100
                 if content["auto_recall_mode"] == "downweighted":
                     salience *= 0.55
@@ -2983,7 +2994,7 @@ class ToolGuidanceStore:
             selected: list[tuple[float, float, sqlite3.Row, sqlite3.Row, dict[str, Any]]] = []
             for index, item in enumerate(eligible):
                 semantic = item[0]
-                if semantic >= 0.8:
+                if semantic >= 0.8 or item[2]["card_id"] in semantic_result.scores:
                     selected.append(item)
                 elif (
                     index == 0
@@ -3000,6 +3011,7 @@ class ToolGuidanceStore:
                     "item_ref": f"tool-card://{card['card_id']}@{version['version']}",
                     "kind": "tool_card_summary",
                     "semantic_score": round(semantic, 4),
+                    **({"retrieval_match": "local_semantic_candidate"} if card["card_id"] in semantic_result.scores else {}),
                     "salience_score": round(salience, 4),
                     "content": {"scene_summary": _reminder_text(content, self.limits.summary_chars)},
                     "summary_source": "authored_reminder" if content.get("reminder") else "legacy_purpose_excerpt",

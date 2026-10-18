@@ -1,0 +1,36 @@
+{
+  "format": "stiller-source-release-state/1",
+  "version": "0.2.0-preview.7",
+  "distribution": "source-available-development-preview",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "base_public_commit": "d8ed3c78de0b5d18da4235dfd416f6e750b8e406",
+  "historical_public_state": "source-release-state-0.2.0-preview.6.json",
+  "implemented_revisions": "Field-specific hallucination warning diagnostics, explicit immutable-record rejection during warning updates, public tool guidance and synthetic regression coverage",
+  "synthetic_only_this_candidate": true,
+  "real_model_calls_this_candidate": 0,
+  "live_service_changes_this_candidate": false,
+  "production_readiness_certified": false,
+  "database_upgrade": {
+    "schema_changed_this_candidate": false,
+    "automatic_migration": false,
+    "preserve_private_config_and_identity": true,
+    "stop_writes_and_backup_before_upgrade": true
+  },
+  "current_candidate_regression": [
+    {"group": "runtime", "run": 918, "failures": 0, "errors": 0, "skipped": 0},
+    {"group": "mcp", "run": 599, "failures": 0, "errors": 0, "skipped": 0}
+  ],
+  "overlapping_targeted_tests": {"run": 27, "failures": 0, "errors": 0, "additive_to_above": false},
+  "current_python_file_count": 301,
+  "current_python_inventory_sha256": "0a2f2cb39aa1fa8f19becafd0e613c08a21febfea83348cadaa1bd84dcb37822",
+  "source_unchanged_during_regression": true,
+  "gateway_installer_migration_suites_rerun": false,
+  "dependencies_changed": false,
+  "external_platform_acceptance_added": false,
+  "validation_details": "docs/UPDATE-VALIDATION.md",
+  "integrity_manifest": "SOURCE-PACKAGE-MANIFEST.json",
+  "integrity_check": "python -B scripts/check_source_package.py",
+  "github_publication_authorized": true,
+  "production_gate": "python -B scripts/check_release.py",
+  "notes": "Historical evidence and external-platform limitations are preserved separately; no new deployment or user acceptance claim. Errors expose safe field names and guidance only, not rejected source content. Existing append-only records, context checks, author requirements and confidentiality checks remain enforced."
+}

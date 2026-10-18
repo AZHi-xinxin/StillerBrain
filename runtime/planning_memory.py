@@ -16,6 +16,7 @@ tool executor.  ``next_action`` and automatic recall are read-only advice.
 """
 
 from __future__ import annotations
+from . import semantic_retrieval as dense
 
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
@@ -2770,6 +2771,7 @@ class PlanningMemoryStore:
                 "AND recall_lifecycle = 'active'",
                 (owner_id, model_id),
             ).fetchall()
+            prepared = []
             for item in rows:
                 if item["plan_id"] in excluded:
                     continue
@@ -2779,7 +2781,18 @@ class PlanningMemoryStore:
                 if projection["state"] not in {"active", "paused"}:
                     continue
                 content = self._current_content(active_connection, item)
+                prepared.append((item, content, projection))
+            semantic_result = dense.search(
+                database=self.database, owner_id=owner_id, model_id=model_id, module="planning",
+                query=query, documents=[dense.Document(item["plan_id"], item["current_version"],
+                    "\n".join([content.get("title", ""), content.get("summary", ""),
+                               " ".join(content.get("keywords", []))]))
+                    for item, content, projection in prepared],
+            )
+            for item, content, projection in prepared:
                 semantic = self._semantic_score(content, query)
+                if item["plan_id"] in semantic_result.scores:
+                    semantic = max(semantic, dense.candidate_priority(semantic_result.scores[item["plan_id"]]))
                 temporal = self._temporal_score(content, now)
                 review_due = isinstance(content.get("review_after"), str) and _parse_iso(
                     content["review_after"]
@@ -2846,6 +2859,7 @@ class PlanningMemoryStore:
                         "selection_priority": band,
                         "selection_score": score,
                         "semantic_score": round(semantic, 4),
+                        **({"retrieval_match": "local_semantic_candidate"} if item["plan_id"] in semantic_result.scores else {}),
                         "temporal_score": round(temporal, 4),
                         "importance_score": round(content["importance"] / 100, 4),
                         "state": projection["state"],

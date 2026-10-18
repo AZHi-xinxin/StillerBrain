@@ -47,6 +47,28 @@ class SourcePackageTests(unittest.TestCase):
             (root / "NOTICE").unlink()
             self.assertTrue(any("file missing" in e for e in CHECK.failures(root)))
 
+    def test_stable_release_keeps_integrity_enforcement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make(root)
+            path = root / CHECK.MANIFEST
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["distribution"] = "source-available-stable-release"
+            path.write_text(json.dumps(data), encoding="utf-8")
+            self.assertEqual([], CHECK.failures(root))
+            (root / "README.md").write_text("changed", encoding="utf-8")
+            self.assertTrue(any("hash mismatch" in e for e in CHECK.failures(root)))
+
+    def test_unknown_distribution_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make(root)
+            path = root / CHECK.MANIFEST
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["distribution"] = "unrecognized"
+            path.write_text(json.dumps(data), encoding="utf-8")
+            self.assertIn("Source manifest missing or invalid", CHECK.failures(root))
+
     def test_added_file_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

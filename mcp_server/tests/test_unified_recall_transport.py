@@ -18,7 +18,7 @@ from unittest.mock import patch
 from urllib.parse import unquote, urlsplit
 
 
-MODES = ('directory', 'search', 'cursor', 'privacy', 'binding', 'multiple_databases')
+MODES = ('directory', 'search', 'cursor', 'privacy', 'binding', 'multiple_databases', 'semantic')
 
 
 class UnifiedRecallTransportTests(unittest.TestCase):
@@ -66,6 +66,9 @@ class UnifiedRecallTransportTests(unittest.TestCase):
 
     def test_independent_database_snapshots_and_honest_partial_errors(self):
         self.probe('multiple_databases')
+
+    def test_registered_unified_search_reaches_semantic_summary_channel(self):
+        self.probe('semantic')
 
 
 async def probe(mode):
@@ -204,6 +207,27 @@ async def probe(mode):
                     assert detail.get('decision') not in {'reject', 'no_candidate'}, detail
                 absent = await recall(query='玄黓魑魅')
                 assert absent['items'] == [] and absent['exhaustive']
+
+        elif mode == 'semantic':
+            from runtime.semantic_retrieval import Result
+            target = saved['emotional_memory'][0]['id']
+            baseline = await recall(query='玄黓魑魅', module='emotional_memory')
+            assert baseline['matched_count'] == 0
+            assert baseline['semantic_status']['emotional_memory'] == 'disabled'
+            with patch('runtime.emotional_memory.dense.search',
+                       return_value=Result('ready', {target: .81})) as semantic:
+                found = await recall(query='玄黓魑魅', module='emotional_memory')
+                assert semantic.call_args.kwargs['explicit_wait'] is True
+            assert found['matched_count'] == 1 and found['retrieval_complete'], found
+            assert found['items'][0]['ref'] == saved['emotional_memory'][0]['ref']
+            assert found['items'][0]['retrieval_match'] == 'local_semantic_candidate'
+            assert found['items'][0]['candidate_only'] and found['summary_only']
+            assert 'BODY_ONLY_PRIVATE_' not in json.dumps(found)
+            with patch('runtime.emotional_memory.dense.search',
+                       return_value=Result('indexing_lexical_fallback', {})):
+                pending = await recall(query='玄黓魑魅', module='emotional_memory')
+            assert not pending['exhaustive'] and not pending['retrieval_complete']
+            assert pending['semantic_status']['emotional_memory'] == 'indexing_lexical_fallback'
 
         elif mode == 'cursor':
             first = await recall(limit=1)

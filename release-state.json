@@ -1,7 +1,8 @@
 {
   "format": "stiller-public-release-state/1",
-  "version": "0.2.0-preview.7",
-  "scope": "production-readiness-not-source-archive-integrity",
+  "version": "0.2.0",
+  "scope": "extended-general-deployment-readiness-not-product-release-channel",
+  "product_release_channel": "stable",
   "source_frozen": true,
   "license_approved": true,
   "clean_environment_verified": false,
@@ -10,5 +11,5 @@
   "privacy_review_complete": false,
   "user_acceptance_complete": false,
   "publication_authorized": true,
-  "notes": "Source preview correcting hallucination-vault diagnostics and explicit rejection of record-body changes during warning updates. Append-only records and authorization boundaries remain unchanged. Runtime and MCP regressions passed; other suites were not rerun. No live service changes or paid model calls. Prior external-platform limitations remain; general production gates are independent. See source-release-state.json and docs/UPDATE-VALIDATION.md."
+  "notes": "0.2.0 is an authorized stable product release. This legacy gate retains broader all-platform/general deployment audit requirements, not the product version label. Scoped regression and new-window human acceptance passed and are recorded in source-release-state.json; unmet extended audits and optional-route acceptance are not relabeled as complete. Publication does not modify live services. See docs/UPDATE-VALIDATION.md and docs/RELEASE-CHECKLIST.md."
 }

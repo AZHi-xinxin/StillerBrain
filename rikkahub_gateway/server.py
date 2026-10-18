@@ -557,6 +557,47 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()
 
 
+@dataclass(frozen=True)
+class _RequestMessageDigests:
+    """Exact canonical hashes for one private, normalized request snapshot.
+
+    Encode each message once, feeding the same bytes into history and source
+    hashes. SHA copies retain only fixed-size state, not attachments/history.
+    No values are reused across requests, edits, branches or tool normalization.
+    """
+
+    prefixes: tuple[str, ...]
+    source: str
+
+    @property
+    def history(self) -> str:
+        return self.prefixes[-1]
+
+    @classmethod
+    def build(cls, messages: Sequence[Mapping[str, Any]],
+              advertised_tools: Mapping[str, Any]) -> _RequestMessageDigests:
+        history = hashlib.sha256(b"[")
+        source = hashlib.sha256(b'{"advertised_tools":')
+        source.update(_canonical(advertised_tools).encode("utf-8"))
+        source.update(b',"messages":[')
+        prefixes = []
+        empty = history.copy()
+        empty.update(b"]")
+        prefixes.append(empty.hexdigest())
+        for index, message in enumerate(messages):
+            if index:
+                history.update(b",")
+                source.update(b",")
+            encoded = _canonical(message).encode("utf-8")
+            history.update(encoded)
+            source.update(encoded)
+            prefix = history.copy()
+            prefix.update(b"]")
+            prefixes.append(prefix.hexdigest())
+        source.update(b"]}")
+        return cls(tuple(prefixes), source.hexdigest())
+
+
 def _wake_expiry(value: Any) -> datetime:
     """Parse the control-plane wake deadline without guessing a timezone."""
 
@@ -1086,6 +1127,7 @@ class TurnSession:
     short_term_transition: Any = field(default=None, repr=False)
     short_term_had_handover: bool = False
     short_term_allowed: bool = False
+    continuity_receipt: bool = False
     # Handler-owned transport observer, never a capability or persisted state.
     client_disconnect_watch: Any = field(default=None, repr=False)
 
@@ -1128,6 +1170,9 @@ class GatewayApplication:
             timeout=min(config.timeout_seconds, 30.0),
         )
         self.human_control = human_control
+        # A failed optional receipt may cause a conservative replay, never hold
+        # the completed response/new chat behind the normal 30-second timeout.
+        self.continuity_control = control or ControlClient(config.control_url, config.host_token, timeout=2.0)
         if self.human_control is None and config.human_token:
             self.human_control = ControlClient(
                 config.control_url,
@@ -1238,11 +1283,20 @@ class GatewayApplication:
     def capture_final_body(self, prepared: PreparedTurn, collector: FinalBodyCollector) -> None:
         # Called only after validation AND successful complete delivery. This
         # does not create an emotional-memory row or a Control snapshot.
-        if not self.config.short_term_enabled or prepared.session.short_term_ticket is None:
-            return
         result = collector.result()
         if result is None:
             self._short_term_note("capture_invalid_final")
+            return
+        if prepared.session.continuity_receipt:
+            try:
+                self.continuity_control.post("/v1/host/context/delivered", {
+                    "wake_id": prepared.session.wake_id,
+                    "wake_capability": prepared.session.wake_capability,
+                    "context_hash": prepared.session.context_hash,
+                })
+            except GatewayError:
+                self._short_term_note("continuity_receipt_unconfirmed")
+        if not self.config.short_term_enabled or prepared.session.short_term_ticket is None:
             return
         message_id, text = result
         if contains_credential_or_secret(text):
@@ -2699,7 +2753,8 @@ class GatewayApplication:
         return {"role": role, "content": content}
 
     @staticmethod
-    def _context_layout(messages: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
+    def _context_layout(messages: Sequence[Mapping[str, Any]],
+                        digests: _RequestMessageDigests | None = None) -> dict[str, Any] | None:
         """Anchor the current human boundary once, before tool continuation."""
         indexes = [index for index, item in enumerate(messages) if item.get("role") == "user"]
         if not indexes:
@@ -2711,7 +2766,7 @@ class GatewayApplication:
             "insertion_rule": "before-current-human",
             "human_message_index": indexes[-1],
             "initial_message_count": len(messages),
-            "initial_messages_digest": _digest(messages),
+            "initial_messages_digest": digests.history if digests is not None else _digest(messages),
         }
 
     def _verified_context_bundle(
@@ -2763,7 +2818,8 @@ class GatewayApplication:
         return copy.deepcopy(bundle)
 
     @staticmethod
-    def _validate_context_history(session: TurnSession, messages: Sequence[Mapping[str, Any]]) -> None:
+    def _validate_context_history(session: TurnSession, messages: Sequence[Mapping[str, Any]],
+                                  digests: _RequestMessageDigests | None = None) -> None:
         if session.context_bundle is None:
             return
         if _digest(session.context_bundle) != session.context_hash:
@@ -2784,16 +2840,17 @@ class GatewayApplication:
         boundary = layout["human_message_index"]
         if (len(messages) < count or not 0 <= boundary < count
                 or messages[boundary].get("role") != "user"
-                or _digest(messages[:count]) != layout["initial_messages_digest"]
+                or (digests.prefixes[count] if digests is not None else _digest(messages[:count])) != layout["initial_messages_digest"]
                 or any(item.get("role") == "user" for item in messages[count:])):
             raise GatewayError(409, "tool_continuation_context_history_mismatch",
                                "工具续轮之前的聊天历史发生了改写或截断，无法复用本轮 ST 上下文；请结束本轮后从新消息重试。")
 
     @classmethod
-    def _apply_context(cls, session: TurnSession, messages: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    def _apply_context(cls, session: TurnSession, messages: Sequence[Mapping[str, Any]],
+                       digests: _RequestMessageDigests | None = None) -> list[dict[str, Any]]:
         if session.context_bundle is None:
             return [copy.deepcopy(session.message), *copy.deepcopy(messages)]
-        cls._validate_context_history(session, messages)
+        cls._validate_context_history(session, messages, digests)
         bundle = session.context_bundle
         boundary = (len(messages) if bundle["contract"] == TAIL_CONTEXT_LAYOUT_CONTRACT
                     else bundle["layout"]["human_message_index"])
@@ -2807,7 +2864,8 @@ class GatewayApplication:
         return result
 
     def _compare_cache_segments(self, session: TurnSession, messages: Sequence[Mapping[str, Any]],
-                                payload: Mapping[str, Any]) -> dict[str, bool | None]:
+                                payload: Mapping[str, Any],
+                                digests: _RequestMessageDigests | None = None) -> dict[str, bool | None]:
         bundle = session.context_bundle
         current = {
             "thread": session.thread_id,
@@ -2816,7 +2874,7 @@ class GatewayApplication:
             "dynamic": _digest(bundle["dynamic_message"] if bundle else None),
             # Preserve actual wire order, unlike semantic authorization catalog.
             "tools": _digest({key: payload[key] for key in ("tools", "functions") if key in payload}),
-            "count": len(messages), "history": _digest(messages),
+            "count": len(messages), "history": digests.history if digests is not None else _digest(messages),
         }
         previous = self._last_cache_comparison
         comparable = previous is not None and previous["thread"] == current["thread"]
@@ -2828,7 +2886,9 @@ class GatewayApplication:
             # Deprecated internal name retained for existing adapter callers.
             # Only client_input_prefix_preserved is exported in telemetry.
             "prior_input_prefix_preserved": (
-                len(messages) >= previous["count"] and _digest(messages[:previous["count"]]) == previous["history"]
+                len(messages) >= previous["count"] and
+                (digests.prefixes[previous["count"]] if digests is not None
+                 else _digest(messages[:previous["count"]])) == previous["history"]
             ) if comparable else None,
         }
         self._last_cache_comparison = current
@@ -2957,14 +3017,17 @@ class GatewayApplication:
         # Anchor the actual client history, before continuation normalization.
         # A later human turn must carry this exact prefix to abandon its wait.
         history_anchor_count = len(messages)
-        history_anchor_digest = _digest(messages)
         advertised_tools = _advertised_tool_catalog(payload)
         continuation = self._is_tool_continuation(messages)
         if continuation:
+            # The stop/abandon anchor binds the raw history, not the normalized
+            # tool-declaration projection. Do not reuse its digest below.
+            history_anchor_digest = _digest(messages)
             messages = self._normalize_split_tool_declarations(messages)
-        source_digest = _digest(
-            {"messages": messages, "advertised_tools": advertised_tools}
-        )
+        digests = _RequestMessageDigests.build(messages, advertised_tools)
+        if not continuation:
+            history_anchor_digest = digests.history
+        source_digest = digests.source
 
         with self._lock:
             if continuation:
@@ -3004,7 +3067,7 @@ class GatewayApplication:
                     raise GatewayError(409, "tool_continuation_thread_mismatch")
                 # Check before consuming any signed tool batch or receipt. A
                 # rejected history must remain retryable with the real branch.
-                self._validate_context_history(current, messages)
+                self._validate_context_history(current, messages, digests)
                 if current.expected_tool_calls:
                     all_declared_calls, tool_messages = self._bound_continuation_tool_call_batch(
                         messages, protected_values=tuple(current.protected_values)
@@ -3241,7 +3304,7 @@ class GatewayApplication:
                         except GatewayError:
                             pass
                     raise
-                context_layout = (self._context_layout(messages)
+                context_layout = (self._context_layout(messages, digests)
                                   if self.config.context_layout == "anchored-v1" else None)
                 if self.config.context_layout == "tail-context-v2":
                     context_layout = {"contract": TAIL_CONTEXT_LAYOUT_CONTRACT,
@@ -3253,6 +3316,15 @@ class GatewayApplication:
                     source_frame = self._source_frame(
                         messages, thread_id=thread_id, lineage_stable=lineage_stable,
                         source_event_id=str(source_event_id))
+                    source = client_source(normalized_headers)
+                    if source is not None and profile == DEFAULT_PROFILE and input_origin == "human_message":
+                        source_frame["continuity"] = {
+                            "source_key": hashlib.sha256(
+                                json.dumps([source.frontend, source.conversation], separators=(",", ":")).encode()
+                            ).hexdigest(),
+                            "public_model": selected_route.public_model,
+                            "upstream_model": selected_route.upstream_model,
+                        }
                     if self.config.short_term_enabled:
                         # L37 replaces incoming-history capture. Query text is
                         # still used for retrieval, never as short-term storage.
@@ -3305,6 +3377,7 @@ class GatewayApplication:
                     short_term_source=client_source(normalized_headers),
                     protected_values={wake["wake_capability"], *self._server_secrets},
                     context_bundle=context_bundle,
+                    continuity_receipt=prepared.get("continuity_delivery_receipt") is True,
                 )
                 self._current_session = session
                 if self.config.short_term_enabled and profile == DEFAULT_PROFILE:
@@ -3348,7 +3421,7 @@ class GatewayApplication:
             forwarded = copy.deepcopy(dict(payload))
             forwarded["model"] = session.route.upstream_model
             apply_upstream_reasoning_control(forwarded, session.route)
-            forwarded["messages"] = self._apply_context(session, messages)
+            forwarded["messages"] = self._apply_context(session, messages, digests)
             if session.input_origin != "human_message":
                 forwarded["messages"].append(_input_origin_message(session.input_origin))
             if self.config.short_term_enabled and session.short_term_allowed:
@@ -3373,7 +3446,7 @@ class GatewayApplication:
                 session=session,
                 continuation=continuation,
                 request_generation=session.request_generation,
-                cache_comparison=self._compare_cache_segments(session, messages, payload),
+                cache_comparison=self._compare_cache_segments(session, messages, payload, digests),
             )
 
     @staticmethod

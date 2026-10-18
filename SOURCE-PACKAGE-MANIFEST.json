@@ -1,8 +1,8 @@
 {
   "format": "stiller-source-package/1",
-  "distribution": "source-available-development-preview",
-  "version": "0.2.0-preview.7",
-  "base_public_commit": "d8ed3c78de0b5d18da4235dfd416f6e750b8e406",
+  "distribution": "source-available-stable-release",
+  "version": "0.2.0",
+  "base_public_commit": "9a4014fbee44d5490cc9c1840c3121d39048ec5a",
   "files": [
     {
       "path": ".env.example",
@@ -18,7 +18,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "6d7dfb0024c7c44926c36f6f1696c0eb143298c61dbd9634f3683fa578263285"
+      "sha256": "27fa6cb2d3cdffdbed9ee4eb5d59a5679da444bbc9e682d948f5d3d9fcc38c0d"
     },
     {
       "path": "COMMERCIAL-LICENSE.md",
@@ -42,7 +42,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "ac8da8f36d11fdac88a975ccf8cd9f2c53d38a9497a85edd237921156be280f7"
+      "sha256": "cf9ce5d7819945681a24043fdf1304bb224ad7b626de4990314ae20cddbe49ce"
     },
     {
       "path": "RELEASE-NOTES-0.2.0-preview.1.md",
@@ -73,6 +73,10 @@
       "sha256": "7846b75850c9e4668abff4b6f7a3361afd0265198143a8afeb945ce07bb43e28"
     },
     {
+      "path": "RELEASE-NOTES-0.2.0.md",
+      "sha256": "08a1c7372dc0e5b9b8b41dfef15a747f7d6a441274d44ad1a851018cc9652a24"
+    },
+    {
       "path": "RELEASE-NOTES-preview.3.md",
       "sha256": "e3a19379b7dccb2a479d856c5e11901284d029c30607a61e46254bdd3e220aef"
     },
@@ -86,7 +90,7 @@
     },
     {
       "path": "SECURITY.md",
-      "sha256": "f3df20b6dc2cdab86db0e1fb097ad8174da91f4475f28957bc6b9e61d6b2e2d2"
+      "sha256": "63eab61897e84168b5737f9a16618fb6500b287066f3dacf42b2ef4bb04ee496"
     },
     {
       "path": "SOURCE-PROVENANCE.md",
@@ -149,6 +153,10 @@
       "sha256": "4fa149db2a5964ab9d5f4ba4cd04e95c6f16c0d2d5651e5a2ce63d899dde76d1"
     },
     {
+      "path": "docs/LOCAL_SEMANTIC_RETRIEVAL.md",
+      "sha256": "2576feef77d1785931272b56d475a28b869afa9a4e2973c8c17cc35b56b2e0db"
+    },
+    {
       "path": "docs/MEMORY-DECAY-DESIGN.md",
       "sha256": "2cd3f3bc929fd433c9f593857ef01aca471576cad3c898b463dd620136c2fcaf"
     },
@@ -174,11 +182,11 @@
     },
     {
       "path": "docs/RELEASE-CHECKLIST.md",
-      "sha256": "a240ef4a9adb83dabfd6c7fb97c866bfe8f2f7e0984a47c8247fe4ce2eef7464"
+      "sha256": "c11727aac1de07dd9c58a8c0016e93861afe327d62d88f888a4a2aec2055a787"
     },
     {
       "path": "docs/RETRIEVAL.md",
-      "sha256": "a6a315d2cdaf055e841f2802f6bea316158d1f795a78219a98f2f44185bf6f6b"
+      "sha256": "ffeebaad9f293fdffe78dfee2c541a8bb6591cdf4a6f8398a5cf7922f29025ca"
     },
     {
       "path": "docs/SHORT-TERM-MEMORY.md",
@@ -214,7 +222,7 @@
     },
     {
       "path": "docs/UPDATE-VALIDATION.md",
-      "sha256": "10f7211e8a872d19315ccde9b39d553e068742890eb0fae5a817493ee68915c1"
+      "sha256": "20910ff29294f67a6a20834eea4229b34c578216b6fe29c6909e115613c50d13"
     },
     {
       "path": "docs/assets/stiller-cover.svg",
@@ -266,7 +274,7 @@
     },
     {
       "path": "mcp_server/control_server.py",
-      "sha256": "169548115ad5745306a9bd0c5203297d27f59b9c50b6c3a2e8ff2c725e1a0446"
+      "sha256": "2b59b21eb516bf96e02bb48f29948b5f012d0a7dfc944cebde0b1c7c34cdc935"
     },
     {
       "path": "mcp_server/daily_argument_metadata.py",
@@ -414,7 +422,7 @@
     },
     {
       "path": "mcp_server/tests/test_daily_memory_service.py",
-      "sha256": "2905153cedef2aefd3ab254b6d694a4a23c0851d3a2027c103888cf368367af6"
+      "sha256": "18dc624648babd9879ed4c084e1de2c98816272c63f7b340a26a3b46b865a968"
     },
     {
       "path": "mcp_server/tests/test_daily_native_transport.py",
@@ -654,7 +662,7 @@
     },
     {
       "path": "mcp_server/tests/test_unified_recall_transport.py",
-      "sha256": "e3e8b7465a4c6d54b7be5b81eec1533e6504f36c15363e56b240e0b2057a605e"
+      "sha256": "07bcc80b10d25fc1bebe9c27a5a22484912bb14130bbe8f27d435350daad532d"
     },
     {
       "path": "mcp_server/tests/test_unified_tool_revision.py",
@@ -682,7 +690,7 @@
     },
     {
       "path": "mcp_server/unified_recall_service.py",
-      "sha256": "23e54027d1661a720550f1cedcc279f03f5f24dc15453e516880e3199bfd9466"
+      "sha256": "445eb3d75bfc4bace4cb6515219f23b184759de2a3bf7d670179b4d9a3cb9666"
     },
     {
       "path": "mcp_server/usage_guide.py",
@@ -758,7 +766,7 @@
     },
     {
       "path": "packaging_tests/test_install_stiller.py",
-      "sha256": "6af55c1b422d7a0bb055649b0258fd4c81c07852a15c7459009282f9d8a4ca3e"
+      "sha256": "f9e761703243e259eab053a42ecee1a81cc91a1cdd707b0370a21ebd492863a4"
     },
     {
       "path": "packaging_tests/test_memory_images_backup.py",
@@ -790,7 +798,7 @@
     },
     {
       "path": "packaging_tests/test_source_package.py",
-      "sha256": "c35849f730e5b86589c5e136267b1d7ebe36c0ec56842680df7dbefcfcbb20d6"
+      "sha256": "35f91964797bf010e93a0046c7f8915132d486a5fb050840ad1c96b7e53a2b9d"
     },
     {
       "path": "packaging_tests/test_source_package_eol.py",
@@ -802,7 +810,7 @@
     },
     {
       "path": "release-state.json",
-      "sha256": "b5cd80555f56644d11dcba44c07c70c99aabe17ba266c615d08a74f6ae5f45f8"
+      "sha256": "8eca9bb9d4feb16a601e3794c2fb5e069a3cd70c1b6abaa5ef1d28dc38f769ee"
     },
     {
       "path": "requirements-linux-arm64-py312.lock",
@@ -811,6 +819,10 @@
     {
       "path": "requirements-linux-py312.lock",
       "sha256": "75f6454890e56f59f31f41b49b068aa086d845f5cff1fb0e338d9d7c1c945353"
+    },
+    {
+      "path": "requirements-semantic.txt",
+      "sha256": "92bfbeba43574d64ab28b2595fef2ae5cf7a3e9beb323321478b41fed17e74d8"
     },
     {
       "path": "requirements-windows-py314.lock",
@@ -862,7 +874,7 @@
     },
     {
       "path": "rikkahub_gateway/server.py",
-      "sha256": "243d1366c29175df65c69956c406f87f8b23c05f9a3529880ad471a817d4fbad"
+      "sha256": "8f52c6765a820f8693ca462d20265acf14c2cf7950f152c2743d215e2ebed56b"
     },
     {
       "path": "rikkahub_gateway/short_term.py",
@@ -898,7 +910,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_control_client_proxy.py",
-      "sha256": "a07af5211eecc73cd22f243bba8485525205ac6a7b00bdfc3350033ea35dcecb"
+      "sha256": "05b5197cf64aa8a745f9a73226ecb5f4c34cd0ba9133dedcba490407448dece7"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway.py",
@@ -1029,8 +1041,16 @@
       "sha256": "d76485ff42f86622cd5d454520878d531b5f72d3eee06c68e2b163d8843d56ba"
     },
     {
+      "path": "rikkahub_gateway/tests/test_request_message_digests.py",
+      "sha256": "4d81a9207246d9ff03d0f0d4d3bf961cc64efe2724db3145cdf2ef09b38c88e8"
+    },
+    {
       "path": "rikkahub_gateway/tests/test_route_management.py",
       "sha256": "cd9629668e493c5e95f0f3f59b0389623192e11af60948a6c7fc502e3c049b4a"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_session_continuity_delivery.py",
+      "sha256": "93aa49527ffc06851517a57651bb4e5301fc9641d1d20147e892e6bdc7514e89"
     },
     {
       "path": "rikkahub_gateway/tests/test_short_term_integration.py",
@@ -1094,7 +1114,7 @@
     },
     {
       "path": "runtime/emotional_memory.py",
-      "sha256": "f19b9cdd5272cc39512937a2fc04f28a3692c90460b9e5e8f7215e5027542262"
+      "sha256": "2de1f7449d8820c49eb553b7a89046a969e68dd4b9fac3098796a06e83ddf78b"
     },
     {
       "path": "runtime/execution_binding.py",
@@ -1122,7 +1142,7 @@
     },
     {
       "path": "runtime/learning_memory.py",
-      "sha256": "eb10c13b0ff512bd48b65e9a095a364a6470f3273215d87595bb1f30ba84faa9"
+      "sha256": "e592d65c80b28a5ac5e209015176988477957338c4b7fe8c358c9c35951cfbd2"
     },
     {
       "path": "runtime/lexical_retrieval.py",
@@ -1142,11 +1162,11 @@
     },
     {
       "path": "runtime/mixed_recall.py",
-      "sha256": "1f64520881c6129ce3da142beb2d7498b12c6701edb560f37e1d611369593eaf"
+      "sha256": "7ca1fad3530accb5b014a8a5d2100389c12f38be1f876958258c27b79e339573"
     },
     {
       "path": "runtime/onboarding.py",
-      "sha256": "2be9e05d773f5595f37799d589dd029a78f5f897da7f2aad0bda5cd23ead1006"
+      "sha256": "75c4185dec1b621342eba605f9eeb9eb15bb4d7e67f4e94832ffb34e2fcba9cd"
     },
     {
       "path": "runtime/ordinary_access.py",
@@ -1158,7 +1178,7 @@
     },
     {
       "path": "runtime/planning_memory.py",
-      "sha256": "31f00aa09e2378c1bc3f1004663a74c640609998e5f7076f31293ef468cf348d"
+      "sha256": "e2a9ffd966db5802c0b7650ca7b7d3e6c3462d655a4b35025d1cc7abe3dc0587"
     },
     {
       "path": "runtime/reminder_excerpt.py",
@@ -1177,8 +1197,16 @@
       "sha256": "76c29258ce51e37df99500c6940c1f44033587551cc46b0fe4f6f48f1ca6fcf6"
     },
     {
+      "path": "runtime/semantic_retrieval.py",
+      "sha256": "715e824c88e4012490aff4754bda48d9fca4181650a881c7f3c4730bbed8430d"
+    },
+    {
+      "path": "runtime/session_continuity.py",
+      "sha256": "4d2226c5192432fccb29ffa12832db85ce6573f2007ee571d7eeb64026ecb079"
+    },
+    {
       "path": "runtime/tool_guidance.py",
-      "sha256": "e6ad91715f7d122c7020feb241195cc3d4b5a82e99efe8887278ed4624f825d8"
+      "sha256": "6bd41bb89d7cdc842519b39495a836d2a30b780ea5624585e90db41c9b255c33"
     },
     {
       "path": "runtime/work_memory.py",
@@ -1250,7 +1278,7 @@
     },
     {
       "path": "scripts/check_source_package.py",
-      "sha256": "02bc601ee3c4b21a5d1df5f956c2ca1495b33850e9ba3a3beea1034077aef5db"
+      "sha256": "5afedbb0fdd2e7b527c0de48d86263771f9b3bed898209e27b10e6857abee2ed"
     },
     {
       "path": "scripts/compare_final_payloads.py",
@@ -1266,7 +1294,7 @@
     },
     {
       "path": "scripts/install_stiller.py",
-      "sha256": "6f0b9fcbd17e9e5cf71cb65eb5325b7027cd392f62917883260ecaa4e3302678"
+      "sha256": "405fdd223e5bcb524e0efa6da4b00db6191bb48e6f56946e43aeedb596808d03"
     },
     {
       "path": "scripts/memory_images.py",
@@ -1275,6 +1303,10 @@
     {
       "path": "scripts/prepare_atlas_config.py",
       "sha256": "7f19f95d96d740a3d5cc1f3c824fc153ed056115055d72f553133bd9a34f1f02"
+    },
+    {
+      "path": "scripts/prepare_semantic_model.py",
+      "sha256": "44f76633e12169d9e46e9ace165c1709c76c9a0e834a4b5ecd843c64c9edca8e"
     },
     {
       "path": "scripts/run_component.py",
@@ -1313,12 +1345,16 @@
       "sha256": "02d307579b56555244064548b387b28916faaaa90baadca803ef6e43eb7090e3"
     },
     {
+      "path": "source-release-state-0.2.0-preview.7.json",
+      "sha256": "e2672d0e2b0b63ec540def94294f0c9d1f4e79c3954bcbfa5778ddd6e0271124"
+    },
+    {
       "path": "source-release-state-preview.5.json",
       "sha256": "5f21cbf24d9d098a1ee1522268d5763e179958a48fa638eb2a162e9cb5848ab7"
     },
     {
       "path": "source-release-state.json",
-      "sha256": "e2672d0e2b0b63ec540def94294f0c9d1f4e79c3954bcbfa5778ddd6e0271124"
+      "sha256": "bd82a0b89e4960f77f77037e7b7b18f635fe91eee7ca61b074e365baaf4a15f4"
     },
     {
       "path": "tests/__init__.py",
@@ -1533,6 +1569,14 @@
       "sha256": "188fca330c6635eb60fc38b68b0411c1bead80c50d3eb4922928dc710367539f"
     },
     {
+      "path": "tests/test_semantic_retrieval.py",
+      "sha256": "79a8e5820864ca1143a492ccf56464b14b8723016cff8a9815e6a2cb958b76b8"
+    },
+    {
+      "path": "tests/test_session_continuity.py",
+      "sha256": "e83497c58782cb8ca1ffc6cc2639bc785edb17d1f6028255783a0c8863229fef"
+    },
+    {
       "path": "tests/test_simple_memory_access.py",
       "sha256": "3d1805a5f5bf9a1c5127d2de618cfa3194ef1460e4eca80d9ff3008261487e9e"
     },
@@ -1571,6 +1615,10 @@
     {
       "path": "tests/test_tool_validation_diagnostics.py",
       "sha256": "ca3bc1092f168634b59c0dbceffd0d384a2f21ee5892dd566cdfc3f77b0cbbda"
+    },
+    {
+      "path": "tests/test_unified_semantic_recall.py",
+      "sha256": "5884f0cda3fa5c9aee3f6358fa47b53ff89d99145a7c2d590fda7b6e168fd1e4"
     },
     {
       "path": "tests/test_usage_consistency_r4h34.py",

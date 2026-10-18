@@ -213,6 +213,31 @@ class CompactAuthorityTests(unittest.TestCase):
         self.assertEqual('compact_action_arguments_invalid', self.call('submit_self_model_candidate', {'intent': []})['reason_code'])
         self.assertEqual([], self.calls)
 
+    def test_status_alias_discovery_and_guarded_execution_match(self):
+        detail = self.raw_call('stbrain_tools', {'category': 'self', 'action': 'accept_candidate_review'})
+        self.assertEqual('submit_self_model_candidate', detail['canonical_action'])
+        self.assertEqual({'intent': 'accept_review'}, detail['fixed_arguments'])
+        self.assertNotIn('execution_ref', detail['arguments_schema']['properties'])
+        ref, _ = self.issue('submit_self_model_candidate', {'intent': 'accept_review'})
+        result = self.call('accept_candidate_review', execution_ref=ref, include_ref=True)
+        self.assertEqual('business_reached', result['decision'])
+        self.assertEqual('accept_review', result['intent'])
+        self.assertTrue(result['bound'])
+
+    def test_alias_cannot_change_intent_or_bypass_authority(self):
+        self.assertEqual('compact_alias_intent_conflict', self.call('accept_candidate_review',
+            {'intent': 'withdraw'})['reason_code'])
+        self.assertEqual('reject', self.call('accept_candidate_review')['decision'])
+        self.assertEqual([], self.calls)
+
+    def test_invalid_arguments_include_contract_without_echoing_values(self):
+        result = self.call('submit_self_model_candidate', {'intent': ['synthetic-secret-do-not-echo']})
+        self.assertEqual('compact_action_arguments_invalid', result['reason_code'])
+        self.assertIn('arguments_schema', result['action_contract'])
+        self.assertTrue(result['validation_issues'])
+        self.assertNotIn('synthetic-secret-do-not-echo', json.dumps(result))
+        self.assertEqual([], self.calls)
+
     def protocol_call(self, envelope):
         request = types.CallToolRequest.model_validate({'method': 'tools/call',
             'params': {'name': 'stbrain_manage', 'arguments': envelope}})
@@ -383,9 +408,33 @@ class CompactGatewayProjectionTests(unittest.TestCase):
         for envelope in ({'action': 'os.system'}, {'action': 'stbrain_manage'},
                          {'action': 'submit_self_model_candidate', 'arguments': {'execution_ref': 'fake'}},
                          {'action': 'stbrain_health', 'extra': True}):
-            with self.assertRaises(GatewayError):
-                self.app.decorate_execution_calls(self.prepared, [NativeToolCall('synthetic-invalid', self.public, json.dumps(envelope))])
+            call = NativeToolCall('synthetic-invalid', self.public, json.dumps(envelope))
+            self.assertEqual([call], self.app.decorate_execution_calls(self.prepared, [call]))
         self.assertFalse(any(path.endswith('/issue') for path, _ in self.control.calls))
+
+    def test_alias_lease_uses_the_same_normalized_arguments_as_mcp(self):
+        call = NativeToolCall('synthetic-alias', self.public, '{"action":"accept_candidate_review","arguments":{}}')
+        self.app.decorate_execution_calls(self.prepared, [call])
+        issued = [value for path, value in self.control.calls if path.endswith('/issue')][-1]['calls'][0]
+        self.assertEqual('submit_self_model_candidate', issued['canonical_tool'])
+        self.assertEqual(canonical_hash({'intent': 'accept_review'}), issued['arguments_hash'])
+
+    def test_bad_action_result_can_continue_same_turn_without_lease_or_wait(self):
+        call = NativeToolCall('synthetic-bad-action', self.public, '{"action":"unknown_action"}')
+        decorated = self.app.decorate_execution_calls(self.prepared, [call])
+        bindings = self.app.bind_response_tool_calls(self.prepared, decorated)
+        self.app.finish_turn(self.prepared, keep_for_tools=True, tool_call_ids=[call.tool_call_id], tool_call_bindings=bindings)
+        self.app.mark_response_delivered(self.prepared)
+        payload = deepcopy(self.payload)
+        payload['messages'] += [{'role': 'assistant', 'content': None, 'tool_calls': [{
+            'id': call.tool_call_id, 'type': 'function', 'function': {'name': self.public, 'arguments': call.arguments_text}}]},
+            {'role': 'tool', 'tool_call_id': call.tool_call_id,
+             'content': '{"decision":"reject","reason_code":"compact_action_unknown","state_changed":false}'}]
+        continued = self.app.prepare_turn(payload, {'X-ST-Thread-ID': 'synthetic-compact-thread'})
+        self.assertTrue(continued.continuation)
+        self.assertFalse(continued.session.expected_tool_call_ids)
+        self.assertFalse(any(path.endswith('/issue') for path, _ in self.control.calls))
+        self.app.finish_turn(continued, keep_for_tools=False)
 
     def test_upstream_projection_hides_host_ref_not_action_or_arguments(self):
         source = deepcopy(self.payload)

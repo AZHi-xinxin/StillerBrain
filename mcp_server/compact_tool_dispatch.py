@@ -9,6 +9,7 @@ from jsonschema import Draft202012Validator, ValidationError
 from runtime.compact_tool_routes import (
     ACTION_CATEGORIES, CATEGORIES, CompactRouteError, DISCOVERY_TOOL,
     MANAGE_TOOL, resolve_compact_action,
+    SELF_ACTION_ALIASES, compact_action_target,
 )
 from runtime.execution_binding import EXECUTION_CONTRACT, EXECUTION_TOOLS
 
@@ -21,6 +22,7 @@ DISCOVERY_DESCRIPTION = (
     "diy 自写提示词/安全阀/浮现开关、images 记忆图片附件、emotion 情感、feelings 自定义感觉、learning 学习、tools 工具、"
     "planning 计划、work 随手记（只填正文，标签可选；仅主动查询，不日常浮现）、vault 黑匣子、system 状态/手册、memory 通用记忆。"
     "已知参数可直接 stbrain_manage，不强制先读说明。"
+    "状态中的 accept_candidate_review 等动作别名也可直接查询或执行。"
 )
 MANAGE_DESCRIPTION = (
     "这是收起的 ST 功能的执行入口，不是只能使用眼前几个常用工具。"
@@ -29,6 +31,8 @@ MANAGE_DESCRIPTION = (
     "不知道参数时用 stbrain_tools(action=...)，不必请人切档或刷新目录。"
     "说明书、回执或 detail_lookup 中提到的 ST 操作名，若不在当前独立工具目录中，"
     "将它填入 action、原参数填入 arguments；不要直接调用未列出的旧工具名。"
+    "stbrain_open 的 next_calls 已带本轮实际引用、版本和固定参数；按你的决定选择，补 fill_required 即可。"
+    "参数有误会在本次工具结果中附完整调用说明，不必额外查目录。"
     "这是完整 ST 操作入口，不执行其他 MCP 或系统命令；原有模块一密码、唤醒和权限规则不变。"
     "人类可在客户端禁用或设置审批此入口；启用它代表允许在原权限内选择其子操作。"
 )
@@ -43,27 +47,45 @@ def install_compact_tool_dispatch(mcp: Any) -> None:
     def available(action: str) -> bool:
         return action in ACTION_CATEGORIES and manager.get_tool(action) is not None
 
+    def describe(action: str) -> dict[str, Any] | None:
+        canonical, intent = compact_action_target(action)
+        if not available(canonical):
+            return None
+        tool = next((item for item in manager.list_tools() if item.name == canonical),
+                    manager.get_tool(canonical))
+        schema = deepcopy(tool.parameters)
+        schema.get("properties", {}).pop("execution_ref", None)
+        if "required" in schema:
+            schema["required"] = [key for key in schema["required"] if key != "execution_ref"]
+        if intent is not None:
+            schema.setdefault("properties", {})["intent"] = {"const": intent, "default": intent}
+            schema["required"] = [key for key in schema.get("required", []) if key != "intent"]
+            for group in schema.get("allOf", []):
+                if "oneOf" in group:
+                    group["oneOf"] = [branch for branch in group["oneOf"]
+                                      if branch.get("properties", {}).get("intent", {}).get("const") == intent]
+        return {"action": action, "canonical_action": canonical,
+                "category": ACTION_CATEGORIES[canonical], "description": tool.description,
+                "arguments_schema": schema, "fixed_arguments": {"intent": intent} if intent else {},
+                "call_with": "stbrain_manage(action=action, arguments={...})",
+                "manual_required_before_call": False, "state_changed": False}
+
     async def stbrain_tools(category: str = "", action: str = "") -> dict[str, Any]:
         if category and category not in CATEGORIES:
             return {"decision": "reject", "reason_code": "compact_category_unknown",
                     "categories": list(CATEGORIES), "state_changed": False}
         if action:
-            if not available(action) or (category and ACTION_CATEGORIES[action] != category):
+            detail = describe(action)
+            if detail is None or (category and detail["category"] != category):
                 return {"decision": "reject", "reason_code": "compact_action_unknown", "state_changed": False}
             # list_tools carries the current owner-scoped, optional prewrite
             # reminder snapshot; get_tool alone is only the static base text.
-            tool = next((item for item in manager.list_tools() if item.name == action),
-                        manager.get_tool(action))
-            schema = deepcopy(tool.parameters)
-            schema.get("properties", {}).pop("execution_ref", None)
-            # These are descriptions, not separately advertised native tools.
-            return {"action": action, "category": ACTION_CATEGORIES[action],
-                    "description": tool.description, "arguments_schema": schema,
-                    "call_with": "stbrain_manage(action=action, arguments={...})",
-                    "manual_required_before_call": False, "state_changed": False}
+            return detail
         if category:
             return {"category": category, "label": CATEGORIES[category][0],
                     "actions": [name for name in CATEGORIES[category][1] if available(name)],
+                    "action_aliases": ({**SELF_ACTION_ALIASES, "activate_candidate": "activate_self_model_candidate"}
+                                       if category == "self" else {}),
                     "next": "已知参数直接 stbrain_manage；需要参数说明用 stbrain_tools(action=操作名)。",
                     "state_changed": False}
         return {"categories": [{"category": key, "label": label,
@@ -93,15 +115,26 @@ def install_compact_tool_dispatch(mcp: Any) -> None:
         },
     }
 
-    def rejected(code: str, convert: bool) -> Any:
+    def rejected(code: str, convert: bool, requested: str = "", issues: list | None = None) -> Any:
         result = {"decision": "reject", "reason_code": code, "state_changed": False,
-                  "next_action": "用 stbrain_tools(action=操作名) 查看参数后重试；不要把操作名当成独立工具名。"}
+                  "next_action": "此调用未执行；按下附调用说明修正即可继续，不必另查手册，也不阻塞对话。"}
+        detail = describe(requested) if requested else None
+        if detail:
+            result["action_contract"] = detail
+        else:
+            result["available_actions"] = [name for name in ACTION_CATEGORIES if available(name)]
+            result["action_aliases"] = SELF_ACTION_ALIASES
+        if issues:
+            result["validation_issues"] = issues
         return manage_tool.fn_metadata.convert_result(result) if convert else result
 
     async def dispatch(name: str, arguments: dict[str, Any], context: Any = None,
                        convert_result: bool = False) -> Any:
         if name != MANAGE_TOOL:
             return await original(name, arguments, context=context, convert_result=convert_result)
+        requested = arguments.get("action", "") if isinstance(arguments, dict) else ""
+        if not isinstance(requested, str):
+            requested = ""
         try:
             envelope = dict(arguments)
             has_ref = "execution_ref" in envelope
@@ -112,11 +145,18 @@ def install_compact_tool_dispatch(mcp: Any) -> None:
             # MCP validates the outer envelope. Validate the exact inner public
             # schema too; a free-form map never widens the original operation.
             target = manager.get_tool(action)
-            Draft202012Validator(target.parameters).validate(inner)
+            errors = list(Draft202012Validator(target.parameters).iter_errors(inner))
+            if errors:
+                # Only schema-owned keys/types; never echo values or exception
+                # text (which may contain candidate text or credentials).
+                issues = [{"code": error.validator,
+                           "required_arguments": error.schema.get("required", [])}
+                          for error in errors[:12]]
+                return rejected("compact_action_arguments_invalid", convert_result, requested, issues)
         except CompactRouteError as error:
-            return rejected(str(error), convert_result)
+            return rejected(str(error), convert_result, requested)
         except (TypeError, ValueError, ValidationError):
-            return rejected("compact_action_arguments_invalid", convert_result)
+            return rejected("compact_action_arguments_invalid", convert_result, requested)
         if has_ref:
             if action not in EXECUTION_TOOLS:
                 return rejected("compact_execution_ref_unexpected", convert_result)

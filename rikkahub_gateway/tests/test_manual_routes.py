@@ -261,17 +261,18 @@ class ManualRouteTests(unittest.TestCase):
         self.assertEqual(SECOND, running.route)
         self.app.finish_turn(running, keep_for_tools=False)
 
-    def test_sse_and_reasoning_only_recovery_stay_on_same_route_and_encoded_request(self):
+    def test_reasoning_only_completion_uses_selected_route_once_without_forcing_answer(self):
         self.replies = [httpx.Response(200, content=EMPTY), httpx.Response(200, content=ANSWER)]
         h = self.handler(self.payload(stream=True)); h.do_POST()
         self.assertEqual([200], h.statuses)
-        self.assertEqual(2, len(self.requests))
-        self.assertEqual(self.requests[0].content, self.requests[1].content)
+        self.assertEqual(1, len(self.requests))
         for request in self.requests:
             self.assertEqual(SECOND.completion_url, str(request.url))
             self.assertEqual("Bearer " + SECOND_KEY, request.headers["Authorization"])
         events = [json.loads(line[6:]) for line in h.wfile.getvalue().splitlines() if line.startswith(b"data: {")]
         self.assertTrue(events)
+        self.assertFalse(any("error" in row or "st_gateway_retry" in row for row in events))
+        self.assertIsNone(self.app._current_session)
         self.assertTrue(all(row["model"] == SECOND.public_model for row in events if "error" not in row))
         self.assertEqual(1, sum(path == "/v1/host/wakes" for path, _ in self.control.calls))
 

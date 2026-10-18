@@ -1,10 +1,11 @@
+"""A silent completion is a result, not a reason to recover/replay a request."""
 from __future__ import annotations
 
 import io
 import json
-import unittest
 import threading
 import time
+import unittest
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -21,20 +22,18 @@ def event(delta=None, finish=None, **extras):
     choice = {"index": 0, "delta": delta or {}}
     if finish is not None:
         choice["finish_reason"] = finish
-    body = {"choices": [choice], **extras}
-    return b'data: ' + json.dumps(body).encode() + b'\n\n'
+    return b'data: ' + json.dumps({"choices": [choice], **extras}).encode() + b'\n\n'
 
 
 def usage(prompt=100, completion=3):
     return b'data: ' + json.dumps({"choices": [], "usage": {
         "prompt_tokens": prompt, "completion_tokens": completion,
-        "total_tokens": prompt + completion, "prompt_cache_hit_tokens": prompt - 5,
-        "prompt_cache_miss_tokens": 5,
+        "total_tokens": prompt + completion,
     }}).encode() + b'\n\n'
 
 
 EMPTY = event({"reasoning_content": "first thinking"}) + event({}, "stop") + usage() + DONE
-ANSWER = event({"reasoning_content": "second thinking"}) + event({"content": "real answer"}, "stop") + usage(101, 5) + DONE
+ANSWER = event({"content": "real answer"}, "stop") + usage(101, 5) + DONE
 
 
 class TailActionStream(httpx.SyncByteStream):
@@ -45,21 +44,20 @@ class TailActionStream(httpx.SyncByteStream):
         self.action()
 
 
-class EmptyRecoveryTests(unittest.TestCase):
+class SilentCompletionTests(unittest.TestCase):
     def invoke(self, responses, *, continuation=False, custom_config=None, protected=False,
-               tail_action=None, writer=None, with_performance=False):
-        calls = []
-        holder = {}
+               tail_action=None, writer=None):
+        calls, holder = [], {}
         def upstream(request):
             calls.append(request)
-            item = responses[len(calls)-1]
+            item = responses[len(calls) - 1]
             if isinstance(item, Exception):
                 raise item
             if isinstance(item, httpx.SyncByteStream):
                 return httpx.Response(200, stream=item)
             if isinstance(item, tuple):
                 return httpx.Response(item[0], content=item[1])
-            if len(calls) == 1 and tail_action:
+            if tail_action:
                 return httpx.Response(200, stream=TailActionStream(item, lambda: tail_action(holder['app'])))
             return httpx.Response(200, content=item)
         client = httpx.Client(transport=httpx.MockTransport(upstream))
@@ -68,8 +66,8 @@ class EmptyRecoveryTests(unittest.TestCase):
         app = GatewayApplication(custom_config or config(), control=control, upstream=client)
         holder['app'] = app
         payload = {"model": config().public_model, "stream": True,
-                   "messages": [{"role": "user", "content": "capability-1" if protected else "synthetic input"}],
-                   "tools": [{"type": "function", "function": {"name": "host_lookup", "parameters": {"type": "object", "properties": {}}}}]}
+            "messages": [{"role": "user", "content": "capability-1" if protected else "synthetic input"}],
+            "tools": [{"type": "function", "function": {"name": "host_lookup", "parameters": {"type": "object", "properties": {}}}}]}
         prepared = app.prepare_turn(payload, {})
         if continuation:
             app.finish_turn(prepared, keep_for_tools=True, tool_call_ids=['prior-call'])
@@ -86,325 +84,160 @@ class EmptyRecoveryTests(unittest.TestCase):
         handler.send_header = lambda name, value: None
         handler.end_headers = lambda: None
         handler.close_connection = False
-        if with_performance:
-            handler._request_performance = _RequestPerformance()
+        handler._request_performance = _RequestPerformance()
         code = None
         with patch('rikkahub_gateway.server._PERFORMANCE_LOGGER.info') as logger:
             try:
                 handler._proxy_stream(prepared)
-            except GatewayError as e:
-                code = e.code
+            except GatewayError as error:
+                code = error.code
         raw = handler.wfile.getvalue()
         data = [json.loads(line[6:]) for line in raw.splitlines() if line.startswith(b'data: {')]
-        errors = [x['error']['code'] for x in data if 'error' in x]
-        code = code or (errors[-1] if errors else None)
-        return SimpleNamespace(calls=calls, raw=raw, data=data, code=code, app=app,
-                               headers=headers, control=control, handler=handler,
-                               logs=[json.loads(x.args[0]) for x in logger.call_args_list])
+        errors = [row['error']['code'] for row in data if 'error' in row]
+        return SimpleNamespace(calls=calls, raw=raw, data=data, code=code or (errors[-1] if errors else None),
+            app=app, headers=headers, control=control, handler=handler,
+            logs=[json.loads(call.args[0]) for call in logger.call_args_list])
 
-    def test_empty_then_answer_same_request_once_headers_done_and_reasoning_preserved(self):
-        r = self.invoke([EMPTY, ANSWER], continuation=True)
-        self.assertIsNone(r.code)
-        self.assertEqual(2, len(r.calls))
-        self.assertEqual(r.calls[0].content, r.calls[1].content)
-        self.assertEqual(1, sum(path == '/v1/host/wakes' for path, _ in r.control.calls))
-        self.assertEqual([200], r.headers)
-        self.assertEqual(1, r.raw.count(DONE))
-        self.assertIn(b'first thinking', r.raw)
-        self.assertIn(b'second thinking', r.raw)
-        self.assertIn(b'real answer', r.raw)
-        self.assertIsNone(r.app._current_session)
-        final_usage = next(x['usage'] for x in r.data if 'usage' in x)
-        self.assertEqual({'prompt_tokens': 101, 'completion_tokens': 5, 'total_tokens': 106,
-                          'prompt_cache_hit_tokens': 96, 'prompt_cache_miss_tokens': 5}, final_usage)
-        metadata=next(x['st_gateway_retry'] for x in r.data if 'st_gateway_retry' in x)
-        self.assertEqual({'prompt_tokens': 201, 'completion_tokens': 8, 'total_tokens': 209,
-                          'prompt_cache_hit_tokens': 191, 'prompt_cache_miss_tokens': 10}, metadata['usage_total'])
-        self.assertEqual(2, r.logs[-1]['attempt_count'])
+    def test_silence_is_preserved_without_second_request_or_recovery_log(self):
+        for protected in (False, True):
+            with self.subTest(protected=protected):
+                result = self.invoke([EMPTY, ANSWER], continuation=True, protected=protected)
+                self.assertIsNone(result.code)
+                self.assertEqual(1, len(result.calls))
+                self.assertEqual([200], result.headers)
+                self.assertEqual(1, result.raw.count(DONE))
+                self.assertIn(b'first thinking', result.raw)
+                self.assertNotIn(b'real answer', result.raw)
+                self.assertNotIn(b'st_gateway_retry', result.raw)
+                self.assertFalse(any(row.get('event') == 'gateway_empty_completion_recovery' for row in result.logs))
+                self.assertIsNone(result.app._current_session)
+                self.assertEqual(1, sum(path == '/v1/host/wakes' for path, _ in result.control.calls))
+                self.assertEqual(100, result.handler._request_performance.prompt_tokens)
+                self.assertEqual(3, result.handler._request_performance.completion_tokens)
 
-    def test_double_empty_stops_after_two_model_requests(self):
-        r = self.invoke([EMPTY, EMPTY, ANSWER])
-        self.assertEqual('upstream_empty_completion', r.code)
-        self.assertEqual(2, len(r.calls))
-        self.assertEqual(1, r.raw.count(DONE))
-        self.assertIsNone(r.app._current_session)
+    def test_silence_does_not_consume_another_response_even_if_that_response_would_fail(self):
+        for second in (EMPTY, httpx.ReadTimeout('synthetic'), (503, b'provider error')):
+            result = self.invoke([EMPTY, second])
+            self.assertIsNone(result.code)
+            self.assertEqual(1, len(result.calls))
 
-    def test_complete_answer_unchanged_no_retry(self):
-        r = self.invoke([ANSWER])
-        self.assertIsNone(r.code)
-        self.assertEqual(1, len(r.calls))
-        self.assertNotIn(b'st_gateway_retry', r.raw)
+    def test_no_inference_from_length_filter_or_unknown_output(self):
+        for finish, done in [('length', DONE), ('content_filter', DONE), ('future', DONE), ('stop', b'')]:
+            result = self.invoke([event({'reasoning_content': 'think', 'future_output': 'unknown'}, finish) + done])
+            self.assertIsNone(result.code)
+            self.assertEqual(1, len(result.calls))
 
-    def test_no_retry_for_unknown_choice_output(self):
-        r = self.invoke([event({'reasoning_content':'think', 'future_output':'unknown'}, 'stop') + DONE])
-        self.assertEqual('upstream_empty_completion', r.code)
-        self.assertEqual(1, len(r.calls))
+    def test_partial_content_tools_and_actual_network_errors_are_not_replayed(self):
+        for delta in ({'content': 'partial'}, {'refusal': 'no'}, {'audio': {'id': 'clip'}},
+                      {'tool_calls': [{'index': 0, 'function': {'arguments': '{'}}]}):
+            result = self.invoke([event({'reasoning_content': 'think', **delta})])
+            self.assertEqual('upstream_incomplete_stream', result.code)
+            self.assertEqual(1, len(result.calls))
+        result = self.invoke([httpx.ReadTimeout('synthetic')])
+        self.assertEqual('upstream_unavailable', result.code)
+        self.assertEqual(1, len(result.calls))
 
-    def test_no_retry_for_partial_content_or_refusal_or_audio(self):
-        for value in [{'content':'partial'}, {'refusal':'no'}, {'audio':{'id':'clip'}}]:
-            with self.subTest(value=value):
-                r = self.invoke([event({'reasoning_content':'think', **value})])
-                self.assertEqual('upstream_incomplete_stream', r.code)
-                self.assertEqual(1, len(r.calls))
+    def test_explicit_provider_error_preserved(self):
+        result = self.invoke([event({'reasoning_content': 'think'}) + b'data: {"error":{"code":"provider_error"}}\n\n' + DONE])
+        self.assertEqual('provider_error', result.code)
+        self.assertEqual(1, len(result.calls))
 
-    def test_no_retry_for_partial_tool_call(self):
-        r = self.invoke([event({'reasoning_content':'think', 'tool_calls':[{'index':0, 'function':{'arguments':'{'}}]})])
-        self.assertEqual('upstream_incomplete_stream', r.code)
-        self.assertEqual(1, len(r.calls))
+    def test_invalid_trailing_output_and_duplicate_done_still_rejected(self):
+        for tail in (event({'content': 'after done'}), DONE):
+            result = self.invoke([EMPTY + tail])
+            self.assertEqual('upstream_invalid_stream', result.code)
+            self.assertEqual(1, len(result.calls))
+            self.assertEqual(1, result.raw.count(DONE))
 
-    def test_no_retry_for_length_unknown_finish_and_no_done(self):
-        for finish, done in [('length',DONE), ('content_filter',DONE), ('future',DONE), ('stop',b'')]:
-            with self.subTest(finish=finish, done=bool(done)):
-                r = self.invoke([event({'reasoning_content':'think'},finish)+done])
-                self.assertEqual(1,len(r.calls))
-                self.assertIsNotNone(r.code)
+    def test_replaced_session_cannot_publish_late_completion(self):
+        def replace_generation(app):
+            app._current_session.request_generation += 1
+            app._current_session = None
+        result = self.invoke([EMPTY], tail_action=replace_generation)
+        self.assertNotIn(DONE, result.raw)
+        self.assertNotIn(b'"finish_reason":"stop"', result.raw)
+        self.assertEqual(1, len(result.calls))
 
-    def test_no_retry_after_explicit_provider_error(self):
-        r = self.invoke([event({'reasoning_content':'think'})+b'data: {"error":{"code":"provider_error"}}\n\n'+DONE])
-        self.assertEqual(1,len(r.calls))
-        self.assertEqual('provider_error',r.code)
-
-    def test_no_retry_after_invalid_trailing_output(self):
-        r=self.invoke([EMPTY+event({'content':'after done'})])
-        self.assertEqual('upstream_invalid_stream',r.code)
-        self.assertEqual(1,len(r.calls))
-
-    def test_no_retry_after_network_timeout(self):
-        r=self.invoke([httpx.ReadTimeout('synthetic')])
-        self.assertEqual('upstream_unavailable',r.code)
-        self.assertEqual(1,len(r.calls))
-
-    def test_second_attempt_http_error_is_single_sse_not_second_http_response(self):
-        r=self.invoke([EMPTY,(503,b'{"error":{"message":"do not leak this"}}')])
-        self.assertEqual('upstream_error',r.code)
-        self.assertEqual(2,len(r.calls))
-        self.assertEqual([200],r.headers)
-        self.assertNotIn(b'do not leak this',r.raw)
-
-    def test_second_timeout_no_third_request(self):
-        r=self.invoke([EMPTY,httpx.ReadTimeout('synthetic')])
-        self.assertEqual('upstream_unavailable',r.code)
-        self.assertEqual(2,len(r.calls))
-
-    def test_session_replaced_before_retry_never_calls_model_again(self):
-        r=self.invoke([EMPTY,ANSWER],tail_action=lambda app:setattr(app,'_current_session',None))
-        self.assertEqual('tool_continuation_context_lost',r.code)
-        self.assertEqual(1,len(r.calls))
-
-    def test_generation_advanced_before_retry_never_calls_model_again(self):
-        def advance(app): app._current_session.request_generation += 1
-        r=self.invoke([EMPTY,ANSWER],tail_action=advance)
-        self.assertEqual(1,len(r.calls))
-
-    def test_deadline_shared_no_fresh_timeout_budget(self):
-        now=[10.0]
-        with patch('rikkahub_gateway.server.time.monotonic',side_effect=lambda:now[0]):
-            r=self.invoke([EMPTY,ANSWER],custom_config=replace(config(),timeout_seconds=5),tail_action=lambda app:now.__setitem__(0,16.0))
-        self.assertEqual('upstream_unavailable',r.code)
-        self.assertEqual(1,len(r.calls))
-
-    def test_combined_stream_byte_limit_not_reset(self):
-        first=event({'reasoning_content':'t'*500})+event({},'stop')+DONE
-        second=event({'content':'a'*500},'stop')+DONE
-        r=self.invoke([first,second],custom_config=replace(config(),max_stream_bytes=1024))
-        self.assertEqual('upstream_stream_limit_reached',r.code)
-        self.assertEqual(2,len(r.calls))
-
-    def test_client_disconnected_before_retry_never_second_request(self):
-        class Writer(io.BytesIO):
-            def write(self, data):
-                if data.startswith(b': st-gateway'): raise BrokenPipeError()
-                return super().write(data)
-        r=self.invoke([EMPTY,ANSWER],writer=Writer())
-        self.assertEqual(1,len(r.calls))
-        self.assertIsNone(r.app._current_session)
-
-    def test_missing_first_usage_keeps_actual_context_but_total_unknown(self):
-        first=event({'reasoning_content':'think'})+event({},'stop')+DONE
-        r=self.invoke([first,ANSWER],with_performance=True)
-        self.assertIsNone(r.code)
-        self.assertEqual(101,next(x['usage']['prompt_tokens'] for x in r.data if 'usage' in x))
-        self.assertFalse(r.logs[-1]['usage_complete'])
-        self.assertIsNone(r.logs[-1]['usage_total'])
-        self.assertEqual(101,r.handler._request_performance.prompt_tokens)
-
-    def test_standard_performance_is_last_attempt_billing_log_is_aggregate(self):
-        r=self.invoke([EMPTY,ANSWER],with_performance=True)
-        self.assertEqual(101,r.handler._request_performance.prompt_tokens)
-        self.assertEqual(5,r.handler._request_performance.completion_tokens)
-        self.assertEqual(201,r.logs[-1]['usage_total']['prompt_tokens'])
-
-    def test_protected_history_retry_preserves_all_or_nothing_visibility(self):
-        r=self.invoke([EMPTY,ANSWER],protected=True)
-        self.assertIsNone(r.code)
-        self.assertEqual(2,len(r.calls))
-        self.assertNotIn(b'first thinking',r.raw)
-        self.assertIn(b'real answer',r.raw)
-
-    def test_second_tool_batch_binds_once_not_reexecuted(self):
-        second=event({'tool_calls':[{'index':0,'id':'new-call','type':'function','function':{'name':'host_lookup','arguments':'{}'}}]},'tool_calls')+DONE
-        r=self.invoke([EMPTY,second],continuation=True)
-        self.assertIsNone(r.code)
-        self.assertEqual(2,len(r.calls))
-        self.assertEqual({'new-call'},r.app._current_session.expected_tool_call_ids)
-        self.assertEqual(1,r.raw.count(b'new-call'))
-
-    def test_unknown_top_level_output_and_nontext_reasoning_never_retry(self):
-        for raw in [event({'reasoning_content':'think'},'stop',future_output='unknown')+DONE,
-                    event({'reasoning_content':['unknown']},'stop')+DONE]:
-            r=self.invoke([raw])
-            self.assertEqual(1,len(r.calls))
-
-    def test_multiple_choices_and_3xx_never_retry(self):
-        two=event({'reasoning_content':'think'},'stop')+b'data: {"choices":[{"index":1,"delta":{"reasoning_content":"other"},"finish_reason":"stop"}]}\n\n'+DONE
-        self.assertEqual(1,len(self.invoke([two]).calls))
-        self.assertEqual(1,len(self.invoke([(302,EMPTY)]).calls))
-
-    def test_actual_blocking_second_read_is_closed_by_shared_deadline(self):
+    def test_request_deadline_still_bounds_stalled_transport(self):
         class BlockingStream(httpx.SyncByteStream):
-            def __init__(self): self.closed=threading.Event()
+            def __init__(self): self.closed = threading.Event()
             def __iter__(self):
                 self.closed.wait(1.5)
                 if False: yield b''
             def close(self): self.closed.set()
-        stream=BlockingStream()
-        started=time.perf_counter()
-        r=self.invoke([EMPTY,stream],custom_config=replace(config(),timeout_seconds=0.03))
-        self.assertEqual(2,len(r.calls))
+        stream = BlockingStream()
+        started = time.perf_counter()
+        result = self.invoke([stream], custom_config=replace(config(), timeout_seconds=0.03))
+        self.assertEqual(1, len(result.calls))
         self.assertTrue(stream.closed.is_set())
-        self.assertLess(time.perf_counter()-started,1.0)
-        self.assertEqual('upstream_unavailable',r.code)
+        self.assertLess(time.perf_counter() - started, 1.0)
+        self.assertEqual('upstream_unavailable', result.code)
 
-    def test_second_timeout_is_remaining_not_fresh_budget(self):
-        now=[10.0]
-        with patch('rikkahub_gateway.server.time.monotonic',side_effect=lambda:now[0]):
-            r=self.invoke([EMPTY,ANSWER],custom_config=replace(config(),timeout_seconds=5),tail_action=lambda app:now.__setitem__(0,14.0))
-        self.assertEqual(5,r.calls[0].extensions['timeout']['read'])
-        self.assertEqual(1,r.calls[1].extensions['timeout']['read'])
+    def test_stream_byte_limit_is_not_a_silence_check(self):
+        result = self.invoke([event({'reasoning_content': 't' * 2000}, 'stop') + DONE],
+            custom_config=replace(config(), max_stream_bytes=1024))
+        self.assertEqual('upstream_stream_limit_reached', result.code)
+        self.assertEqual(1, len(result.calls))
 
-    def test_timer_closed_normal_eof_is_timeout_even_before_monotonic_deadline(self):
-        # Deterministically model the Windows timer waking slightly before the
-        # shared monotonic clock crosses its deadline. No sleep/timing lottery.
-        for protected, before_iteration in ((False, False), (True, False), (False, True), (True, True)):
-            with self.subTest(protected=protected, before_iteration=before_iteration):
-                timers = []
-                class EarlyTimer:
-                    daemon = True
-                    def __init__(self, interval, callback):
-                        self.callback = callback; timers.append(self)
-                    def start(self):
-                        if before_iteration and len(timers) == 2: self.callback()
-                    def cancel(self): pass
-                class ClosedEofStream(httpx.SyncByteStream):
-                    def __init__(self): self.closed = False
-                    def __iter__(self):
-                        if not before_iteration: timers[-1].callback()
-                        assert self.closed, 'synthetic early timer must have closed second response'
-                        if False: yield b''
-                    def close(self): self.closed = True
-                stream = ClosedEofStream()
-                with patch('rikkahub_gateway.server.threading.Timer', EarlyTimer), \
-                     patch('rikkahub_gateway.server.time.monotonic', return_value=10.0):
-                    result = self.invoke([EMPTY, stream], protected=protected,
-                        custom_config=replace(config(), timeout_seconds=5))
-                self.assertEqual('upstream_unavailable', result.code)
-                self.assertEqual(2, len(result.calls))
-                self.assertTrue(stream.closed)
-                self.assertEqual(1, result.raw.count(DONE))
+    def test_client_disconnect_releases_turn_without_replay(self):
+        class Writer(io.BytesIO):
+            def write(self, data): raise BrokenPipeError()
+        result = self.invoke([EMPTY], writer=Writer())
+        self.assertEqual(1, len(result.calls))
+        self.assertIsNone(result.app._current_session)
 
-    def test_normal_empty_second_eof_without_timer_is_still_invalid_stream(self):
-        result = self.invoke([EMPTY, b''])
-        self.assertEqual('upstream_invalid_stream', result.code)
-        self.assertEqual(2, len(result.calls))
-
-    def test_after_failed_tool_continuation_new_user_can_start_without_replaying_tool(self):
-        r=self.invoke([EMPTY,EMPTY],continuation=True)
-        wire=json.loads(r.calls[-1].content)
-        # Remove only the gateway injection; the client's exact historical tool
-        # declaration and receipt survive before a genuinely new user event.
-        client_history=wire['messages'][1:]
-        client_history.append({'role':'assistant','reasoning_content':'failed thought','content':''})
-        client_history.append({'role':'user','content':'new independent event'})
-        prepared=r.app.prepare_turn({'model':config().public_model,'stream':True,'messages':client_history,'tools':wire['tools']},{})
+    def test_successful_tool_receipt_survives_silence_and_next_human_turn(self):
+        result = self.invoke([EMPTY], continuation=True)
+        wire = json.loads(result.calls[0].content)
+        history = wire['messages'][1:]
+        history.extend([{'role': 'assistant', 'reasoning_content': 'thinking only', 'content': ''},
+                        {'role': 'user', 'content': 'new independent event'}])
+        prepared = result.app.prepare_turn({'model': config().public_model, 'stream': True,
+            'messages': history, 'tools': wire['tools']}, {})
         self.assertFalse(prepared.continuation)
-        self.assertEqual(2,r.control.seq)
-        self.assertEqual(1,sum(m.get('role')=='tool' for m in prepared.payload['messages']))
+        self.assertEqual(2, result.control.seq)
+        receipts = [message for message in prepared.payload['messages'] if message.get('role') == 'tool']
+        self.assertEqual(1, len(receipts))
+        self.assertEqual('already executed receipt', receipts[0]['content'])
 
-    def test_corrupt_first_usage_never_fabricates_aggregate(self):
-        corrupt=event({'reasoning_content':'think'})+event({},'stop',usage={'prompt_tokens':True,'completion_tokens':3,'total_tokens':103})+DONE
-        r=self.invoke([corrupt,ANSWER])
-        self.assertFalse(r.logs[-1]['usage_complete'])
-        self.assertEqual(101,next(x['usage']['prompt_tokens'] for x in r.data if 'usage' in x))
+    def test_silence_does_not_fabricate_usage_or_tool_calls(self):
+        for raw in (event({'reasoning_content': 'think'}, 'stop') + DONE,
+                    event({'content': ' '}, 'stop') + DONE):
+            result = self.invoke([raw])
+            self.assertIsNone(result.code)
+            self.assertFalse(any('usage' in item or 'st_gateway_retry' in item for item in result.data))
+            self.assertIsNone(result.app._current_session)
 
-    def test_unknown_terminal_choice_without_delta_never_retry(self):
-        raw=event({'reasoning_content':'think'})+b'data: {"choices":[{"index":0,"finish_reason":"stop","future_output":"unknown"}]}\n\n'+DONE
-        self.assertEqual(1,len(self.invoke([raw]).calls))
+    def test_complete_tool_batch_still_binds_once(self):
+        raw = event({'tool_calls': [{'index': 0, 'id': 'new-call', 'type': 'function',
+            'function': {'name': 'host_lookup', 'arguments': '{}'}}]}, 'tool_calls') + DONE
+        result = self.invoke([raw], continuation=True)
+        self.assertIsNone(result.code)
+        self.assertEqual(1, len(result.calls))
+        self.assertEqual({'new-call'}, result.app._current_session.expected_tool_call_ids)
+        self.assertEqual(1, result.raw.count(b'new-call'))
 
-    def test_malformed_choice_or_delta_never_retry(self):
-        for payload in ({'choices':[None]}, {'choices':{}}, {'choices':[{'index':0,'delta':'unknown'}]}):
-            raw=event({'reasoning_content':'think'})+b'data: '+json.dumps(payload).encode()+b'\n\n'+event({},'stop')+DONE
-            self.assertEqual(1,len(self.invoke([raw]).calls))
+    def test_protected_value_across_channels_is_still_blocked(self):
+        for tail in (event({'content': 'ility-1'}, 'stop'),
+                     event({'tool_calls': [{'index': 0, 'id': 'new-call', 'type': 'function',
+                         'function': {'name': 'host_lookup', 'arguments': 'ility-1'}}]}, 'tool_calls')):
+            result = self.invoke([event({'reasoning_content': 'capab'}) + tail + DONE])
+            self.assertEqual('upstream_protected_value', result.code)
+            self.assertNotIn(b'ility-1', result.raw)
+            self.assertEqual(1, len(result.calls))
 
-    def test_duplicate_done_in_first_attempt_rejected_without_retry(self):
-        r=self.invoke([EMPTY+DONE,ANSWER])
-        self.assertEqual('upstream_invalid_stream',r.code)
-        self.assertEqual(1,len(r.calls))
-        self.assertEqual(1,r.raw.count(DONE))
+    def test_progress_does_not_wait_for_terminal_or_usage(self):
+        writer, checks = io.BytesIO(), []
+        class ObservedStream(httpx.SyncByteStream):
+            def __iter__(self):
+                yield event({'reasoning_content': 'synthetic progress'}, usage=None)
+                checks.append(writer.getvalue())
+                yield event({}, 'stop') + usage() + DONE
+        result = self.invoke([ObservedStream()], writer=writer)
+        self.assertIsNone(result.code)
+        self.assertEqual(1, len(checks))
+        self.assertIn(b'synthetic progress', checks[0])
+        self.assertEqual(1, len(result.calls))
 
-    def test_duplicate_done_in_second_attempt_returns_only_single_error_terminal(self):
-        r=self.invoke([EMPTY,ANSWER+DONE])
-        self.assertEqual('upstream_invalid_stream',r.code)
-        self.assertEqual(2,len(r.calls))
-        self.assertEqual(1,r.raw.count(DONE))
-        self.assertEqual(1,len([row for row in r.data if 'error' in row]))
-        self.assertNotIn(b'real answer',r.raw)
-
-    def test_protected_short_prefix_is_tracked_across_attempt_and_response_id(self):
-        first=event({'reasoning_content':'capab'},id='attempt-one')+event({},'stop')+DONE
-        second=event({'reasoning_content':'ility-1'},id='attempt-two')+event({'content':'synthetic answer'},'stop')+DONE
-        r=self.invoke([first,second])
-        self.assertEqual('upstream_protected_value',r.code)
-        self.assertEqual(2,len(r.calls))
-        self.assertIn(b'capab',r.raw)
-        self.assertNotIn(b'ility-1',r.raw)
-        self.assertEqual(1,r.raw.count(DONE))
-        self.assertFalse(r.logs[-1]['recovered'])
-
-    def test_protected_prefix_cross_attempt_channel_and_path_is_blocked(self):
-        first=event({'reasoning_content':'capab'})+event({},'stop')+DONE
-        for continuation in (
-            event({'content':'ility-1'},'stop'),
-            b'data: {"choices":[{"index":0,"message":{"content":"ility-1"},"finish_reason":"stop"}]}\n\n',
-            event({'tool_calls':[{'index':0,'id':'call-new','type':'function','function':{'name':'host_lookup','arguments':'ility-1'}}]},'tool_calls'),
-        ):
-            with self.subTest(continuation=continuation):
-                r=self.invoke([first,continuation+DONE])
-                self.assertEqual('upstream_protected_value',r.code)
-                self.assertNotIn(b'ility-1',r.raw)
-                self.assertEqual(1,r.raw.count(DONE))
-
-    def test_second_provider_error_is_not_reported_as_recovered(self):
-        second=b'data: {"error":{"code":"provider_error"}}\n\n'+DONE
-        r=self.invoke([EMPTY,second])
-        self.assertEqual('provider_error',r.code)
-        self.assertEqual(2,len(r.calls))
-        self.assertFalse(r.logs[-1]['recovered'])
-        self.assertEqual(1,r.raw.count(DONE))
-
-    def test_usage_null_does_not_delay_first_or_second_attempt_progress(self):
-        for retry in (False,True):
-            with self.subTest(retry=retry):
-                writer=io.BytesIO()
-                checks=[]
-                class ObservedStream(httpx.SyncByteStream):
-                    def __iter__(self):
-                        yield event({'content':'synthetic progress'},usage=None)
-                        checks.append(writer.getvalue())
-                        yield event({},'stop')+usage()+DONE
-                r=self.invoke(([EMPTY] if retry else [])+[ObservedStream()],writer=writer)
-                self.assertIsNone(r.code)
-                self.assertEqual(1,len(checks))
-                self.assertIn(b'synthetic progress',checks[0])
-                self.assertNotIn(b'st_gateway_retry',checks[0])
 
 if __name__ == '__main__': unittest.main()

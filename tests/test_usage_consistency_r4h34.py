@@ -62,7 +62,9 @@ REVIEWED_NON_DOCUMENTATION_SHA256 = {
     # Emotion layer: only _module_access_display, _compact_open_result and
     # _selected_open_manual add the authorized static emotion-layer manual.
     # Protected self-edit methods and the erasure algorithm remain unchanged.
-    "service.py": "e277b8c9d70474e585653d9369e7ef3153aedc8df1adf932dd5bfc6b063aaba4",
+    # L59: open_brain / _selected_open_manual add concrete next_calls plus
+    # the compact_next_calls import. No protected self-write method changed.
+    "service.py": "f564c0dc6d8fe1a329f9653f0c332bc3bddc84047ba32ffa2fbce92c4202a279",
 }
 PROTECTED_SELF_METHODS = (
     '_action_for_public_intent', '_bound_public_write', '_candidate_for_this_model',

@@ -226,25 +226,19 @@ class GatewayExecutionRecoveryTests(unittest.TestCase):
         self.assertEqual(1, sum(path.endswith("/revoke") for path, _ in self.control.calls))
         self.assertEqual(2, sum(path == "/v1/host/context/close" for path, _ in self.control.calls))
 
-    def test_natural_expiry_does_not_forget_running_execution(self):
+    def test_new_human_supersedes_expired_execution_without_claiming_it_finished(self):
         self.arm()
         session = self.prepared.session
         session.expires_at = datetime.now(timezone.utc) - timedelta(minutes=31)
         self.control.running = 1
-        with self.assertRaisesRegex(GatewayError, "tool_wait_recovery_in_progress"):
-            self.app.prepare_turn(self.payload, self.headers)
-        self.assertIs(session, self.app._current_session)
-        self.assertTrue(session.recovery_pending)
-        self.assertFalse(self.control.closed.is_set())
-        self.assertFalse(session.execution_batch_closed)
-        self.control.running = 0
-        session.recovery_timer.cancel()
-        session.abnormal_wait_started = time.monotonic() - 1
-        self.app._recover_abnormal_wait(session, session.execution_revision)
-        self.assertIsNone(self.app._current_session)
-        self.assertTrue(self.control.closed.is_set())
         new = self.app.prepare_turn(self.payload, self.headers)
         self.assertIsNot(session, new.session)
+        self.assertEqual(1, self.control.running)
+        self.assertFalse(self.control.closed.is_set())
+        self.assertFalse(session.execution_batch_closed)
+        session.abnormal_wait_started = time.monotonic() - 1
+        self.app._recover_abnormal_wait(session, session.execution_revision)
+        self.assertIs(new.session, self.app._current_session)
         self.app.finish_turn(new, keep_for_tools=False)
 
     def test_stale_timer_revision_cannot_close_current_batch(self):
@@ -383,7 +377,11 @@ class GatewayExecutionHTTPWireTests(unittest.TestCase):
         self.assertEqual(original[1]["id"], self.calls[1]["id"])
         args = json.loads(self.calls[1]["function"]["arguments"])
         self.assertEqual({"execution_ref"}, set(args))
-        self.assertIsNotNone(self.app._current_session.delivered_at_monotonic)
+        # The socket reader can receive the final bytes before the handler has
+        # recorded delivery. Read under the same commit lock used by the next
+        # request, rather than racing a correct in-progress terminal commit.
+        with self.app._lock:
+            self.assertIsNotNone(self.app._current_session.delivered_at_monotonic)
         submitted = self.interleaved()
         status, result = self.post(submitted, stream=second_stream)
         self.assertEqual(200, status)
@@ -399,7 +397,8 @@ class GatewayExecutionHTTPWireTests(unittest.TestCase):
         for message in projected:
             self.assertIn(message, forwarded)
         self.assertIn("execution_ref", json.loads(submitted[3]["tool_calls"][0]["function"]["arguments"]))
-        self.assertIsNone(self.app._current_session)
+        with self.app._lock:
+            self.assertIsNone(self.app._current_session)
 
     def test_json_json(self):
         self.roundtrip(False, False)

@@ -287,11 +287,7 @@ class TurnControlTests(unittest.TestCase):
         self.assertEqual('cleanup_pending', self.app.control_turn(request, self.headers, stop=True)['state'])
         self.assertIsNone(old.tool_result_wait_deadline)
         old.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
-        self.assert_code('tool_wait_recovery_in_progress', lambda: self.app.prepare_turn(
-            self.payload, {**self.headers, 'X-ST-Request-ID': 'b' * 32}))
-        self.assertIs(old, self.app._current_session)
         self.assertFalse(self.control.closed.is_set())
-        self.control.post = original
         new = self.app.prepare_turn(self.payload, {**self.headers, 'X-ST-Request-ID': 'b' * 32})
         self.assertIsNot(old, new.session)
         before = len(self.control.calls)
@@ -299,7 +295,7 @@ class TurnControlTests(unittest.TestCase):
         self.assertEqual(before, len(self.control.calls))
         self.assertIs(new.session, self.app._current_session)
 
-    def test_pending_external_stop_and_expired_wake_still_require_confirmed_close(self):
+    def test_pending_external_stop_and_expired_wake_do_not_hold_fresh_human(self):
         self.expire_pending_stop(managed=False)
 
     def test_pending_managed_stop_and_expired_wake_preserve_exact_receipt(self):

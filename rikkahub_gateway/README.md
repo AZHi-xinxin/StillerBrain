@@ -69,7 +69,9 @@
 
 该普通通路仍使用当前已认证的 ST 身份、记忆策略与已允许工具，不因隐藏聊天 UI 而另建无记忆身份。旧的 `X-ST-Execution-Profile: consultation-active-readonly` / `consultation-archiving` 是另一条受限通路，不捕获或注入这套 30 分钟短期交接，也不能与上述来源头混用。客户端仍须实现正文转发、窗口绑定、工具执行和结束/公开动作；模型在正文中写“可公开”或“结束”不等于 ST 已执行这些动作。
 
-同一正式身份已有活跃轮次时，新轮可能返回 `human_turn_in_progress`。仅附带 `retry_class=busy_before_generation`、`generation_started=false`、`retry_after_ms=1000` 的特定响应表示尚未开始本次生成；客户端还应确认本地没有输出或工具执行证据，才可按自身有界等待策略保留同一待发事件。这不授权重放已输出轮次，也不适用于其他 409 或网络结果未知的请求。
+正式部署启用精确执行绑定时，新的人类消息直接接替未完成的旧轮：无须等待旧工具回包、旧连接收尾或 300 秒超时。Gateway 与 Control/runtime 必须一起升级，Control 的 `st-human-replacement/1` 回执确认新轮接管；旧轮已发工具不会自动重放，已完成的业务写入不会撤销。旧执行引用失效，旧响应/定时器不能覆盖新轮。这里的“接替”不是声称外部 Shell 或服务进程已经停止。
+
+自动唤醒及未启用精确执行绑定的旧开发模式仍可能返回 `human_turn_in_progress`。仅附带 `retry_class=busy_before_generation`、`generation_started=false`、`retry_after_ms=1000` 的特定响应表示尚未开始本次生成；不授权重放已有输出或结果未知的请求。新消息须使用新的事件标识；同一已接受事件的重发不会再次执行，也不能打断它的后继轮次。
 
 ## 失败怎样反馈
 
@@ -80,17 +82,13 @@
 | `tool_not_advertised` | 调用了本轮目录之外的名称；刷新 MCP 目录，按当前完整名称从新的用户轮次继续 |
 | `tool_arguments_schema_invalid` | 模型给出的工具参数未通过本轮公开 Schema |
 | `upstream_incomplete_stream` | 上游在完整结束前断开 |
-| `upstream_empty_completion` | 上游结束时没有有效正文或工具调用 |
-| `upstream_output_limit_reached` | 仅思考后触及模型输出长度限制 |
 | `upstream_stream_limit_reached` | 流式传输总量达到配置上限 |
 | `upstream_buffer_limit_reached` | 待验证内容的缓冲达到配置上限 |
 | `upstream_tool_buffer_limit_reached` | 暂扣工具尾段达到独立预算；该批工具未释放，不可据此声称已执行 |
 
 尚未开始输出时使用对应 HTTP 错误；已经输出安全前缀时，网关使用原生 SSE `error` 结束，并发送 `[DONE]`。失败不生成伪造的模型正文或成功结束标记，不自动重放工具或调高输出额度。网络结果未知、输出超限等失败不能视作可安全自动重试。
 
-有一个严格限定的流式空正文恢复：首次上游为 2xx，完整收到结束标记和唯一 `finish_reason=stop`、只有一个 choice、已输出思考但没有正文/拒绝/音频/工具调用/错误/未知生成字段，且检查均通过时，网关最多再请求一次相同的已编码请求。恢复沿用原路由、轮次、总截止时间和总流量预算，不新建唤醒、不再消费工具结果；客户端断开或轮次已被替代时不继续。它不是断流、长度截断或已发生工具动作后的通用重试。
-
-这次恢复可能额外产生模型费用。普通 `usage` 保持最终尝试口径，`st_gateway_retry` 与安全日志 `gateway_empty_completion_recovery` 分列尝试及总用量；缺失计量仍为未知，不重复相加，也不把总计费输入当单次上下文长度。详见[缓存问题诊断](../docs/CACHE-TROUBLESHOOTING.md)。
+正常结束的空正文、空格或仅思考响应直接完成本轮，不生成 `upstream_empty_completion` 或 `upstream_output_limit_reached`，也不自动再请求一次来补正文。上游的结束原因和用量原样保留；是否需要追问由用户决定，下一条消息可以正常开始。只收到 `[DONE]` 的静默回复也正常结束。真实断流、上游明确错误和不完整工具调用仍按各自协议处理，不冒充成功。
 
 人称预览额外字段的提示会说明带 `/` 的合法路径形式，并按当前公开工具契约提供示例；额外键的显示经过安全限制，参数原值留在诊断范围之外。目录或参数错误发生时，该批工具仍未交给客户端执行。重试前先读取已有目标的当前状态，可避免把更早已完成的操作重复执行。
 

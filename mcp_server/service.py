@@ -18,6 +18,7 @@ from mcp_server.public_contract import (
     STAGE_INTENT_ROUTES,
     PublicPayloadValidationError,
     current_action_contract,
+    compact_next_calls,
     validate_public_payload,
 )
 from runtime import (
@@ -917,6 +918,8 @@ class SelfModelAccessService:
                 status = open_context["current_status"]
                 result["current_stage"] = status["state"]["stage"]
                 result["expected_active_revision"] = status["state"].get("base_revision_id")
+                if complete:
+                    result["next_calls"] = compact_next_calls(status, open_context)
                 result["instruction"] = (
                     "本轮完整材料已展示；是否接受仍由你独立决定。接受复核不会同轮激活，"
                     "激活仍须后续真实唤醒再完整核对。引用与版本只在本轮有效。"
@@ -1149,6 +1152,7 @@ class SelfModelAccessService:
         if self.authoring_rewrite is not None and self._module_access_display("shared_person_authoring", current_status):
             result["shared_person_authoring"] = self.authoring_rewrite.manual()
         result.update(open_context)
+        result["next_calls"] = compact_next_calls(current_status, open_context)
         if self.ordinary_memory_access:
             result["access_profile"] = self._ordinary_access_note(current_status)
             for module in ("emotional_memory", "learning_memory", "tool_guidance", "planning_memory",
@@ -1292,6 +1296,7 @@ class SelfModelAccessService:
             state = current_status["state"]
             result["continuation"] = open_context.get("continuation")
             result["current_status"] = current_status
+            result["next_calls"] = compact_next_calls(current_status, open_context)
             result["current_action_contract"] = current_action_contract(
                 str(state["stage"]),
                 allowed_actions=current_status.get("allowed_actions"),

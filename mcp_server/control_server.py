@@ -454,6 +454,7 @@ class ControlApplication:
                 source_kind=_required_text(body, "source_kind"),
                 source_event_id=_required_text(body, "source_event_id"),
                 execution_profile=body.get("execution_profile", "default"),
+                replace_incomplete=body.get("replace_incomplete", False),
             )
         if route == "/v1/host/context/prepare":
             # Preserve absent vs null. Old Control ignores the new offer field;

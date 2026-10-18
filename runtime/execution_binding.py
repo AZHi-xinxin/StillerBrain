@@ -144,6 +144,33 @@ def assert_bound_execution(connection: sqlite3.Connection) -> None:
         raise ExecutionBindingError("execution_claim_not_current")
 
 
+def supersede_executions_for_human(
+    connection: sqlite3.Connection, *, owner_id: str, model_id: str,
+) -> dict[str, int]:
+    """Fence old authority in the SAME transaction as a fresh human wake.
+
+    Orphaned means no longer authoritative, not physically stopped or rolled back.
+    Existing side effects remain. Late bound writes/finishes cannot enter the new
+    wake; unclaimed calls cannot start. No drain, network probe or replay occurs.
+    """
+    counts = {"revoked": 0, "orphaned": 0, "closed_batches": 0}
+    if not _has_tables(connection):
+        return counts
+    now = _now()
+    for before, after in (("issued", "revoked"), ("running", "orphaned")):
+        counts[after] = connection.execute(
+            "UPDATE brain_execution_calls SET status=?,finished_at=? "
+            "WHERE owner_id=? AND model_id=? AND status=?",
+            (after, now, owner_id, model_id, before),
+        ).rowcount
+    counts["closed_batches"] = connection.execute(
+        "UPDATE brain_execution_batches SET status='closed',updated_at=? "
+        "WHERE owner_id=? AND model_id=? AND status!='closed'",
+        (now, owner_id, model_id),
+    ).rowcount
+    return counts
+
+
 def expected_execution_wake(*, owner_id: str, model_id: str, explicit: str | None = None) -> str | None:
     claim = current_execution_claim()
     if claim is None:

@@ -50,7 +50,7 @@ class StreamCompletionTests(unittest.TestCase):
                     payload = json.loads(line[6:])
                     if "error" in payload:
                         code = payload["error"]["code"]
-        self.assertEqual(expected_requests, len(calls), "only a confirmed reasoning-only stop may retry the model once")
+        self.assertEqual(expected_requests, len(calls), "silence must never trigger another model request")
         self.assertIsNone(app._current_session)
         return code, handler.wfile.getvalue()
 
@@ -63,14 +63,27 @@ class StreamCompletionTests(unittest.TestCase):
         code, _ = self.run_response(event({"content": "partial answer"}))
         self.assertEqual("upstream_incomplete_stream", code)
 
-    def test_reasoning_stop_without_answer_is_explicit_empty_error(self):
-        code, _ = self.run_response(event({"reasoning_content": "thinking only"}, "stop") + b"data: [DONE]\n\n", expected_requests=2)
-        self.assertEqual("upstream_empty_completion", code)
+    def test_reasoning_stop_without_answer_completes_normally(self):
+        code, raw = self.run_response(event({"reasoning_content": "thinking only"}, "stop") + b"data: [DONE]\n\n")
+        self.assertIsNone(code)
+        self.assertIn(b"thinking only", raw)
+        self.assertEqual(1, raw.count(b"data: [DONE]"))
 
-    def test_reasoning_length_without_answer_explains_budget(self):
+    def test_reasoning_length_without_answer_keeps_provider_finish_without_error(self):
         code, raw = self.run_response(event({"reasoning_content": "thinking only"}) + event({}, "length") + b"data: [DONE]\n\n")
-        self.assertEqual("upstream_output_limit_reached", code)
-        self.assertIn("请调高模型输出上限后重试".encode("utf-8"), raw)
+        self.assertIsNone(code)
+        self.assertIn(b'"finish_reason":"length"', raw)
+
+    def test_empty_and_whitespace_responses_are_normal_in_both_delivery_paths(self):
+        for protected in (False, True):
+            code, raw = self.run_response(b"data: [DONE]\n\n", protected=protected)
+            self.assertIsNone(code)
+            self.assertEqual(b"data: [DONE]\n\n", raw)
+            for content in (None, "", " ", "\n\t"):
+                with self.subTest(protected=protected, content=content):
+                    code, raw = self.run_response(event({"content": content}, "stop") + b"data: [DONE]\n\n", protected=protected)
+                    self.assertIsNone(code)
+                    self.assertEqual(1, raw.count(b"data: [DONE]"))
 
     def test_protected_history_keeps_content_private_even_on_incomplete_eof(self):
         code, raw = self.run_response(event({"reasoning_content": "thinking only"}), protected=True)

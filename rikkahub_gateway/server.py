@@ -98,8 +98,6 @@ _FAILURE_LOGGER = logging.getLogger("stiller.rikkahub.gateway")
 _PERFORMANCE_LOGGER = logging.getLogger("stiller.rikkahub.performance")
 _STREAM_FAILURE_MESSAGES = {
     "upstream_incomplete_stream": "上游连接在回复完成前结束，本轮未完成。请重试。",
-    "upstream_empty_completion": "模型只返回了思考过程，尚未生成正文或工具调用，本轮未完成。请重试。",
-    "upstream_output_limit_reached": "模型用完了本轮输出额度，尚未生成正文。请调高模型输出上限后重试。",
     "upstream_stream_limit_reached": "本轮流式传输已达到 64 MiB 上限或配置的更低上限。请缩小本轮任务后重试。",
     "upstream_buffer_limit_reached": "本轮某个待检查片段超过了缓冲上限。请缩小本轮内容后重试。",
     "upstream_tool_buffer_limit_reached": "本批工具流超过了独立缓冲上限。本批工具未执行，已显示内容不代表工具成功。请缩小单次工具内容后重试。",
@@ -152,8 +150,6 @@ _OBSERVABLE_FAILURE_CODES = frozenset(
         "upstream_buffer_limit_reached",
         "upstream_tool_buffer_limit_reached",
         "upstream_incomplete_stream",
-        "upstream_empty_completion",
-        "upstream_output_limit_reached",
         "upstream_tool_calls_invalid",
         "upstream_tool_calls_missing",
         "upstream_unavailable",
@@ -1371,7 +1367,14 @@ class GatewayApplication:
                 try:
                     canonical_tool, arguments = resolve_compact_action(arguments)
                 except CompactRouteError:
-                    raise GatewayError(502, "compact_action_invalid") from None
+                    if prepared.session.execution_profile != DEFAULT_PROFILE:
+                        raise GatewayError(403, "execution_profile_tool_denied") from None
+                    # No executor exists for this envelope. Deliver it without
+                    # a lease so MCP can return a structured correction as an
+                    # ordinary tool result, rather than terminating the chat.
+                    # MCP repeats this exact resolver before invoking any guard
+                    # or business method; it cannot execute an invalid route.
+                    continue
                 if canonical_tool not in EXECUTION_TOOLS:
                     if prepared.session.execution_profile != DEFAULT_PROFILE:
                         raise GatewayError(403, "execution_profile_tool_denied")
@@ -1807,6 +1810,21 @@ class GatewayApplication:
         session.expected_tool_calls.clear()
         session.tool_wait_armed_at = None
         self._current_session = None
+
+    def _supersede_for_human(self, session: TurnSession) -> None:
+        """Detach the old transport immediately; Control fences execution authority.
+
+        Human input is not a receipt for old tools. Missing results, changed
+        history, another window and slow cleanup cannot occupy the new turn.
+        """
+        self._remember_retired_tool_calls(tuple(session.expected_tool_call_ids))
+        self._cancel_recovery_timer(session)
+        if session.client_request_id and session.client_stop_binding is None:
+            session.client_stop_binding = self._turn_control_binding(session)
+        session.request_generation += 1
+        self._short_term_frames.pop(session.wake_id, None)
+        self._current_session = None
+        self._audit_recovery(session, "superseded", "fresh_human_message")
 
     @staticmethod
     def _cancel_recovery_timer(session: TurnSession) -> None:
@@ -3240,14 +3258,24 @@ class GatewayApplication:
                         "工具结果无法绑定为本轮宿主回执，请从新的用户消息重新开始。",
                     ) from exc
             else:
-                # Module one has exactly one authoritative current wake per owner/model.
-                # Do not let a new frame replace a wake while its upstream response
-                # or native tool loop is unfinished.  Otherwise a delayed
-                # parameterless ``stbrain_open`` from the old frame could operate on
-                # the replacement wake before transport lineage rejects its result.
-                # The E32 deployment is deliberately single-instance and serializes
-                # human turns until the current response/tool chain is closed.
+                # Production uses exact execution refs. A NEW human request takes
+                # ownership without waiting for the predecessor's tools/cleanup.
+                # Legacy unbound development mode retains its old close protocol;
+                # without exact refs a late parameterless tool has no owner fence.
+                replace_incomplete = (self.config.require_execution_binding
+                    and profile == DEFAULT_PROFILE and input_origin == "human_message"
+                    and next((m.get("role") for m in reversed(messages)
+                              if m.get("role") not in ("system", "developer")), None) == "user")
+                source_event_id = (normalized_headers.get("x-request-id")
+                    or normalized_headers.get("idempotency-key") or client_request_id
+                    or f"gateway-{uuid.uuid4().hex}")
                 current = self._current_session
+                replaced_session = current if replace_incomplete else None
+                if current is not None and replace_incomplete:
+                    if current.input_event_id == source_event_id:
+                        raise GatewayError(409, "human_event_already_accepted")
+                    self._supersede_for_human(current)
+                    current = None
                 if current is not None and self._expired_armed_tool_wait(current):
                     self._retire_expired_tool_wait(current)
                     current = None
@@ -3263,11 +3291,6 @@ class GatewayApplication:
                     )
                 thread_id = self._thread_id(payload, normalized_headers)
                 lineage_stable = bool(normalized_headers.get("x-st-thread-id") or normalized_headers.get("x-session-id"))
-                source_event_id = (
-                    normalized_headers.get("x-request-id")
-                    or normalized_headers.get("idempotency-key")
-                    or f"gateway-{uuid.uuid4().hex}"
-                )
                 wake = self.control.post(
                     "/v1/host/wakes",
                     {
@@ -3275,10 +3298,15 @@ class GatewayApplication:
                         "thread_id": thread_id,
                         "source_kind": input_origin,
                         "source_event_id": str(source_event_id),
+                        **({"replace_incomplete": True} if replace_incomplete else {}),
                         **({"execution_profile": profile} if profile != DEFAULT_PROFILE else {}),
                     },
                 )
                 try:
+                    if replace_incomplete and wake.get("human_replacement") != "st-human-replacement/1":
+                        raise GatewayError(502, "human_replacement_unconfirmed")
+                    if replaced_session is not None:
+                        self._record_client_stop(replaced_session)
                     if profile != DEFAULT_PROFILE and wake.get("execution_profile") != profile:
                         raise GatewayError(502, "execution_profile_unconfirmed")
                     expires_at = _wake_expiry(wake.get("expires_at"))
@@ -3373,7 +3401,7 @@ class GatewayApplication:
                     route=selected_route,
                     execution_profile=profile,
                     input_origin=input_origin,
-                    input_event_id=str(source_event_id) if input_origin != "human_message" else "",
+                    input_event_id=str(source_event_id),
                     short_term_source=client_source(normalized_headers),
                     protected_values={wake["wake_capability"], *self._server_secrets},
                     context_bundle=context_bundle,
@@ -3950,6 +3978,7 @@ def _buffered_sse_contains_protected_value(
     raw_events = parser.feed(raw, final=True)
     for raw_event in raw_events:
         event = _parse_sse_event(raw_event)
+        saw_data = saw_data or event.done
         payload = event.payload
         if payload is None:
             continue
@@ -4408,20 +4437,13 @@ class _ProtectedSSEQuarantine:
 
 
 class _StreamCompletionState:
-    """Retain only terminal/output facts, never generated thinking or text."""
+    """Validate transport termination, not whether the assistant chose to speak."""
 
     def __init__(self) -> None:
         self.done = False
         self.finished = False
-        self.reasoning = False
-        self.visible = False
-        self.tools = False
         self.error = False
-        self.length_limited = False
         self._ended_choices: set[int] = set()
-        self._seen_choices: set[int] = set()
-        self._finish_labels: set[str] = set()
-        self._retry_unknown = False
 
     def feed(self, event: _ParsedSSEEvent) -> None:
         if event.done and self.done:
@@ -4430,30 +4452,17 @@ class _StreamCompletionState:
         payload = event.payload
         if payload is None:
             return
-        self._retry_unknown |= any(
-            name not in {"id", "object", "created", "model", "choices", "usage", "system_fingerprint", "service_tier", "obfuscation"}
-            and item not in (None, "", [], {}) for name, item in payload.items()
-        )
         self.error = self.error or "error" in payload
         choices = payload.get("choices")
         if not isinstance(choices, list):
-            self._retry_unknown = True
             return
         for fallback_index, choice in enumerate(choices):
             if not isinstance(choice, Mapping):
-                self._retry_unknown = True
                 continue
-            self._retry_unknown |= any(
-                name not in {"index", "delta", "message", "finish_reason", "logprobs"}
-                and item not in (None, "", [], {}) for name, item in choice.items()
-            )
             choice_index = choice.get("index", fallback_index)
             if type(choice_index) is not int:
                 raise GatewayError(502, "upstream_invalid_stream")
-            self._seen_choices.add(choice_index)
             finish = choice.get("finish_reason")
-            if finish is not None:
-                self._finish_labels.add(str(finish))
             generated = any(
                 isinstance(choice.get(key), Mapping)
                 and any(value not in (None, "", [], {}) for value in choice[key].values())
@@ -4462,76 +4471,34 @@ class _StreamCompletionState:
             if (self.done or choice_index in self._ended_choices) and (generated or finish is not None):
                 raise GatewayError(502, "upstream_invalid_stream", "上游在结束标记后又返回了新的生成内容，本轮未完成。")
             self.finished = self.finished or finish is not None
-            self.length_limited = self.length_limited or finish == "length"
             if finish is not None:
                 self._ended_choices.add(choice_index)
                 if len(self._ended_choices) > 4096:
                     raise GatewayError(502, "upstream_buffer_limit_reached")
-            for key in ("delta", "message"):
-                value = choice.get(key)
-                if not isinstance(value, Mapping):
-                    if key in choice and value is not None:
-                        self._retry_unknown = True
-                    continue
-                self._retry_unknown |= value.get("role") not in (None, "", "assistant")
-                self._retry_unknown |= (value.get("reasoning_content") is not None
-                                        and not isinstance(value.get("reasoning_content"), str))
-                self._retry_unknown |= any(
-                    name not in {"role", "reasoning_content", "content", "refusal", "audio", "tool_calls", "function_call"}
-                    and item not in (None, "", [], {}) for name, item in value.items()
-                )
-                self.reasoning = self.reasoning or bool(value.get("reasoning_content"))
-                self.visible = self.visible or any(bool(value.get(field)) for field in ("content", "refusal", "audio"))
-                self.tools = self.tools or bool(value.get("tool_calls")) or bool(value.get("function_call"))
-
-    def retryable_reasoning_stop(self) -> bool:
-        """A narrow, positively identified no-effect upstream termination."""
-        return (self.done and self.finished and self.reasoning
-                and not (self.visible or self.tools or self.error or self._retry_unknown)
-                and len(self._seen_choices) == 1 and self._finish_labels == {"stop"})
 
     def validate(self) -> None:
         if self.error:
             return  # Preserve a provider's explicit error event.
         if not (self.done or self.finished):
             raise GatewayError(502, "upstream_incomplete_stream", "上游连接在回复完成前结束，本轮未完成。")
-        if self.reasoning and not (self.visible or self.tools):
-            if self.length_limited:
-                raise GatewayError(502, "upstream_output_limit_reached", "模型用完了本轮输出额度，尚未生成正文。请调高模型输出上限后重试。")
-            raise GatewayError(502, "upstream_empty_completion", "模型只返回了思考过程，尚未生成正文或工具调用，本轮未完成。")
-
-
-class _RetryEmptyStream(Exception):
-    """Internal control flow; never an error response or new client turn."""
+        # Empty, whitespace-only and reasoning-only completions are normal.
+        # Neither fabricate an error nor spend another request to force prose.
 
 
 @dataclass
-class _StreamRetryExchange:
+class _StreamExchange:
     encoded: bytes
     deadline: float
     route: GatewayRoute | None = field(default=None, repr=False)
     headers_sent: bool = False
     transferred: int = 0
-    attempt: int = 0
-    upstream_attempts: int = 0
-    recovered: bool = False
-    usage: list[dict[str, int]] = field(default_factory=list)
     current_usage: dict[str, int] = field(default_factory=dict)
-    finish_labels: list[list[str]] = field(default_factory=list)
-    current_finish_labels: list[str] = field(default_factory=list)
     inspector: _IncrementalSSEInspector | None = None
     disconnect_watch: Any = field(default=None, repr=False)
 
     def note_usage(self, payload: Any) -> None:
         if not isinstance(payload, Mapping):
             return
-        if isinstance(payload.get("choices"), list):
-            for choice in payload["choices"]:
-                if isinstance(choice, Mapping) and choice.get("finish_reason") is not None:
-                    value = choice["finish_reason"]
-                    label = value if type(value) is str and value in {"stop", "length", "tool_calls", "function_call", "content_filter"} else "other"
-                    if label not in self.current_finish_labels and len(self.current_finish_labels) < 6:
-                        self.current_finish_labels.append(label)
         if not isinstance(payload.get("usage"), Mapping):
             return
         usage = payload["usage"]
@@ -4539,31 +4506,17 @@ class _StreamRetryExchange:
                               if key in {"prompt_tokens", "completion_tokens", "total_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens"}
                               and type(value) is int and 0 <= value <= 10_000_000}
 
-    def usage_attempts(self) -> list[dict[str, int]]:
-        return [*self.usage, *([self.current_usage] if self.upstream_attempts > len(self.usage) else [])]
-
-    def total_usage(self) -> dict[str, int] | None:
-        attempts = self.usage_attempts()
-        required = {"prompt_tokens", "completion_tokens", "total_tokens"}
-        if not attempts or not all(required <= set(row) and row["prompt_tokens"] + row["completion_tokens"] == row["total_tokens"] for row in attempts):
-            return None
-        keys = set.intersection(*(set(row) for row in attempts))
-        return {key: sum(row[key] for row in attempts) for key in keys}
-
-
 @contextmanager
-def _deadline_stream(app: GatewayApplication, exchange: _StreamRetryExchange):
-    """Share remaining budget; after headers, also close a stalled read.
+def _deadline_stream(app: GatewayApplication, exchange: _StreamExchange):
+    """Bound the request budget; after headers, also close a stalled read.
 
     HTTPX's pre-response connect/read timeouts are phase/operation bounds, not
     an absolute wall-clock bound on slowly trickled response headers. Once a
-    response exists, the timer can close it at the shared deadline. Expired
-    remaining budget always prevents a subsequent retry.
+    response exists, the timer can close it at the deadline.
     """
     remaining = exchange.deadline - time.monotonic()
     if remaining <= 0:
         raise GatewayError(502, "upstream_unavailable")
-    exchange.upstream_attempts += 1
     if exchange.route is None:
         raise GatewayError(409, "tool_continuation_route_missing")
     with app.upstream_stream(exchange.route, content=exchange.encoded, timeout=remaining) as response:
@@ -5222,54 +5175,17 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 self.app.finish_turn(prepared, keep_for_tools=False)
 
     def _proxy_stream(self, prepared: PreparedTurn) -> None:
-        exchange = _StreamRetryExchange(
+        exchange = _StreamExchange(
             encoded=self.app.encode_upstream_payload(prepared.payload, prepared.session.execution_profile),
             deadline=time.monotonic() + self.app.config.timeout_seconds,
             route=prepared.route,
             disconnect_watch=getattr(self, "_client_disconnect_watch", None),
         )
-        try:
-            for attempt in range(2):
-                exchange.attempt = attempt
-                try:
-                    self._proxy_stream_attempt(prepared, exchange)
-                    return
-                except _RetryEmptyStream:
-                    exchange.usage.append(dict(exchange.current_usage))
-                    exchange.finish_labels.append(list(exchange.current_finish_labels))
-                    exchange.current_usage.clear()
-                    exchange.current_finish_labels.clear()
-                    performance = getattr(self, "_request_performance", None)
-                    if performance is not None:
-                        # Conventional usage describes the current model call,
-                        # including its actual context size, not total billing.
-                        performance.usage_observed = False
-                        performance.usage_snapshot.clear()
-                        performance.usage_snapshot_invalid_fields.clear()
-                        performance.finish_reasons.clear()
-                        for name in ("prompt_tokens", "completion_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens"):
-                            setattr(performance, name, None)
-                    # Never prepare another wake or consume a tool result again.
-                    # The next attempt uses exactly the same encoded request.
-                    continue
-        finally:
-            if exchange.attempt:
-                _PERFORMANCE_LOGGER.info(json.dumps({
-                    "event": "gateway_empty_completion_recovery",
-                    "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                    "attempt_count": exchange.upstream_attempts,
-                    "reason": "reasoning_only_stop",
-                    "recovered": exchange.recovered,
-                    "finish_attempts": [*exchange.finish_labels, *([exchange.current_finish_labels] if exchange.upstream_attempts > len(exchange.finish_labels) else [])],
-                    "usage_attempts": exchange.usage_attempts(),
-                    "usage_total": exchange.total_usage(),
-                    "usage_complete": exchange.total_usage() is not None,
-                }, separators=(",", ":")))
+        self._proxy_stream_attempt(prepared, exchange)
 
-    def _proxy_stream_attempt(self, prepared: PreparedTurn, exchange: _StreamRetryExchange) -> None:
+    def _proxy_stream_attempt(self, prepared: PreparedTurn, exchange: _StreamExchange) -> None:
         keep = False
         delivered = False
-        retrying = False
         headers_sent = exchange.headers_sent
         heartbeat_allowed = True
         bindings: dict[str, ToolExecutionBinding] = {}
@@ -5321,18 +5237,6 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             if event.payload is not None and "error" not in event.payload:
                 payload = dict(event.payload)
                 payload["model"] = prepared.route.public_model
-                if exchange.attempt and isinstance(payload.get("usage"), Mapping):
-                    total = exchange.total_usage()
-                    # Keep the provider's final-attempt usage untouched. A chat
-                    # UI uses prompt_tokens as context occupancy, so billing
-                    # totals MUST NOT masquerade as that single-request size.
-                    payload["st_gateway_retry"] = {
-                        "attempt_count": exchange.attempt + 1,
-                        "usage_complete": total is not None,
-                        "usage_attempts": exchange.usage_attempts(),
-                        "usage_total": total,
-                        "usage_scope": "all_upstream_attempts",
-                    }
                 canonical = _canonical_client_sse_event(
                     _ParsedSSEEvent(raw=b"", payload=payload)
                 )
@@ -5396,10 +5300,6 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             remaining = exchange.deadline - time.monotonic()
             if remaining <= 0:
                 raise GatewayError(502, "upstream_unavailable")
-            # A live client disconnect is not a reason to spend another model
-            # request. A harmless SSE comment also makes recovery observable.
-            if exchange.attempt:
-                write_sse(b": st-gateway reasoning-only-stop recovery attempt 2\n\n")
             with _deadline_stream(self.app, exchange) as (response, deadline_expired):
                 if performance is not None:
                     performance.note_upstream_headers(response.status_code)
@@ -5485,16 +5385,13 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                             performance.note_usage(event.payload)
                     for event in client_events:
                         exchange.note_usage(event.payload)
-                    if not any(event.payload is not None for event in client_events):
+                    if not any(event.payload is not None or event.done for event in client_events):
                         raise GatewayError(502, "upstream_invalid_stream")
                     completion = _StreamCompletionState()
                     for event in client_events:
                         completion.feed(event)
                     if time.monotonic() >= exchange.deadline:
                         raise GatewayError(502, "upstream_unavailable")
-                    if exchange.attempt == 0 and 200 <= response.status_code < 300 and completion.retryable_reasoning_stop():
-                        retrying = True
-                        raise _RetryEmptyStream()
                     completion.validate()
                     scanner = _StreamToolCallScanner()
                     if scanner.feed(raw, final=True):
@@ -5521,7 +5418,6 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                     self._commit_final_delivery(prepared, final_body, send_buffered, keep,
                                                 scanner.tool_call_ids, bindings)
                     delivered = True
-                    exchange.recovered = bool(exchange.attempt) and not completion.error
                     if performance is not None:
                         performance.stage = "complete"
                     return
@@ -5533,9 +5429,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 # argument-hash and replay binding.
                 parser = _SSEEventBuffer(self.app.config.max_body_bytes)
                 quarantine = _ProtectedSSEQuarantine(protected, self.app.config.max_body_bytes)
-                # The client sees both attempts as one stream. Keep bounded
-                # secret-prefix suffixes across attempts, including a short
-                # prefix already delivered before a reasoning-only stop.
+                # Track bounded protected-value prefixes across all stream chunks.
                 if exchange.inspector is None:
                     exchange.inspector = _IncrementalSSEInspector(protected)
                 inspector = exchange.inspector
@@ -5611,7 +5505,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
 
                 if time.monotonic() >= exchange.deadline:
                     raise GatewayError(502, "upstream_unavailable")
-                if not saw_data:
+                if not saw_data and not completion.done:
                     raise GatewayError(502, "upstream_invalid_stream")
                 # The independent rolling inspector and quarantine must both
                 # finish cleanly before committing the bounded terminal/tool
@@ -5619,9 +5513,6 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 inspector.finish()
                 if time.monotonic() >= exchange.deadline:
                     raise GatewayError(502, "upstream_unavailable")
-                if exchange.attempt == 0 and 200 <= response.status_code < 300 and completion.retryable_reasoning_stop():
-                    retrying = True
-                    raise _RetryEmptyStream()
                 completion.validate()
                 raw = b"".join(deferred_tail)
                 scanner = _StreamToolCallScanner()
@@ -5650,7 +5541,6 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 self._commit_final_delivery(prepared, final_body, send_tail, keep,
                                             scanner.tool_call_ids, bindings)
                 delivered = True
-                exchange.recovered = bool(exchange.attempt) and not completion.error
                 if performance is not None:
                     performance.stage = "complete"
         except GatewayError as exc:
@@ -5688,7 +5578,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             )
         finally:
             disable_heartbeat()
-            if not delivered and not retrying:
+            if not delivered:
                 self.app.finish_turn(prepared, keep_for_tools=False)
 
     def _commit_final_delivery(self, prepared, collector, write_final, keep, call_ids, bindings):

@@ -425,8 +425,6 @@ class ToolTailLimitTests(unittest.TestCase):
 
         def verify_exchange(exchange):
             self.assertEqual(snapshots[-1], exchange.current_usage)
-            self.assertEqual([snapshots[-1]], exchange.usage_attempts())
-            self.assertEqual(snapshots[-1], exchange.total_usage())
 
         error, writer, _ = self.run_stream(
             SyntheticStream(response, prefix=False), writer=writer, tools=False,

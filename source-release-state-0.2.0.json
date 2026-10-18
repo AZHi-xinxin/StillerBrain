@@ -1,0 +1,131 @@
+{
+  "format": "stiller-source-release-state/1",
+  "version": "0.2.0",
+  "release_channel": "stable",
+  "distribution": "source-available-stable-release",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "base_public_commit": "9a4014fbee44d5490cc9c1840c3121d39048ec5a",
+  "historical_public_state": "source-release-state-0.2.0-preview.7.json",
+  "implemented_revisions": "Source-aware recent summary delivery, bounded short-summary repair, delivery receipts, optional local semantic candidates with fallback diagnostics, equivalent request-local digest reuse, configured upstream metadata and derived installer connection refresh",
+  "core_runtime_matches_accepted_frozen_candidate": true,
+  "frozen_candidate_sha256": "01c927d7e79b0fe62fe2520e35d2f546a1595f17f106c6bb32e499eaa73ed535",
+  "publication_only_python_changes": [
+    "scripts/check_source_package.py",
+    "packaging_tests/test_source_package.py"
+  ],
+  "automated_regressions_use_synthetic_state": true,
+  "publication_real_model_calls": 0,
+  "publication_live_service_changes": false,
+  "human_acceptance": {
+    "accepted": true,
+    "scope": "Both Orbis and Rikka use new windows; newly stored memory surfaces in the other client",
+    "all_clients_models_and_existing_windows_certified": false,
+    "private_test_content_published": false
+  },
+  "production_readiness_certified": false,
+  "database_upgrade": {
+    "schema_changed_since_previous_public_release": true,
+    "initialization_adds_tables": [
+      "continuity_versions",
+      "continuity_heads",
+      "continuity_windows",
+      "continuity_proposals"
+    ],
+    "existing_memory_rows_rewritten": false,
+    "preserve_private_config_and_identity": true,
+    "stop_writes_and_backup_before_upgrade": true
+  },
+  "frozen_candidate_regression": {
+    "windows": [
+      {
+        "group": "runtime",
+        "run": 959,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "group": "mcp",
+        "run": 602,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "group": "gateway",
+        "run": 823,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 2
+      },
+      {
+        "group": "packaging",
+        "run": 235,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 16
+      }
+    ],
+    "linux": [
+      {
+        "group": "runtime",
+        "run": 959,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "group": "mcp",
+        "run": 602,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "group": "gateway",
+        "run": 823,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 1
+      },
+      {
+        "group": "packaging",
+        "run": 235,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 2
+      }
+    ]
+  },
+  "current_python_file_count": 309,
+  "current_python_inventory_sha256": "bc0aa3a4f5c4381cbf74d7fed1c85df6b1f1c3dbe8c8dbab5a10a3246c3ace0d",
+  "source_unchanged_during_regression": true,
+  "publication_regression": [
+    {
+      "group": "packaging",
+      "platform": "windows",
+      "run": 237,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 14
+    },
+    {
+      "group": "migration",
+      "platform": "windows",
+      "run": 30,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "core_dependencies_changed": false,
+  "optional_dependency_added": "requirements-semantic.txt; FastEmbed 0.9.0; disabled by default",
+  "external_platform_acceptance_added": true,
+  "validation_details": "docs/UPDATE-VALIDATION.md",
+  "integrity_manifest": "SOURCE-PACKAGE-MANIFEST.json",
+  "integrity_check": "python -B scripts/check_source_package.py",
+  "github_publication_authorized": true,
+  "stable_release_authorized": true,
+  "extended_deployment_gate": "python -B scripts/check_release.py",
+  "notes": "Stable core product release is separate from all-platform and optional-route certification. Experimental routes and unresolved external feedback are described in release notes; no unmet audit is marked complete merely to rename the version."
+}

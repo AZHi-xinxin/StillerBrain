@@ -112,9 +112,8 @@ class ToolResultWaitTests(unittest.TestCase):
         self.assertIsNone(session.tool_wait_armed_at)
         self.assertIsNone(session.tool_result_wait_deadline)
         self.assertFalse(self.app._expired_armed_tool_wait(session))
-        with self.assertRaises(GatewayError) as raised:
-            self.app.prepare_turn(self.payload, self.headers)
-        self.assertEqual('human_turn_in_progress', raised.exception.code)
+        new = self.app.prepare_turn(self.payload, self.headers)
+        self.assertIsNot(session, new.session)
         self.assertFalse(self.control.closed.is_set())
 
     def test_before_boundary_rearms_remaining_time_instead_of_retiring(self):
@@ -206,7 +205,7 @@ class ToolResultWaitTests(unittest.TestCase):
         self.assertTrue(self.control.closed.is_set())
         self.assertIsNone(self.app._current_session)
 
-    def test_control_failure_never_opens_new_wake_and_cleanup_retries_not_tool(self):
+    def test_old_cleanup_failure_does_not_block_new_human_or_replay_tool(self):
         self.arm()
         original = self.control.post
         failed = True
@@ -221,14 +220,13 @@ class ToolResultWaitTests(unittest.TestCase):
         session = self.prepared.session
         self.assertIs(session, self.app._current_session)
         self.assertEqual(5.0, session.tool_result_wait_timer.interval)
-        with self.assertRaises(GatewayError) as raised:
-            self.app.prepare_turn(self.payload, self.headers)
-        self.assertEqual('tool_wait_recovery_in_progress', raised.exception.code)
-        self.assertEqual(1, self.control.seq)
+        timer = session.tool_result_wait_timer
+        new = self.app.prepare_turn(self.payload, self.headers)
+        self.assertEqual(2, self.control.seq)
         failed = False
         self.now += 5
-        session.tool_result_wait_timer.fire()
-        self.assertIsNone(self.app._current_session)
+        timer.fire()
+        self.assertIs(new.session, self.app._current_session)
         self.assertEqual(1, sum(path.endswith('/issue') for path, _ in self.control.calls))
 
     def test_close_response_lost_retries_only_exact_close_not_expired_registry(self):

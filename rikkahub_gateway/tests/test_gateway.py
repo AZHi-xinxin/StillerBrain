@@ -47,6 +47,8 @@ class FakeControl:
             }
             if self.wake_expires_at is not None:
                 result["expires_at"] = self.wake_expires_at
+            if payload.get("replace_incomplete") is True:
+                result["human_replacement"] = "st-human-replacement/1"
             return result
         if path == "/v1/host/context/prepare":
             message = {"role": "system", "content": OPTIONAL_BRAIN_NOTICE}

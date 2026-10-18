@@ -1118,6 +1118,43 @@ def validate_public_payload(
     return body
 
 
+def compact_next_calls(status: dict[str, Any], context: dict[str, Any]) -> list[dict[str, Any]]:
+    """Small, concrete call templates from the same authoritative open snapshot.
+
+    These are choices, never execution or an AI decision. No private capability,
+    fabricated author text, or guessed version is supplied.
+    """
+    if context.get("write_context_available") is not True:
+        return []
+    ref, version = context.get("write_context_ref"), context.get("row_version")
+    if not isinstance(ref, str) or type(version) is not int:
+        return []
+    state = status["state"]
+    result = []
+    for action in status.get("allowed_actions", []):
+        route = _INTERNAL_ACTION_TO_PUBLIC_CALL.get(action)
+        if route is None:
+            continue
+        canonical, intent = route
+        args = {"write_context_ref": ref, "expected_row_version": version}
+        fill = []
+        if intent is not None:
+            schema = payload_schema_for_intent(intent)
+            payload = {key: prop["const"] for key, prop in schema.get("properties", {}).items()
+                       if "const" in prop}
+            args["payload"] = payload
+            fill = ["payload." + key for key in schema.get("required", []) if key not in payload]
+        else:
+            args.update(candidate_id=state.get("current_candidate_id"),
+                        expected_active_revision=state.get("base_revision_id"), ai_confirmation=True)
+            if not args["candidate_id"]:
+                fill = ["candidate_id"]
+        result.append({"tool": "stbrain_manage", "arguments": {"action": action, "arguments": args},
+                       "canonical_action": canonical, "fill_required": fill,
+                       "instruction": "仅在你独立选择此动作后调用；fill_required 由你撰写，不需另查操作名。"})
+    return result
+
+
 def current_action_contract(
     stage: str,
     *,

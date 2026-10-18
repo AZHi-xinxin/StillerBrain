@@ -307,23 +307,19 @@ class TerminalReceiptLoopbackTests(unittest.TestCase):
             old_timer = waiting.tool_result_wait_timer
             # Model response has completed, but local tool execution/serialization
             # fails and its owning generation unwinds without a continuation.
-            # Another request has a changed prefix and an extra local status tail;
-            # the strict legacy history heuristic deliberately cannot release it.
+            # Fresh input replaces even a changed history, before any cleanup probe.
+            query = {'model': app.default_route.public_model, 'request_id': 'd' * 32}
+            _, _, status_raw = post('/v1/turns/status', query)
+            snapshot = json.loads(status_raw)
+            receipt = {**query, 'binding': snapshot['binding'], 'terminal_reason': 'failed'}
             next_messages = [{'role': 'system', 'content': 'synthetic updated prefix'},
                 original[-1], {'role': 'assistant', 'content': 'synthetic local failure'},
                 {'role': 'user', 'content': 'synthetic next question'}]
             next_payload = {**payload, 'messages': next_messages}
-            blocked_status, blocked_headers, blocked_raw = post('/v1/chat/completions', next_payload,
+            next_status, _, _ = post('/v1/chat/completions', next_payload,
                 {'X-ST-Request-ID': 'e' * 32})
-            self.assertEqual(409, blocked_status)
-            self.assertEqual('human_turn_in_progress', json.loads(blocked_raw)['error']['code'])
-            self.assertNotIn('X-ST-Turn-Control', blocked_headers)
-            self.assertEqual(1, len(sent))
-            query = {'model': app.default_route.public_model, 'request_id': 'd' * 32}
-            _, _, status_raw = post('/v1/turns/status', query)
-            snapshot = json.loads(status_raw)
-            self.assertEqual('waiting_tool_results', snapshot['state'])
-            receipt = {**query, 'binding': snapshot['binding'], 'terminal_reason': 'failed'}
+            self.assertEqual(200, next_status)
+            self.assertEqual(2, len(sent))
             finished, finish_headers, finish_raw = post('/v1/turns/finish', receipt)
             self.assertEqual(200, finished)
             self.assertEqual('retired', json.loads(finish_raw)['state'])
@@ -333,8 +329,6 @@ class TerminalReceiptLoopbackTests(unittest.TestCase):
             self.assertIsNone(app._current_session)
             import time
             self.assertLess(time.monotonic(), deadline)
-            status, _, _ = post('/v1/chat/completions', next_payload, {'X-ST-Request-ID': 'e' * 32})
-            self.assertEqual(200, status)
             self.assertEqual(2, len(sent))
             # No tool replay, no fabricated result, no model call from finish.
             self.assertEqual(next_messages, sent[1]['messages'][1:])

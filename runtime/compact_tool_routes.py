@@ -27,6 +27,26 @@ CATEGORIES = {
     "vault": ("幻觉黑匣子", ("hold_hallucination_record", "open_hallucination_vault", "transfer_hallucination_record", "review_hallucination_restore")),
 }
 ACTION_CATEGORIES = {name: key for key, (_, names) in CATEGORIES.items() for name in names}
+# Status/manual action names are public aliases, not independent executors.
+# Gateway and MCP must normalize them identically before hashing/claiming.
+SELF_ACTION_ALIASES = {
+    "confirm_brain_intro": "acknowledge", "confirm_module_intro": "acknowledge",
+    "save_calm_prompt": "save_calm_prompt", "submit_candidate": "submit",
+    "accept_candidate_review": "accept_review", "revise_candidate": "revise",
+    "respond_to_objection": "respond_to_objection", "withdraw_candidate": "withdraw",
+    "begin_edit": "begin_edit", "confirm_edit": "confirm_edit", "cancel_edit": "cancel_edit",
+    "recover_candidate": "recover",
+}
+
+
+def compact_action_target(action: str) -> tuple[str, str | None]:
+    if action in SELF_ACTION_ALIASES:
+        return "submit_self_model_candidate", SELF_ACTION_ALIASES[action]
+    if action == "activate_candidate":
+        return "activate_self_model_candidate", None
+    return action, None
+
+
 if len(ACTION_CATEGORIES) != sum(len(names) for _, names in CATEGORIES.values()):
     raise RuntimeError("compact_action_mapping_duplicate")
 
@@ -40,10 +60,18 @@ def resolve_compact_action(envelope: Mapping[str, Any]) -> tuple[str, dict[str, 
         raise CompactRouteError("compact_envelope_invalid")
     action = envelope.get("action")
     arguments = envelope.get("arguments", {})
-    if not isinstance(action, str) or action not in ACTION_CATEGORIES:
+    if not isinstance(action, str):
+        raise CompactRouteError("compact_action_unknown")
+    action, intent = compact_action_target(action)
+    if action not in ACTION_CATEGORIES:
         raise CompactRouteError("compact_action_unknown")
     if not isinstance(arguments, dict) or any(not isinstance(key, str) for key in arguments):
         raise CompactRouteError("compact_arguments_object_required")
     if "execution_ref" in arguments:
         raise CompactRouteError("compact_nested_execution_ref_forbidden")
-    return action, dict(arguments)
+    arguments = dict(arguments)
+    if intent is not None:
+        if "intent" in arguments and arguments["intent"] != intent:
+            raise CompactRouteError("compact_alias_intent_conflict")
+        arguments["intent"] = intent
+    return action, arguments

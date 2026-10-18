@@ -140,6 +140,25 @@ class CompactOpenStateTests(unittest.TestCase):
         )
         self.assertEqual("activate", activated["decision"])
 
+    def test_final_review_page_returns_directly_usable_alias_call(self) -> None:
+        from runtime.compact_tool_routes import resolve_compact_action
+        self.candidate_wait()
+        self.wake("synthetic-call-template-review")
+        opened = self.service.open_brain(view="review")
+        while not opened["review_material_presented"]:
+            self.assertNotIn("next_calls", opened)
+            opened = self.service.open_brain(**opened["next_arguments"])
+        calls = opened["next_calls"]
+        accept = next(item for item in calls if item["arguments"]["action"] == "accept_candidate_review")
+        self.assertEqual([], accept["fill_required"])
+        self.assertEqual(opened["write_context_ref"], accept["arguments"]["arguments"]["write_context_ref"])
+        tool, arguments = resolve_compact_action(accept["arguments"])
+        accepted = getattr(self.service, tool)(**arguments)
+        self.assertEqual("review_accepted", accepted["decision"])
+        # A useful template neither auto-activates nor removes real wake rules.
+        self.assertFalse(any(item["arguments"]["action"] == "activate_candidate" for item in calls))
+        self.assertFalse(self.service.module_one_status()["module_one_unlocked"])
+
     def test_summary_still_requires_current_confirmed_injection(self) -> None:
         unopened = self.runtime_open(present_details=False)
         self.assertFalse(unopened["write_context_available"])

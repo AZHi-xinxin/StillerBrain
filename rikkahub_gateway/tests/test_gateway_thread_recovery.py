@@ -154,14 +154,15 @@ class ThreadRecoveryTests(unittest.TestCase):
         self.assertEqual(before, len(self.control.calls))
         self.assertEqual('b' * 32, self.snapshot()['request_id'])
 
-    def test_idle_snapshot_is_not_a_lease_and_existing_409_still_blocks_another_turn(self):
+    def test_idle_snapshot_is_not_a_lease_but_fresh_human_can_replace_another_turn(self):
         self.app.finish_turn(self.prepared, keep_for_tools=False)
         self.assertEqual('gateway_lane_idle', self.snapshot()['state'])
         other = self.app.prepare_turn(self.payload,
             {**self.headers, 'X-ST-Thread-ID': 'orbis:new-owner', 'X-ST-Request-ID': 'b' * 32})
         self.assertEqual('busy', self.snapshot()['state'])
-        self.assert_code('human_turn_in_progress', lambda: self.app.prepare_turn(self.payload, self.headers))
-        self.assertIs(other.session, self.app._current_session)
+        new = self.app.prepare_turn(self.payload, self.headers)
+        self.assertIsNot(other.session, new.session)
+        self.assertIs(new.session, self.app._current_session)
 
     def test_removed_alias_allows_reattachment_only_to_its_existing_immutable_route(self):
         self.app.routes = {}

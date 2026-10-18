@@ -43,6 +43,7 @@ from .execution_binding import (
     assert_bound_execution,
     assert_no_running_executions,
     expected_execution_wake,
+    supersede_executions_for_human,
 )
 from .execution_profiles import (
     DEFAULT_PROFILE, bind_new_wake, initialize_profiles, validate_profile, wake_profile,
@@ -1552,9 +1553,13 @@ class ModuleOneOnboardingStore:
         source_kind: str,
         source_event_id: str,
         execution_profile: str = DEFAULT_PROFILE,
+        replace_incomplete: bool = False,
     ) -> dict[str, Any]:
         """Idempotently issue one real wake for one stable external event key."""
         execution_profile = validate_profile(execution_profile)
+        if (not isinstance(replace_incomplete, bool) or replace_incomplete and
+                (source_kind != "human_message" or execution_profile != DEFAULT_PROFILE)):
+            raise OnboardingError("human_replacement_invalid")
         owner_id = _require_text("owner_id", owner_id)
         model_id = _require_text("model_id", model_id)
         host_id = _require_text("host_id", host_id)
@@ -1595,13 +1600,22 @@ class ModuleOneOnboardingStore:
             if existing is not None:
                 if wake_profile(connection, existing["wake_id"]) != execution_profile:
                     raise OnboardingError("execution_profile_conflict")
+                if replace_incomplete:
+                    # Retrying an old transport event must never retire its successor
+                    # or start another execution of an already accepted human request.
+                    raise OnboardingError("human_event_already_accepted")
                 result = self._derive_capability_result(existing)
                 result["reused"] = True
                 if execution_profile != DEFAULT_PROFILE:
                     result["execution_profile"] = execution_profile
                 return result
 
-            assert_no_running_executions(connection, owner_id=owner_id, model_id=model_id)
+            replaced_executions = None
+            if replace_incomplete:
+                replaced_executions = supersede_executions_for_human(
+                    connection, owner_id=owner_id, model_id=model_id)
+            else:
+                assert_no_running_executions(connection, owner_id=owner_id, model_id=model_id)
             current = connection.execute(
                 "SELECT wake_id, source_kind FROM brain_wake_sessions "
                 "WHERE owner_id = ? AND model_id = ? "
@@ -1621,7 +1635,7 @@ class ModuleOneOnboardingStore:
                     "row_version=row_version+1 WHERE opened_wake_id=? AND status='consumed'",
                     (now_text, item["wake_id"]),
                 )
-                if item["source_kind"] == DIRECT_CONTEXT_MODE:
+                if replace_incomplete or item["source_kind"] == DIRECT_CONTEXT_MODE:
                     connection.execute(
                         "UPDATE brain_context_snapshots SET status='closed', closed_at=? "
                         "WHERE wake_id=? AND status='prepared'",
@@ -1682,12 +1696,15 @@ class ModuleOneOnboardingStore:
                     "source_event_id_hash": _sha256(source_event_id),
                     "superseded_count": len(current),
                     "superseded_direct_grant_count": superseded_grants,
+                    "replaced_executions": replaced_executions,
                 },
             )
             row = self._wake_row(connection, wake_id)
             assert row is not None
             result = self._derive_capability_result(row)
             result["reused"] = False
+            if replace_incomplete:
+                result["human_replacement"] = "st-human-replacement/1"
             if execution_profile != DEFAULT_PROFILE:
                 result["execution_profile"] = execution_profile
             return result

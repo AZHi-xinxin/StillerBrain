@@ -1,8 +1,8 @@
 {
   "format": "stiller-source-package/1",
   "distribution": "source-available-stable-release",
-  "version": "0.2.0",
-  "base_public_commit": "9a4014fbee44d5490cc9c1840c3121d39048ec5a",
+  "version": "0.2.1",
+  "base_public_commit": "f0693716e2f7ffa1dafa72890a3c94b3fcd538aa",
   "files": [
     {
       "path": ".env.example",
@@ -18,7 +18,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "27fa6cb2d3cdffdbed9ee4eb5d59a5679da444bbc9e682d948f5d3d9fcc38c0d"
+      "sha256": "6eb9ec1545c26aad06dd720557dd3aac1d34e0cd9136c7cc83c9b5a4151458fa"
     },
     {
       "path": "COMMERCIAL-LICENSE.md",
@@ -42,7 +42,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "cf9ce5d7819945681a24043fdf1304bb224ad7b626de4990314ae20cddbe49ce"
+      "sha256": "9501d848da463f76158a35031502573037b4e56cf451fec37a1641c3e5bbcfc6"
     },
     {
       "path": "RELEASE-NOTES-0.2.0-preview.1.md",
@@ -75,6 +75,10 @@
     {
       "path": "RELEASE-NOTES-0.2.0.md",
       "sha256": "08a1c7372dc0e5b9b8b41dfef15a747f7d6a441274d44ad1a851018cc9652a24"
+    },
+    {
+      "path": "RELEASE-NOTES-0.2.1.md",
+      "sha256": "ce62842336375a34b7fcbcc322a225321b806717835c86b4c35953848822541a"
     },
     {
       "path": "RELEASE-NOTES-preview.3.md",
@@ -110,7 +114,7 @@
     },
     {
       "path": "docs/CACHE-TROUBLESHOOTING.md",
-      "sha256": "064923e754736238347b8520007a28c564137202fd643525cf9a979fbb1339fa"
+      "sha256": "da501c7f0c91e430b409ed526b0cc586179e0917c491ea71ce78c6dcac9041cf"
     },
     {
       "path": "docs/CACHE.md",
@@ -134,7 +138,7 @@
     },
     {
       "path": "docs/GUIDE.md",
-      "sha256": "bb04968256cd75a96c742a1d99b71a22bbeff0ffa36ae2a0669ba2b180314c4d"
+      "sha256": "e91a7a716adf50279f644d12a6832daabecbbedc72509b14a4bae160d8325fd9"
     },
     {
       "path": "docs/INSTALL.md",
@@ -222,7 +226,7 @@
     },
     {
       "path": "docs/UPDATE-VALIDATION.md",
-      "sha256": "20910ff29294f67a6a20834eea4229b34c578216b6fe29c6909e115613c50d13"
+      "sha256": "76dd98723a2c605cd910104bc207d8ce6ccc80d258c7c23d7528a31e163d527f"
     },
     {
       "path": "docs/assets/stiller-cover.svg",
@@ -270,11 +274,11 @@
     },
     {
       "path": "mcp_server/compact_tool_dispatch.py",
-      "sha256": "e62594dd773afdc80216fc939aa7af0912da20a349a988e89bccfbfdd68a8927"
+      "sha256": "763f7c1f91cea5efe54327bf8d3a001fcc0d1079710047e385c4394bde95bc99"
     },
     {
       "path": "mcp_server/control_server.py",
-      "sha256": "2b59b21eb516bf96e02bb48f29948b5f012d0a7dfc944cebde0b1c7c34cdc935"
+      "sha256": "070a6004d454da8a52edcbb02de73b4077b786277d16270187089d8e7fe9d47a"
     },
     {
       "path": "mcp_server/daily_argument_metadata.py",
@@ -350,7 +354,7 @@
     },
     {
       "path": "mcp_server/public_contract.py",
-      "sha256": "d37fb3c49a3faefb9dfd642851f1589beb2e109d2ce8c13cde435d0cde475929"
+      "sha256": "9aa75af71339a6e98870c25160b0961824c747157a60cd549ad3e5d7b2e3319b"
     },
     {
       "path": "mcp_server/requirements.txt",
@@ -366,7 +370,7 @@
     },
     {
       "path": "mcp_server/service.py",
-      "sha256": "089dee5f355a107b8508ef9696823404004cbc0b20f45dbbbb8acef568e1299d"
+      "sha256": "1858b00723dae92e46ce1e0b6270100ac7b3fe6de153e4dfd579fcdb9219c774"
     },
     {
       "path": "mcp_server/simple_tool_catalog.py",
@@ -390,11 +394,11 @@
     },
     {
       "path": "mcp_server/tests/test_compact_execution_boundary.py",
-      "sha256": "1d71eda9d595889d9b014cbe60f7edf241c0dda5b94bbc0601f11de107a5cd6c"
+      "sha256": "fc85518e9c06e371f60d8ba1bc566a7d8882432413736ed377f721a0b592a744"
     },
     {
       "path": "mcp_server/tests/test_compact_open.py",
-      "sha256": "560169352543bbd473af8719b57b39581cf1506d12a44a65e0ceea0f230d70e6"
+      "sha256": "52b7a2b03865afea98839943c7d4e1fcc4200bf8c2c33851df669d69e6aa555b"
     },
     {
       "path": "mcp_server/tests/test_compact_open_transport.py",
@@ -583,6 +587,10 @@
     {
       "path": "mcp_server/tests/test_scene_tag_authoring_help.py",
       "sha256": "6371e11ac0bfd996a1c59bd3b7c565d6087c2bce8d98c174183b7361c76b41c0"
+    },
+    {
+      "path": "mcp_server/tests/test_self_action_alias_contract.py",
+      "sha256": "9e2f88187a825f907eac59318b49e4ee00a293ba1304cf3bdd0ed439b51f9d3c"
     },
     {
       "path": "mcp_server/tests/test_self_model_usability_r4h38.py",
@@ -834,7 +842,7 @@
     },
     {
       "path": "rikkahub_gateway/README.md",
-      "sha256": "3e4f6bb1956794fa5a4d92bd2c8ac7c290ec8856750e06a7c067566e4c24d596"
+      "sha256": "e4594615f2dca57b50c9750ca328cec5e5364e547bf62dc17a90764db6e0b18e"
     },
     {
       "path": "rikkahub_gateway/ROUTE_MANAGEMENT.md",
@@ -874,7 +882,7 @@
     },
     {
       "path": "rikkahub_gateway/server.py",
-      "sha256": "8f52c6765a820f8693ca462d20265acf14c2cf7950f152c2743d215e2ebed56b"
+      "sha256": "2d4ede0e55b1fbfc85347d9eb67fcdd95684706cf3a1a386da58c5b466b1c982"
     },
     {
       "path": "rikkahub_gateway/short_term.py",
@@ -913,8 +921,12 @@
       "sha256": "05b5197cf64aa8a745f9a73226ecb5f4c34cd0ba9133dedcba490407448dece7"
     },
     {
+      "path": "rikkahub_gateway/tests/test_fresh_human_replacement.py",
+      "sha256": "da569624cdd0ca5e16b7229341ef93b5a7b4779364b5ec39102024d4f2ae7e2e"
+    },
+    {
       "path": "rikkahub_gateway/tests/test_gateway.py",
-      "sha256": "ae2961739bfbe797088d7c73da8414c8565df91e7d79aa53a31f4270cfadcf8b"
+      "sha256": "201d7f7b2b381c9446f5fe3056384695f98d3ba6987b08cadddda91300c4d2af"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_additional_fields_feedback.py",
@@ -938,7 +950,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_empty_recovery.py",
-      "sha256": "1fe2d34fab9e41c4132231201547e2cfddec25669776f411568630eae28ccd3d"
+      "sha256": "cb27e230a98d5953c988f70857a189ba4520d5388b51f7703d0b195ce5980a7b"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_execution_projection.py",
@@ -946,7 +958,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_execution_recovery.py",
-      "sha256": "3852dd7aa1e4dd81bf50211c4e67fe9770c05af9cacadf70868027cdfe5fe47f"
+      "sha256": "1ad596d16dc6d44e382a3a09f7228da01008d88d8e60c3414dab6d560abb0658"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_failure_observability.py",
@@ -974,7 +986,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_interruption_recovery.py",
-      "sha256": "abddcbc6f7e406c13d42884c0b6a5ff5b9d88a94ab5b27bdf0974536510590b3"
+      "sha256": "4f018854ad1ca8ba70940ed1bf0cb472f96c5c1148caebfa7119d22a5eefd2eb"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_long_stream_limits.py",
@@ -994,23 +1006,23 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_stream_completion.py",
-      "sha256": "ba46db75bfa1c8b142d12c34e190aee5f3ae023b34773c48ff0526254fb7c9bb"
+      "sha256": "98db4b933b975a9a7249bf7aeffc0383e10926b94cda9d354e3fc69218e5fa64"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_terminal_receipt.py",
-      "sha256": "3259ef7e1ee0fb90819e1c9fed9397d1434f0ad413df21922fc4cc6c1acee7c9"
+      "sha256": "ba821fd7012b6a128bf37a83f3abb9f714ef9103654010aa66e17afd0300131f"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_thread_recovery.py",
-      "sha256": "1bacd796e79a414285e6e88b39c4325d4566d0e07b60e08e60d447dc69284346"
+      "sha256": "d4c7f91839777790aca647fec2d6e13975508e2a1db36be9866493b2fce45713"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_tool_tail_limits.py",
-      "sha256": "18ce80735e8d939d186cee4d61675f4fb9c125020df8b78c36ccc5f50bb08af8"
+      "sha256": "a27df66a89de9851b07dd1a948605ed45f9738068ed1a939ff57c68c08d036e4"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_turn_control.py",
-      "sha256": "6c39cc6cb52b4a12af35c913f840b9936081818aceefb160a3098f655720cab7"
+      "sha256": "4e0475765b64865679fc678c4291d448eecc99f35be4ad4c170a49d569ec6a93"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_turn_control_preview3.py",
@@ -1026,7 +1038,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_manual_routes.py",
-      "sha256": "bfb63eb31ac9df588af9fad8bff210c4040a40a71fa1056032e4011b2da8ca81"
+      "sha256": "eebf5199c0fcaccff8b1ba816aaa3ec6721fd0ac9548e19f385310001d8e2065"
     },
     {
       "path": "rikkahub_gateway/tests/test_person_rewrite_validation_guidance.py",
@@ -1074,7 +1086,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_tool_result_wait_timeout.py",
-      "sha256": "221fcb2c78d9241457b6ae59f3826005f8133572b489ff47d28644308a70c0a7"
+      "sha256": "44dfa2ef99242f761d8d4155afe0dea524b51588f63498ec6bce4c8c25b54dd3"
     },
     {
       "path": "rikkahub_gateway/tool_execution.py",
@@ -1098,7 +1110,7 @@
     },
     {
       "path": "runtime/compact_tool_routes.py",
-      "sha256": "3828be67dc776442de515b343c85924c3a5f7765fd934b1e4238cf118d020afc"
+      "sha256": "80bce448713f34595ef95d3643d3d68ed96b92bc4fa1440a9e3e8e56ff562558"
     },
     {
       "path": "runtime/credential_guard.py",
@@ -1118,7 +1130,7 @@
     },
     {
       "path": "runtime/execution_binding.py",
-      "sha256": "07284f823d5cfa65d64cc671d929c422df3036a2903dff6d4b08cbb1c061c8d7"
+      "sha256": "e4635921a7645f6ddf885dadf9d76df26b8a8690fc35fe75f5e78b2a99f9330b"
     },
     {
       "path": "runtime/execution_profiles.py",
@@ -1166,7 +1178,7 @@
     },
     {
       "path": "runtime/onboarding.py",
-      "sha256": "75c4185dec1b621342eba605f9eeb9eb15bb4d7e67f4e94832ffb34e2fcba9cd"
+      "sha256": "be55e132d3f13f0f35e3ee263b136fb643ef96ed8bab6182b3c4109dd5cda3cc"
     },
     {
       "path": "runtime/ordinary_access.py",
@@ -1349,12 +1361,16 @@
       "sha256": "e2672d0e2b0b63ec540def94294f0c9d1f4e79c3954bcbfa5778ddd6e0271124"
     },
     {
+      "path": "source-release-state-0.2.0.json",
+      "sha256": "bd82a0b89e4960f77f77037e7b7b18f635fe91eee7ca61b074e365baaf4a15f4"
+    },
+    {
       "path": "source-release-state-preview.5.json",
       "sha256": "5f21cbf24d9d098a1ee1522268d5763e179958a48fa638eb2a162e9cb5848ab7"
     },
     {
       "path": "source-release-state.json",
-      "sha256": "bd82a0b89e4960f77f77037e7b7b18f635fe91eee7ca61b074e365baaf4a15f4"
+      "sha256": "dcb74f4c1d7a7ddace0847b7af1152fc3b19dffe9fec3e6aa0844ba3e985bfe4"
     },
     {
       "path": "tests/__init__.py",
@@ -1430,7 +1446,7 @@
     },
     {
       "path": "tests/test_execution_binding.py",
-      "sha256": "4d2cd88964c21afca19042b345c9db72baad01aef270282725dbd41b5b941db7"
+      "sha256": "047c334330883492e9acda05048de2678da16ff369e113de9291da2630fe5e75"
     },
     {
       "path": "tests/test_execution_profiles.py",
@@ -1622,7 +1638,7 @@
     },
     {
       "path": "tests/test_usage_consistency_r4h34.py",
-      "sha256": "8d04189667af6b1441068648213d7613554e70f4f01bcbce73b3a307cab13bca"
+      "sha256": "a5bd462b6325670e67307dbbdb2696c918a46ed3a826ec06b96f0ac209c8c999"
     },
     {
       "path": "tests/test_work_memory.py",

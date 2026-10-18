@@ -220,12 +220,15 @@ class AnchoredInterruptionTests(unittest.TestCase):
             {"role": "user", "content": "synthetic fresh human message"}])
 
     def rejected_without_control(self, payload, headers=None):
+        # These adversarial histories are NOT old-tool completion evidence.
+        # They no longer reject fresh human input: replacement does not depend
+        # on this legacy exact-branch proof or attest any old result.
         session = self.app._current_session
         before = len(self.control.calls)
         snapshot = copy.deepcopy(payload)
-        with self.assertRaises(GatewayError) as caught:
-            self.app.prepare_turn(payload, self.headers if headers is None else headers)
-        self.assertEqual("human_turn_in_progress", caught.exception.code)
+        from rikkahub_gateway.server import _normalize_headers, _advertised_tool_catalog
+        self.assertFalse(self.app._anchored_new_human(session, payload["messages"], payload,
+            _normalize_headers(self.headers if headers is None else headers), _advertised_tool_catalog(payload)))
         self.assertIs(session, self.app._current_session)
         self.assertEqual(before, len(self.control.calls))
         self.assertEqual(snapshot, payload)
@@ -239,9 +242,9 @@ class AnchoredInterruptionTests(unittest.TestCase):
         with patch.object(self.app.execution_boundary, "witness_result", side_effect=AssertionError("no result witnessing")):
             new = self.app.prepare_turn(payload, self.headers)
         operations = self.control.calls[before:]
-        self.assertEqual("/v1/host/context/close", operations[0][0])
-        self.assertEqual(old.session.wake_id, operations[0][1]["wake_id"])
-        self.assertEqual("/v1/host/wakes", operations[1][0])
+        self.assertEqual("/v1/host/wakes", operations[0][0])
+        self.assertTrue(operations[0][1]["replace_incomplete"])
+        self.assertFalse(any(path.endswith("/close") for path, _ in operations))
         self.assertNotEqual(old.session.wake_id, new.session.wake_id)
         self.assertFalse(new.continuation)
         self.assertEqual(original_receipts, old.session.host_receipts)
@@ -369,12 +372,13 @@ class AnchoredInterruptionTests(unittest.TestCase):
                     payload["messages"][3]["tool_call_id"] += " "
                 self.rejected_without_control(payload)
 
-    def test_undelivered_wait_and_active_generation_do_not_allow_takeover(self):
+    def test_undelivered_wait_and_active_generation_allow_fresh_human_takeover(self):
         old, calls = self.arm(delivered=False)
-        self.rejected_without_control(self.new_human(calls))
+        new = self.app.prepare_turn(self.new_human(calls), self.headers)
+        self.assertIsNot(old.session, new.session)
         self.app.finish_turn(old, keep_for_tools=False)
-        self.app.prepare_turn(self.payload(), self.headers)
-        self.rejected_without_control(self.new_human(calls))
+        newer = self.app.prepare_turn(self.payload(), self.headers)
+        self.assertIsNot(new.session, newer.session)
 
     def test_unmanaged_close_failure_quarantines_and_exact_retry_can_recover(self):
         old, calls = self.arm()
@@ -382,7 +386,7 @@ class AnchoredInterruptionTests(unittest.TestCase):
         anchor = (old.session.history_anchor_count, old.session.history_anchor_digest)
         self.control.close_failures = 1
         with self.expect_code("tool_wait_recovery_in_progress"):
-            self.app.prepare_turn(payload, self.headers)
+            self.app._abandon_delivered_wait(old.session)
         self.assertEqual(1, self.control.seq)
         self.assertTrue(old.session.recovery_pending)
         self.assertEqual(anchor, (old.session.history_anchor_count, old.session.history_anchor_digest))
@@ -396,7 +400,7 @@ class AnchoredInterruptionTests(unittest.TestCase):
         old, calls = self.arm()
         self.control.close_decision = "not_confirmed"
         with self.expect_code("tool_wait_recovery_in_progress"):
-            self.app.prepare_turn(self.new_human(calls), self.headers)
+            self.app._abandon_delivered_wait(old.session)
         self.assertIs(old.session, self.app._current_session)
         self.assertEqual(1, self.control.seq)
 
@@ -406,22 +410,16 @@ class AnchoredInterruptionTests(unittest.TestCase):
         self.tools.append(schema("stbrain_open", {"execution_ref": marker}))
         self.calls.append(NativeToolCall("synthetic-managed-open", "stbrain_open", "{}"))
 
-    def test_running_st_claim_prevents_new_wake_until_confirmed_drain(self):
+    def test_running_st_claim_does_not_hold_fresh_human_wake(self):
         self.use_managed_call()
         old, calls = self.arm()
         payload = self.new_human(calls[:1])
         self.control.running = 1
-        with self.expect_code("tool_wait_recovery_in_progress"):
-            self.app.prepare_turn(payload, self.headers)
-        self.assertIs(old.session, self.app._current_session)
-        self.assertTrue(old.session.recovery_pending)
-        self.assertFalse(old.session.execution_batch_closed)
-        self.assertEqual(1, self.control.seq)
-        self.assertFalse(any(path == "/v1/host/context/close" for path, _ in self.control.calls))
-        self.control.running = 0
         new = self.app.prepare_turn(payload, self.headers)
-        self.assertTrue(old.session.execution_batch_closed)
         self.assertIsNot(old.session, new.session)
+        self.assertEqual(1, self.control.running)  # No false claim of physical cancellation.
+        self.assertEqual(2, self.control.seq)
+        self.assertFalse(any(path.endswith(("/close", "/revoke", "/status")) for path, _ in self.control.calls))
 
     def test_managed_close_response_loss_retries_exact_close_without_new_revoke(self):
         self.use_managed_call()
@@ -429,10 +427,10 @@ class AnchoredInterruptionTests(unittest.TestCase):
         self.control.close_failures = 1
         payload = self.new_human(calls)
         with self.expect_code("tool_wait_recovery_in_progress"):
-            self.app.prepare_turn(payload, self.headers)
+            self.app._abandon_delivered_wait(old.session)
         self.assertTrue(old.session.execution_batch_closed)
         self.assertEqual(1, sum(path.endswith("/revoke") for path, _ in self.control.calls))
-        self.app.prepare_turn(payload, self.headers)
+        self.app._abandon_delivered_wait(old.session)
         self.assertEqual(1, sum(path.endswith("/revoke") for path, _ in self.control.calls))
         self.assertEqual(2, sum(path == "/v1/host/context/close" for path, _ in self.control.calls))
 
@@ -697,7 +695,7 @@ class AnchoredInterruptionTests(unittest.TestCase):
         old, calls = self.arm()
         self.control.running = 1
         with self.expect_code("tool_wait_recovery_in_progress"):
-            self.app.prepare_turn(self.new_human(calls[:1]), self.headers)
+            self.app._abandon_delivered_wait(old.session)
         timer = old.session.recovery_timer
         self.assertEqual(5.0, timer.interval)
         self.assertTrue(timer.started)
@@ -719,7 +717,7 @@ class AnchoredInterruptionTests(unittest.TestCase):
         old, calls = self.arm()
         self.control.close_failures = 1
         with self.expect_code("tool_wait_recovery_in_progress"):
-            self.app.prepare_turn(self.new_human(calls), self.headers)
+            self.app._abandon_delivered_wait(old.session)
         self.assertIsNone(old.session.execution_batch_id)
         timer = old.session.recovery_timer
         before = len(self.control.calls)
@@ -734,7 +732,7 @@ class AnchoredInterruptionTests(unittest.TestCase):
         old, calls = self.arm()
         self.control.close_failures = 1
         with self.expect_code("tool_wait_recovery_in_progress"):
-            self.app.prepare_turn(self.new_human(calls), self.headers)
+            self.app._abandon_delivered_wait(old.session)
         timer = old.session.recovery_timer
         self.rejected_without_control(self.new_human(calls), {"X-ST-Thread-ID": "synthetic-thread-B"})
         self.assertIs(timer, old.session.recovery_timer)
@@ -744,7 +742,7 @@ class AnchoredInterruptionTests(unittest.TestCase):
         old, calls = self.arm()
         self.control.close_failures = 1
         with self.expect_code("tool_wait_recovery_in_progress"):
-            self.app.prepare_turn(self.new_human(calls), self.headers)
+            self.app._abandon_delivered_wait(old.session)
         old_timer = old.session.recovery_timer
         old_timer.fire()
         current = self.app.prepare_turn(self.payload([{"role": "user", "content": "synthetic later human"}]),

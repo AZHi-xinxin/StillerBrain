@@ -36,9 +36,9 @@ class ExecutionBindingTests(unittest.TestCase):
         self.batch = {**self.common, "wake_id": self.wake["wake_id"],
                       "wake_capability": self.wake["wake_capability"], "batch_id": "synthetic-batch", "revision": 1}
 
-    def new_wake(self, event):
+    def new_wake(self, event, **options):
         wake = self.onboarding.issue_wake(**self.common, host_id="synthetic-host", thread_id="synthetic-thread",
-                                         source_kind="human_message", source_event_id=event)
+                                         source_kind="human_message", source_event_id=event, **options)
         prepared = self.onboarding.build_pre_generation_context(
             **self.common, wake_id=wake["wake_id"], wake_capability=wake["wake_capability"],
             source_digest="synthetic-source", host_contract_digest="synthetic-contract", advertised_tools=self.catalog)
@@ -80,6 +80,70 @@ class ExecutionBindingTests(unittest.TestCase):
                 action()
         self.store.finish(claim)
         self.assertEqual("closed", self.close()["decision"])
+
+    def test_fresh_human_supersedes_running_and_issued_without_draining(self):
+        refs = self.issue(2)
+        claim = self.claim(refs[0])
+        replacement = self.new_wake("fresh-human-B", replace_incomplete=True)
+        self.assertEqual("st-human-replacement/1", replacement["human_replacement"])
+        with self.store.bind(claim):
+            with self.assertRaisesRegex(ExecutionBindingError, "execution_claim_not_current"):
+                self.onboarding.open_brain_context(**self.common, present_details=False)
+        with self.assertRaises(ExecutionBindingError):
+            self.claim(refs[1])
+        self.store.finish(claim)
+        with self.store._connect() as connection:
+            self.assertEqual(["orphaned", "revoked"], [r[0] for r in connection.execute(
+                "SELECT status FROM brain_execution_calls ORDER BY call_id")])
+            self.assertEqual(replacement["wake_id"], connection.execute(
+                "SELECT wake_id FROM brain_wake_sessions WHERE status='current'").fetchone()[0])
+        self.batch.update(wake_id=replacement["wake_id"], wake_capability=replacement["wake_capability"],
+                          batch_id="new-batch")
+        result = self.store.issue_batch(**self.batch, calls=[{
+            "call_id": "fresh-call", "advertised_name": "stbrain_open", "canonical_tool": "stbrain_open",
+            "schema_hash": self.schema_hash, "catalog_hash": self.catalog["catalog_hash"],
+            "arguments_hash": canonical_hash({})}])
+        fresh = self.claim(result["executions"][0]["execution_ref"])
+        with self.store.bind(fresh):
+            self.assertTrue(self.onboarding.open_brain_context(**self.common, present_details=False)["write_context_available"])
+
+    def test_replacement_is_atomic_and_retains_completed_tool_receipts(self):
+        refs = self.issue(2)
+        completed = self.claim(refs[0])
+        self.store.finish(completed)
+        running = self.claim(refs[1])
+        # Failure after updates but before commit must leave the old owner intact.
+        with patch.object(self.onboarding, "_insert_event", side_effect=RuntimeError("synthetic commit failure")):
+            with self.assertRaisesRegex(RuntimeError, "synthetic commit failure"):
+                self.new_wake("rollback-human", replace_incomplete=True)
+        self.assertEqual(1, self.store.batch_status(**self.batch)["counts"]["running"])
+        with self.store.bind(running):
+            self.assertTrue(self.onboarding.open_brain_context(**self.common, present_details=False)["write_context_available"])
+        self.new_wake("rollback-human", replace_incomplete=True)
+        with self.store._connect() as connection:
+            self.assertEqual(["completed", "orphaned"], [r[0] for r in connection.execute(
+                "SELECT status FROM brain_execution_calls ORDER BY call_id")])
+
+    def test_replacement_does_not_replay_duplicate_event_or_retire_another_owner(self):
+        self.claim(self.issue()[0])
+        self.onboarding.issue_wake(owner_id="other", model_id="other", host_id="other", thread_id="other",
+            source_kind="human_message", source_event_id="other", replace_incomplete=True)
+        self.assertEqual(1, self.store.batch_status(**self.batch)["counts"]["running"])
+        fresh = self.new_wake("fresh-human-C", replace_incomplete=True)
+        from runtime.onboarding import OnboardingError
+        for event in ("synthetic-A", "fresh-human-C"):
+            with self.assertRaisesRegex(OnboardingError, "human_event_already_accepted"):
+                self.new_wake(event, replace_incomplete=True)
+        with self.store._connect() as connection:
+            self.assertEqual("current", connection.execute(
+                "SELECT status FROM brain_wake_sessions WHERE wake_id=?", (fresh["wake_id"],)).fetchone()[0])
+
+    def test_replacement_rejects_automatic_origin_and_invalid_flag(self):
+        from runtime.onboarding import OnboardingError
+        for source, flag in (("notification", True), ("human_message", "true"), ("human_message", 1)):
+            with self.assertRaisesRegex(OnboardingError, "human_replacement_invalid"):
+                self.onboarding.issue_wake(**self.common, host_id="synthetic-host", thread_id="synthetic-thread",
+                    source_kind=source, source_event_id="bad-replacement", replace_incomplete=flag)
 
     def test_revoke_waits_for_running_and_revokes_unclaimed(self):
         refs = self.issue(2)

@@ -12,6 +12,7 @@ MANAGE_TOOL = "stbrain_manage"
 DISCOVERY_TOOL = "stbrain_tools"
 CATEGORIES = {
     "feelings": ("自定义情绪词表与跨脑情绪标签", ("emotion_list", "emotion_manage", "memory_emotions")),
+    "desires": ("欲望：情感记忆上的可选短备注", ("memory_desires",)),
     "images": ("记忆图片：真实原图与描述，显式存取，不自动浮现", ("store_memory_image", "list_memory_images", "read_memory_image", "remove_memory_image")),
     "relations": ("真实记忆关系：显式连接、解除、一跳查询", ("attach_memory_relation", "detach_memory_relation", "read_memory_relations")),
     "system": ("状态与手册", ("stbrain_health", "stbrain_help", "stbrain_open", "stbrain_open_direct")),

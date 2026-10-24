@@ -322,8 +322,9 @@ class UsageConsistencyTests(unittest.TestCase):
 
     def test_daily_contract_requires_only_content(self):
         functions = tool_functions()
-        self.assertEqual(58, len(functions))  # 57 public actions (including 3 emotion tools) plus host-only image transport.
-        self.assertEqual(58, len({node.name for node in functions}))
+        self.assertEqual(59, len(functions))  # 58 public actions plus host-only image transport.
+        self.assertEqual(59, len({node.name for node in functions}))
+        self.assertIn("memory_desires", {node.name for node in functions})
         self.assertTrue({"emotion_list", "emotion_manage", "memory_emotions"} <= {node.name for node in functions})
         daily = next(node for node in functions if node.name == "remember_memory")
         required = len(daily.args.args) - len(daily.args.defaults)

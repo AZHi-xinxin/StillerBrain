@@ -57,6 +57,8 @@ from .emotion_layer_service import EmotionLayerAccessService
 from runtime.memory_images import MemoryImageStore, MAX_BASE64, MAX_MCP_REQUEST_BYTES
 from runtime.memory_image_uploads import UPLOAD_REF_PATTERN
 from .memory_image_service import MemoryImageAccessService
+from .memory_desire_service import MemoryDesireAccessService
+from runtime.memory_desires import MemoryDesireStore
 from .execution_guard import install_execution_guard
 from .usage_guide import module_usage_guide, usage_guide
 from runtime.execution_binding import ExecutionStore
@@ -482,6 +484,10 @@ memory_image_service = MemoryImageAccessService(
 )
 
 
+memory_desire_service = MemoryDesireAccessService(MemoryDesireStore(DATABASE), onboarding=onboarding,
+    owner_id=OWNER_ID, model_id=MODEL_ID, protected_values=(MCP_TOKEN, WAKE_SECRET))
+
+
 def _catalog_provider(binding: Any | None = None) -> dict[str, Any] | None:
     if isinstance(binding, dict) and isinstance(binding.get("advertised_tools"), dict):
         return binding["advertised_tools"]
@@ -673,6 +679,24 @@ async def stage_memory_image_upload(
 
 
 @mcp.tool()
+async def memory_desires(action: StrictStr = "list", memory_ref: StrictStr | None = None,
+    text: StrictStr | None = None, expected_revision: StrictInt | None = None,
+    offset: StrictInt = 0, limit: StrictInt = 20, write_context_ref: str | None = None) -> dict[str, Any]:
+    """情感记忆上可选的想做之事，200字内。action=list/read/put/archive/restore/delete/plan_draft/guide。
+    新增/改写用put，memory_ref填当前emotion://id@版本，text为备注；expected_revision可选，用于避免覆盖旧版本。
+    archive只归档欲望，父记忆仍参与浮现；delete清空当前备注，旧版本留痕。
+    list每页最多50条；plan_draft只给规划脑调用草稿，不自动声称已建计划，保存成功后再归档。
+    浮现仅随已获准公开原文且检索分数大于0.8的父记忆；归档项仅短标记。
+    至少10条未归档时提醒；分数是检索相似度而非准确率。guide可读完整说明。
+    新记忆也可用remember_memory的可选desire字段一次保存，省略不影响原有流程。
+    In simple-memory-v1, writes remain read-only before the first module-one activation.
+    After activation, direct MCP and gateway callers use internal context for this mechanical module;
+    no extra author confirmation is required. Legacy mode retains its authorized context.
+    """
+    return memory_desire_service.manage(action,memory_ref,text,expected_revision,offset,limit,write_context_ref)
+
+
+@mcp.tool()
 async def store_memory_image(
     target_ref: Annotated[StrictStr, StringConstraints(min_length=1, max_length=300)],
     description: Annotated[StrictStr, StringConstraints(min_length=1, max_length=2000)],
@@ -689,7 +713,7 @@ async def store_memory_image(
     提交真实 data_base64。两项恰选一项；宿主在工具获准后上传原件，不能改写本调用参数。
     不接受 URL 或服务器路径；PNG/JPEG/WebP 单帧，最多 4 MiB、2000 万像素。
     原图与 EXIF 原样保留，描述不是自动视觉识别。勿上传密钥截图或不愿留存的定位信息。
-    不加入日常浮现或模型常驻上下文。按需 list/read_memory_image 取回。
+    原图不加入日常浮现；已召回记忆可在剩余预算内带“有图”及按需读取提示。按需 list/read_memory_image 取回。
     simple-memory-v1 激活后沿用目标原模块权限；legacy 保留该模块真实授权上下文。
     首版不支持敏感原图确认：intimate/restricted 或原文策略 never 的目标统一拒绝。
     不改原记忆或旧图片。同一 request_id 仅用于同一不确定重试；已移除的旧请求不会复活。
@@ -957,6 +981,7 @@ async def remember_memory(
     due_at: str | None = None, timezone: str = "UTC",
     rewrite_receipt: StrictStr | None = None,
     emotions: list[StrictStr] | None = None,
+    desire: StrictStr | None = None,
 ) -> dict[str, Any]:
     """日常存入：remember_memory(content="想留下的原文")，只需 content。
 
@@ -969,6 +994,7 @@ async def remember_memory(
     未标注的情绪为 other、重要度为 50，来源 unmarked、可信度 null，
     不表示独立核验或把普通片段判成重要对话。以回执的 module、ref 和 input_warnings 核对结果。
     keywords 可给短语数组或兼容字符串；不必为了存入临时编一组标签。
+    desire为可选欲望备注，依附情感记忆、最多200字，空或省略不影响存入。用memory_desires管理/归档，原文保留。
     emotions 是另外可选的自定义感觉名字/id数组，不是旧 emotion 分类字段；
     名称由 AI 自己管理，存入回执返回可用名称，同标签可以在以后命中时连带短摘要。
 
@@ -1005,13 +1031,14 @@ async def remember_memory(
     scenario_tags 仍只用于公布这些字段的专用工具。自动召回受已有记录、模式、
     预算与授权限制；存入不保证每轮浮现，也不强制任何模型优先使用 ST。
     """
-    return emotion_layer_service.remember(daily_service.remember, dict(
+    fields_for_desire = {"module": module, "content": content, "kind": kind, "parent_ref": parent_ref, "due_at": due_at, "rewrite_receipt": rewrite_receipt, "write_context_ref": write_context_ref}
+    return memory_desire_service.remember(lambda: emotion_layer_service.remember(daily_service.remember, dict(
         module=module, content=content, title=title, summary=summary, kind=kind,
         track=track, keywords=keywords, importance=importance, emotion=emotion,
         source_basis=source_basis, confidence=confidence, reason=reason,
         write_context_ref=write_context_ref, parent_ref=parent_ref,
         due_at=due_at, timezone=timezone, rewrite_receipt=rewrite_receipt,
-    ), emotions=emotions)
+    ), emotions=emotions), fields_for_desire, desire=desire)
 
 
 @mcp.tool()
@@ -1408,6 +1435,7 @@ async def remember_emotional_memory(
     source_timestamp: StrictStr | None = None,
     rewrite_receipt: StrictStr | None = None,
     emotions: list[StrictStr] | None = None,
+    desire: StrictStr | None = None,
 ) -> dict[str, Any]:
     """Advanced emotional-memory creation with explicit policies and context.
 
@@ -1435,7 +1463,7 @@ async def remember_emotional_memory(
     emotions separately accepts optional AI-authored feeling names/ids. These
     cross-brain tags do not change sensitivity or automatic-recall policy.
     """
-    return emotion_layer_service.remember_emotional(emotional_service.remember, dict(
+    return memory_desire_service.remember(lambda: emotion_layer_service.remember_emotional(emotional_service.remember, dict(
         write_context_ref=write_context_ref,
         expected_emotion_version=expected_emotion_version,
         memory_type=memory_type,
@@ -1460,7 +1488,7 @@ async def remember_emotional_memory(
         source_timestamp=source_timestamp,
         reason=reason,
         rewrite_receipt=rewrite_receipt,
-    ), emotions=emotions)
+    ), emotions=emotions), {"write_context_ref": write_context_ref}, desire=desire, tool="remember_emotional_memory")
 
 
 @mcp.tool()

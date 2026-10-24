@@ -13,6 +13,7 @@ import jsonschema
 
 
 EXPECTED_PUBLIC_TOOLS = {
+    "memory_desires",
     "emotion_list",
     "emotion_manage",
     "memory_emotions",

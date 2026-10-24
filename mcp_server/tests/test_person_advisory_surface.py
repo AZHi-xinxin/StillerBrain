@@ -253,7 +253,7 @@ async def probe():
             before = row_counts()
             listed = await server.mcp.list_tools()
             assert row_counts() == before, 'tools/list wrote synthetic store rows'
-            assert len(listed) == 60, 'registered tool count changed'
+            assert len(listed) == 61, 'registered tool count changed'
             for tool in listed:
                 assert tool.inputSchema == server.mcp._tool_manager.get_tool(tool.name).parameters
                 if tool.name in AUTHORING_RESULT_TOOLS:

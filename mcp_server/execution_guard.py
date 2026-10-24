@@ -85,7 +85,7 @@ def install_execution_guard(mcp: Any, *, store: ExecutionStore, onboarding: Any,
     def is_direct(name: str, args: dict[str, Any]) -> bool:
         ref = args.get("write_context_ref")
         scope = _DIRECT_SCOPES.get(name)
-        if name in {"remember_memory", "store_memory_image", "remove_memory_image", "memory_emotions"}:
+        if name in {"remember_memory", "store_memory_image", "remove_memory_image", "memory_emotions", "memory_desires"}:
             from runtime.ordinary_access import tool_scope
             scope = tool_scope(name, args)
         if name in {"revise_memory", "advance_plan"}:

@@ -37,7 +37,7 @@ async def probe():
             return [line for line in db.iterdump() if "memory_relation_" not in line]
 
     tools = server.mcp._tool_manager.list_tools()
-    check(len(tools) == 60, "existing tools, three feeling tools and host-only image transport remain registered")
+    check(len(tools) == 61, "existing tools, three feeling tools and host-only image transport remain registered")
     for name in ("attach_memory_relation", "detach_memory_relation", "read_memory_relations"):
         tool = server.mcp._tool_manager.get_tool(name)
         check(tool is not None and "execution_ref" in tool.parameters["properties"], "claim-aware:" + name)

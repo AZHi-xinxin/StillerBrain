@@ -50,8 +50,8 @@ class DailyContentOnlySchemaTests(unittest.TestCase):
         self.assertEqual(13, proof["accepted_signature_cases"])
         self.assertEqual(10, proof["rejected_signature_cases"])
         self.assertEqual(0, proof["network_attempts"])
-        self.assertEqual(61, proof["registered_tools"])
-        self.assertEqual(60, proof["manager_listed_tools"])
+        self.assertEqual(62, proof["registered_tools"])
+        self.assertEqual(61, proof["manager_listed_tools"])
 
 
 async def probe():

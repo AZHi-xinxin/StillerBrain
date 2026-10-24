@@ -15,6 +15,7 @@ ORDINARY_SCOPES = frozenset({
     'self_governance', 'injection_control', 'shared_person_authoring', 'memory_relations', 'emotion_layer',
 })
 ORDINARY_TOOLS = {
+    "memory_desires": "emotional_memory",
     'emotion_list': 'emotion_layer', 'emotion_manage': 'emotion_layer',
     **dict.fromkeys(('attach_memory_relation', 'detach_memory_relation', 'read_memory_relations'), 'memory_relations'),
     **dict.fromkeys(('remember_work_memory', 'recall_work_memory', 'revise_work_memory'), 'learning_memory'),

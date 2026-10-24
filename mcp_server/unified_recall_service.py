@@ -22,6 +22,7 @@ from typing import Any
 
 from runtime.credential_guard import contains_credential_or_secret
 from runtime.lexical_retrieval import explicit_alias_match
+from runtime.memory_image_recall import image_attachment_hint
 from runtime.tool_guidance import _checked_version_content, _scene_score
 
 
@@ -146,6 +147,11 @@ class UnifiedRecallAccessService:
                             if error not in errors:
                                 errors.append(error)
                             continue
+                        if not item.get('content_stub'):
+                            hint = image_attachment_hint(connections[path], owner_id=self.owner_id,
+                                model_id=self.model_id, target_ref=item['ref'])
+                            if hint is not None:
+                                item = {**item, 'images': hint}
                         safe.append(item)
                     stamps[name] = _digest([fingerprint, safe])
                     items.extend(safe)

@@ -25,7 +25,8 @@ async def probe():
         fixture.bootstrap_live()
         common = {"owner_id": server.OWNER_ID, "model_id": server.MODEL_ID}
         tools = server.mcp._tool_manager.list_tools()
-        assert len(tools) == 60  # Public operations, including three feeling tools, plus host-only image transport.
+        assert len(tools) == 61  # Includes guarded desires and host-only image transport.
+        assert 'memory_desires' in {t.name for t in tools}
         tool = server.mcp._tool_manager.get_tool("remember_memory")
         assert tool.parameters["required"] == ["content"]
         assert "execution_ref" in tool.parameters["properties"]
@@ -47,11 +48,13 @@ async def probe():
             return result
         async def bound_call(name, args, label):
             current_tool = server.mcp._tool_manager.get_tool(name)
+            from runtime.compact_tool_routes import resolve_compact_action
+            target, inner = resolve_compact_action(args) if name == "stbrain_manage" else (name, args)
             issued = registry.issue_batch(**common, wake_id=wake["wake_id"], wake_capability=wake["wake_capability"],
                 batch_id="synthetic-" + label, revision=1, calls=[{
-                    "call_id": "synthetic-" + label, "advertised_name": name, "canonical_tool": name,
+                    "call_id": "synthetic-" + label, "advertised_name": name, "canonical_tool": target,
                     "schema_hash": canonical_hash(current_tool.parameters), "catalog_hash": catalog["catalog_hash"],
-                    "arguments_hash": canonical_hash(args)}])
+                    "arguments_hash": canonical_hash(inner)}])
             return await call(name, {**args, "execution_ref": issued["executions"][0]["execution_ref"]})
         help_result = await call("stbrain_help", {})
         assert help_result["state_changed"] is False
@@ -69,6 +72,15 @@ async def probe():
             result = await call("remember_memory", args)
             assert result["decision"] == "stored", result
             assert result["count"] == 1 and result["state_changed"] is True
+            if module == "emotional_memory":
+                desire_args = {"action": "put", "memory_ref": result["ref"], "text": "Synthetic signed wish", "expected_revision": 0}
+                no_lease = await call("memory_desires", desire_args)
+                assert no_lease["decision"] == "reject", no_lease
+                wish = await bound_call("memory_desires", desire_args, "desire-write")
+                assert wish["state_changed"] is True and wish["desire"]["text"] == "Synthetic signed wish", wish
+                archived = await bound_call("stbrain_manage", {"action": "memory_desires", "arguments": {
+                    "action": "archive", "memory_ref": result["ref"], "expected_revision": 1}}, "desire-compact-archive")
+                assert archived.get("desire", {}).get("state") == "archived", archived
             assert "write_context_ref" not in result
             replay = await call("remember_memory", args)
             assert replay["decision"] == "reject"
@@ -114,7 +126,7 @@ async def probe():
                     "expected_event_seq": sequence, "event_type": "resume", "note": "Stale resume"}, "stale-event")
                 assert stale_event["decision"] == "reject" and stale_event["state_changed"] is False, stale_event
             results.append(module)
-        return {"decision": "PASS", "modules": results, "registered_tool_count": 60,
+        return {"decision": "PASS", "modules": results, "registered_tool_count": len(await server.mcp.list_tools()),
                 "single_native_call_per_memory": True, "replays_rejected": True,
                 "single_revision_per_module": True, "stale_targets_rejected": True,
                 "plan_event_cas_verified": True,

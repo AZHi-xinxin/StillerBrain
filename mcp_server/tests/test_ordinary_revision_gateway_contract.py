@@ -148,7 +148,7 @@ async def probe(mode):
 
         common = {'owner_id': server.OWNER_ID, 'model_id': server.MODEL_ID}
         tools = server.mcp._tool_manager.list_tools()
-        assert len(tools) == 60  # Includes three feeling tools and the host-only image transport.
+        assert len(tools) == 61  # Includes three feeling tools and the host-only image transport.
         schemas = {tool.name: copy.deepcopy(tool.parameters) for tool in tools}
         entries = [{'canonical_name': name, 'schema_hash': canonical_hash(schema)}
                    for name, schema in schemas.items()]

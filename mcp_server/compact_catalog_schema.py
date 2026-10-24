@@ -26,6 +26,7 @@ _DESCRIPTIONS = {
         "来源/可信度未填为未标注，不猜正文或编标签；回执会给出实际模块与归一化提示。"
         "模块一首次激活前只读，激活后普通直连和网关均省略 write_context_ref；旧模式保留原授权。"
         "rewrite_receipt 可选，仅接受已确认且字段一致的情感/学习回执，不自动改写。"
+        "desire可选，情感记忆上200字内的想做之事；memory_desires可增改归档，父记忆保留。"
         "emotions可选，填写自定义情绪名字/id；emotion_list与emotion_manage管理，存入回执给可用名称。"
         "仅真实 stored 回执表示保存成功，计划不授予外部操作权限。"
     ),
@@ -84,6 +85,7 @@ _FIELD_DESCRIPTIONS = {
         "keywords": "可省略、null或空；可给短语数组、JSON数组字符串或分隔短语，不自动编造标签。",
         "kind": "可省略、null或空；moment/event兼容shared_event；其他非标准分类回到模块默认并提示，不拒绝正文。",
         "emotion": "可省略、null或空，默认other；无法识别的感受保守归other并提示，不猜测情绪。",
+        "desire": "可选欲望备注，情感记忆上最多200字；省略不影响存入，用memory_desires管理。",
         "emotions": "可选的自定义情绪名称/id数组；与正文同事务保存，省略不打标签。",
         "importance": "可省略、null或空，默认50；可填0–100整数或等值数字字符串/整数值小数，不接受布尔。",
         "rewrite_receipt": "已确认的一次性改写回执；仅情感/学习，字段须与确认结果一致。",

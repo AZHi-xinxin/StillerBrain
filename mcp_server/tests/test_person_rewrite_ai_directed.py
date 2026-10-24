@@ -228,7 +228,7 @@ async def native_probe():
             assert json.loads(blocks[0].text) == result
             return result
         tools = {tool.name: tool for tool in await server.mcp.list_tools()}
-        assert len(tools) == 60  # Includes three feeling tools and the host-only image transport.
+        assert len(tools) == 61  # Includes three feeling tools and the host-only image transport.
         preview_schema = tools["preview_person_reference_rewrite"].inputSchema
         confirm_schema = tools["confirm_person_reference_rewrite"].inputSchema
         assert set(preview_schema["required"]) == {"module", "draft_fields", "rewrite_targets"}

@@ -40,6 +40,7 @@ BRAIN_MANUAL_MODULES = (
 )
 
 PUBLIC_TOOL_NAMES: tuple[str, ...] = (
+    "memory_desires",
     "emotion_list", "emotion_manage", "memory_emotions",
     "store_memory_image",
     "list_memory_images",

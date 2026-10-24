@@ -31,6 +31,8 @@ from .self_revision import (
 )
 from .emotional_memory import EmotionalMemoryStore
 from .mixed_recall import select_mixed_recall
+from .memory_image_recall import append_image_hints
+from .memory_desires import append_desire_recall
 from .facet_selection import append_facet_projection
 from . import session_continuity
 from .self_model_review import ReviewPageError, prepare_review_page, record_review_page
@@ -3025,6 +3027,12 @@ class ModuleOneOnboardingStore:
                                 "pointer_changed": False,
                             }
                     dynamic = candidate_dynamic
+
+                if automatic_scope_enabled("emotional_memory"):
+                    dynamic = append_desire_recall(connection, owner_id=owner_id, model_id=model_id, dynamic=dynamic,
+                        estimate_tokens=_estimate_tokens, budget=1200)
+                dynamic = append_image_hints(connection, owner_id=owner_id, model_id=model_id,
+                    dynamic=dynamic, estimate_tokens=_estimate_tokens, budget=1200)
 
                 # No related recall can remain quiet. Keep the AI-authored
                 # governance above, but do not add a host-written save/reflection

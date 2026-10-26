@@ -10,7 +10,9 @@ from .memory_relations import MemoryRelationStore, MemoryRelationError, _ddl, _n
 GUIDE = ("欲望是依附情感记忆的可选想法，最多200字；不填也可正常存入。"
          "可改写、删除、归档或恢复，归档不删除父记忆。只在该记忆已获准浮现且检索分数大于0.8时附带；"
          "这是检索阈值，不是80%准确率。至少10条未归档时给出简短提醒。"
-         "要形成计划，可先用plan_draft取得草稿，调用规划脑保存成功后再归档欲望。")
+         "要形成计划，可先用plan_draft取得草稿，调用规划脑保存成功后再归档欲望。"
+         "pin/unpin可置顶或取消置顶任意已有欲望，列表优先显示；归档仍保留置顶，删除会取消。"
+         "置顶不改变父记忆、核心身份、检索分数或浮现条件，也不会强制常驻模型输入。")
 ITEM_SQL = """CREATE TABLE IF NOT EXISTS memory_desires (
  owner_id TEXT NOT NULL, model_id TEXT NOT NULL, memory_id TEXT NOT NULL,
  text TEXT NOT NULL CHECK(length(text)<=200), state TEXT NOT NULL CHECK(state IN ('active','archived','deleted')),
@@ -20,7 +22,18 @@ HISTORY_SQL = """CREATE TABLE IF NOT EXISTS memory_desire_history (
  owner_id TEXT NOT NULL, model_id TEXT NOT NULL, memory_id TEXT NOT NULL,
  revision INTEGER NOT NULL, text TEXT NOT NULL, state TEXT NOT NULL, updated_at TEXT NOT NULL,
  PRIMARY KEY(owner_id,model_id,memory_id,revision))"""
-DDL = {"memory_desires": ITEM_SQL, "memory_desire_history": HISTORY_SQL}
+PIN_SQL = """CREATE TABLE IF NOT EXISTS memory_desire_pins (
+ owner_id TEXT NOT NULL, model_id TEXT NOT NULL, memory_id TEXT NOT NULL,
+ pinned INTEGER NOT NULL CHECK(pinned IN (0,1)),
+ PRIMARY KEY(owner_id,model_id,memory_id))"""
+PIN_HISTORY_SQL = """CREATE TABLE IF NOT EXISTS memory_desire_pin_history (
+ owner_id TEXT NOT NULL, model_id TEXT NOT NULL, memory_id TEXT NOT NULL,
+ revision INTEGER NOT NULL CHECK(revision>=1), pinned INTEGER NOT NULL CHECK(pinned IN (0,1)),
+ updated_at TEXT NOT NULL,
+ PRIMARY KEY(owner_id,model_id,memory_id,revision))"""
+LEGACY_DDL = {"memory_desires": ITEM_SQL, "memory_desire_history": HISTORY_SQL}
+PIN_DDL = {"memory_desire_pins": PIN_SQL, "memory_desire_pin_history": PIN_HISTORY_SQL}
+DDL = {**LEGACY_DDL, **PIN_DDL}
 _PENDING = ContextVar("pending_memory_desire", default=None)
 
 class DesireError(EmotionLayerError):
@@ -53,17 +66,24 @@ class MemoryDesireStore(MemoryRelationStore):
         self.database = str(Path(database).resolve())
         with self._connection(write=True) as db:
             db.execute("BEGIN IMMEDIATE")
-            found = db.execute("SELECT name FROM sqlite_master WHERE name IN (?,?)", tuple(DDL)).fetchall()
+            found = {row[0] for row in db.execute(
+                "SELECT name FROM sqlite_master WHERE name IN (?,?,?,?)", tuple(DDL)).fetchall()}
             if not found:
                 for sql in DDL.values(): db.execute(sql)
+            elif found == set(LEGACY_DDL):
+                # Add metadata only after verifying the intact older schema.
+                self._schema(db, LEGACY_DDL)
+                for sql in PIN_DDL.values(): db.execute(sql)
             self._schema(db); db.commit()
 
     @staticmethod
-    def _schema(db):
-        for name, sql in DDL.items():
+    def _schema(db, ddl=None):
+        ddl = DDL if ddl is None else ddl
+        for name, sql in ddl.items():
             row = db.execute("SELECT type,sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
             if row is None or row[0] != 'table' or _ddl(row[1]) != _ddl(sql): raise DesireError("desire_storage_unavailable")
-        if db.execute("SELECT 1 FROM sqlite_master WHERE type='trigger' AND tbl_name IN (?,?)", tuple(DDL)).fetchone():
+        placeholders = ','.join('?' for _ in ddl)
+        if db.execute(f"SELECT 1 FROM sqlite_master WHERE type='trigger' AND tbl_name IN ({placeholders})", tuple(ddl)).fetchone():
             raise DesireError("desire_storage_unavailable")
 
     @staticmethod
@@ -79,12 +99,48 @@ class MemoryDesireStore(MemoryRelationStore):
     @staticmethod
     def _view(row, ref):
         return {"memory_ref": ref, "text": row['text'] if row['state'] != 'deleted' else '',
-                "state": row['state'], "revision": row['revision'], "updated_at": row['updated_at']}
+                "state": row['state'], "revision": row['revision'], "updated_at": row['updated_at'],
+                "pinned": bool(row['pinned']) if 'pinned' in row.keys() else False}
+
+    @staticmethod
+    def _pin_value(db, identity, memory_id):
+        row = db.execute("SELECT pinned FROM memory_desire_pins WHERE owner_id=? AND model_id=? AND memory_id=?",
+                         (*identity, memory_id)).fetchone()
+        return bool(row and row[0])
+
+    @staticmethod
+    def _record_pin(db, identity, memory_id, pinned, revision, now):
+        db.execute("INSERT INTO memory_desire_pins VALUES(?,?,?,?) ON CONFLICT(owner_id,model_id,memory_id) DO UPDATE SET pinned=excluded.pinned",
+                   (*identity, memory_id, int(pinned)))
+        db.execute("INSERT INTO memory_desire_pin_history VALUES(?,?,?,?,?,?)",
+                   (*identity, memory_id, revision, int(pinned), now))
+
+    def _pin(self, db, identity, memory_ref, pinned, expected_revision):
+        memory_id, ref = self._target(db, identity, memory_ref, current=True)
+        before = db.execute("SELECT * FROM memory_desires WHERE owner_id=? AND model_id=? AND memory_id=?",
+                            (*identity, memory_id)).fetchone()
+        if before is None or before['state'] == 'deleted': raise DesireError('desire_not_found')
+        if expected_revision is not None and (type(expected_revision) is not int or expected_revision != before['revision']):
+            raise DesireError('desire_revision_conflict')
+        view = {**self._view(before, ref), 'pinned': self._pin_value(db, identity, memory_id)}
+        if view['pinned'] == pinned:
+            return {'decision':'unchanged','state_changed':False,'desire':view,'parent_memory_changed':False}
+        revision = before['revision'] + 1
+        if revision > 10000: raise DesireError('desire_history_full')
+        now = _now()
+        db.execute("UPDATE memory_desires SET revision=?,updated_at=? WHERE owner_id=? AND model_id=? AND memory_id=?",
+                   (revision, now, *identity, memory_id))
+        db.execute("INSERT INTO memory_desire_history VALUES(?,?,?,?,?,?,?)",
+                   (*identity, memory_id, revision, before['text'], before['state'], now))
+        self._record_pin(db, identity, memory_id, pinned, revision, now)
+        return {'decision':'saved','state_changed':True,'parent_memory_changed':False,
+                'desire':{**view,'pinned':pinned,'revision':revision,'updated_at':now}}
 
     def _put(self, db, identity, memory_ref, text, expected_revision=None, action='put'):
         self._schema(db)
         memory_id, ref = self._target(db, identity, memory_ref, current=True)
         before = db.execute("SELECT * FROM memory_desires WHERE owner_id=? AND model_id=? AND memory_id=?", (*identity, memory_id)).fetchone()
+        pinned = self._pin_value(db, identity, memory_id)
         if expected_revision is not None and (type(expected_revision) is not int or expected_revision != (before['revision'] if before else 0)):
             raise DesireError("desire_revision_conflict")
         if action == 'put':
@@ -97,29 +153,34 @@ class MemoryDesireStore(MemoryRelationStore):
             state = {'archive':'archived','restore':'active','delete':'deleted'}[action]
             if state == 'active' and not text: raise DesireError("desire_deleted_use_put")
         if before and (before['text'], before['state']) == (text,state):
-            return {"decision":"unchanged", "state_changed":False, "desire":self._view(before,ref)}
+            return {"decision":"unchanged", "state_changed":False, "desire":{**self._view(before,ref),'pinned':pinned}}
         revision = before['revision']+1 if before else 1
         if revision > 10000: raise DesireError("desire_history_full")
         now = _now()
         db.execute("INSERT INTO memory_desires VALUES(?,?,?,?,?,?,?) ON CONFLICT(owner_id,model_id,memory_id) DO UPDATE SET text=excluded.text,state=excluded.state,revision=excluded.revision,updated_at=excluded.updated_at", (*identity,memory_id,text,state,revision,now))
         db.execute("INSERT INTO memory_desire_history VALUES(?,?,?,?,?,?,?)", (*identity,memory_id,revision,text,state,now))
-        return {"decision":"saved", "state_changed":True, "desire":{"memory_ref":ref,"text":text,"state":state,"revision":revision,"updated_at":now}, "parent_memory_changed":False}
+        if state == 'deleted' and pinned:
+            pinned = False
+            self._record_pin(db, identity, memory_id, pinned, revision, now)
+        return {"decision":"saved", "state_changed":True, "desire":{"memory_ref":ref,"text":text,"state":state,"revision":revision,"updated_at":now,'pinned':pinned}, "parent_memory_changed":False}
 
     def manage(self, *, identity, guard, action, memory_ref=None, text=None, expected_revision=None, offset=0, limit=20):
         self._identity(*identity)
-        if action not in {'put','archive','restore','delete','read','list','plan_draft'}: raise DesireError("desire_action_invalid")
-        write = action in {'put','archive','restore','delete'}
+        if action not in {'put','archive','restore','delete','pin','unpin','read','list','plan_draft'}: raise DesireError("desire_action_invalid")
+        write = action in {'put','archive','restore','delete','pin','unpin'}
         with self._connection(write=write) as db:
             db.execute('BEGIN IMMEDIATE' if write else 'BEGIN'); self._schema(db); guard(db)
+            if action in {'pin','unpin'}:
+                result = self._pin(db,identity,memory_ref,action=='pin',expected_revision); db.commit(); return result
             if write:
                 result = self._put(db,identity,memory_ref,text,expected_revision,action); db.commit(); return result
             if action == 'list':
                 if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 50: raise DesireError('desire_page_invalid')
                 # Join policy fields before pagination, so hidden records never alter counts or hints.
-                rows = db.execute("SELECT d.*,e.current_version FROM memory_desires d JOIN emotion_memories e USING(owner_id,model_id,memory_id) WHERE d.owner_id=? AND d.model_id=? AND d.state!='deleted' AND e.lifecycle='active' AND e.sensitivity IN ('public','private','internal') AND e.explicit_request_override!='never' ORDER BY d.updated_at DESC,d.memory_id LIMIT ? OFFSET ?", (*identity,limit+1,offset)).fetchall()
+                rows = db.execute("SELECT d.*,e.current_version,COALESCE(p.pinned,0) AS pinned FROM memory_desires d JOIN emotion_memories e USING(owner_id,model_id,memory_id) LEFT JOIN memory_desire_pins p USING(owner_id,model_id,memory_id) WHERE d.owner_id=? AND d.model_id=? AND d.state!='deleted' AND e.lifecycle='active' AND e.sensitivity IN ('public','private','internal') AND e.explicit_request_override!='never' ORDER BY COALESCE(p.pinned,0) DESC,d.updated_at DESC,d.memory_id LIMIT ? OFFSET ?", (*identity,limit+1,offset)).fetchall()
                 return {"decision":"listed","state_changed":False,"desires":[self._view(row,f"emotion://{row['memory_id']}@{row['current_version']}") for row in rows[:limit]], "next_offset":offset+limit if len(rows)>limit else None}
             memory_id, ref = self._target(db,identity,memory_ref)
-            row = db.execute("SELECT * FROM memory_desires WHERE owner_id=? AND model_id=? AND memory_id=?", (*identity,memory_id)).fetchone()
+            row = db.execute("SELECT d.*,COALESCE(p.pinned,0) AS pinned FROM memory_desires d LEFT JOIN memory_desire_pins p USING(owner_id,model_id,memory_id) WHERE d.owner_id=? AND d.model_id=? AND d.memory_id=?", (*identity,memory_id)).fetchone()
             if row is None or row['state']=='deleted': raise DesireError('desire_not_found')
             result = {"decision":"read","state_changed":False,"desire":self._view(row,ref)}
             if action == 'plan_draft':

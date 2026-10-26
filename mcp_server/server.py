@@ -682,9 +682,11 @@ async def stage_memory_image_upload(
 async def memory_desires(action: StrictStr = "list", memory_ref: StrictStr | None = None,
     text: StrictStr | None = None, expected_revision: StrictInt | None = None,
     offset: StrictInt = 0, limit: StrictInt = 20, write_context_ref: str | None = None) -> dict[str, Any]:
-    """情感记忆上可选的想做之事，200字内。action=list/read/put/archive/restore/delete/plan_draft/guide。
+    """情感记忆上可选的想做之事，200字内。action=list/read/put/archive/restore/delete/pin/unpin/plan_draft/guide。
     新增/改写用put，memory_ref填当前emotion://id@版本，text为备注；expected_revision可选，用于避免覆盖旧版本。
     archive只归档欲望，父记忆仍参与浮现；delete清空当前备注，旧版本留痕。
+    pin/unpin置顶/取消置顶任意已有欲望，列表优先显示，read/list返回pinned；可同时置顶多条。
+    置顶不改核心身份或父记忆、不绕过浮现条件，也不强制常驻注入；归档保留置顶，删除取消。
     list每页最多50条；plan_draft只给规划脑调用草稿，不自动声称已建计划，保存成功后再归档。
     浮现仅随已获准公开原文且检索分数大于0.8的父记忆；归档项仅短标记。
     至少10条未归档时提醒；分数是检索相似度而非准确率。guide可读完整说明。

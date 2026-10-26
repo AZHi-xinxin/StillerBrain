@@ -37,6 +37,11 @@ async def probe():
     check('memory_desires' in detail['actions'],'discovery')
     result=await call('stbrain_manage',{'action':'memory_desires','arguments':{'action':'read','memory_ref':ref}})
     check(result['desire']['text']=='想再去听一次','compact read')
+    pinned=await call('memory_desires',{'action':'pin','memory_ref':ref,'expected_revision':1})
+    check(pinned['desire']['pinned'] and not pinned['parent_memory_changed'],'direct pin')
+    unpinned=await call('stbrain_manage',{'action':'memory_desires','arguments':{
+        'action':'unpin','memory_ref':ref,'expected_revision':pinned['desire']['revision']}})
+    check(not unpinned['desire']['pinned'],'compact unpin')
     rejected=await call('memory_desires',{'action':'put','memory_ref':ref,'text':'不可覆盖','expected_revision':0})
     check(rejected['reason_code']=='desire_revision_conflict','CAS')
     draft=await call('memory_desires',{'action':'plan_draft','memory_ref':ref})

@@ -1,6 +1,6 @@
 # ST 记忆图片附件
 
-ST 可以把**真实图片原字节、作者填写的文字描述与已有记忆 ref**一起保存在本人的数据库。当前支持情感 `emotion://`、学习 `learning://` 和规划 `plan://`；先有记忆，再附图。它是 ST 的持久附件，不只是聊天里的临时图片，也不是自动识图服务。图片不会被自动放进每日浮现、常驻上下文、星图或其他记忆正文。
+ST 可以把**真实图片原字节、作者填写的文字描述与已有记忆 ref**一起保存在本人的数据库。当前支持情感 `emotion://`、学习 `learning://` 和规划 `plan://`；先有记忆，再附图。它是 ST 的持久附件，不只是聊天里的临时图片，也不是自动识图服务。0.2.2 可随本轮已选中的记忆附带少量图片编号与描述；这不是自动发送原图。原图仍按需调用受保护的取图能力，不常驻模型上下文。
 
 ## 最简单的使用方式：在配套客户端发图
 
@@ -39,7 +39,7 @@ python -B scripts/memory_images.py get --endpoint https://YOUR-ST/mcp --target-r
 
 ## MCP 与授权
 
-不需要自建模型网关，认证的直连 MCP 可沿下述权限使用。本版模型日常目录为 8 个入口（新增常驻 `remember_work_memory`），完整模型目录为 54 项（含下列 4 个图片操作）。传输层 `tools/list` 另列一个标为 host-only 的图片运输能力，不能把它加给模型。图片操作在日常档收于 `stbrain_tools(category="images")` / `stbrain_manage(action=..., arguments={...})`：
+不需要自建模型网关，认证的直连 MCP 可沿下述权限使用。模型日常目录保持精简，完整目录依启用模块而异（包含下列 4 个图片操作）；请以当前实例实际返回为准。传输层 `tools/list` 另列一个标为 host-only 的图片运输能力，不能把它加给模型。图片操作在日常档收于 `stbrain_tools(category="images")` / `stbrain_manage(action=..., arguments={...})`：
 
 | action | 内容 |
 | --- | --- |

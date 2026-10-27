@@ -64,19 +64,24 @@ REVIEWED_NON_DOCUMENTATION_SHA256 = {
     # Protected self-edit methods and the erasure algorithm remain unchanged.
     # L59: open_brain / _selected_open_manual add concrete next_calls plus
     # the compact_next_calls import. No protected self-write method changed.
-    "service.py": "f564c0dc6d8fe1a329f9653f0c332bc3bddc84047ba32ffa2fbce92c4202a279",
+    # 2026-10-24: the Windows invalid-context fix adds one denial helper and
+    # changes two rejection returns in _bound_public_write. The restore proof
+    # below pins the entire previous AST, including every authorization branch.
+    "service.py": "784bbdb614ce145fa6dc595197882781c23c067d4f748fb586a7e974a8d8e9bf",
 }
+PRE_CONTEXT_DENIAL_SERVICE_SHA256 = 'f564c0dc6d8fe1a329f9653f0c332bc3bddc84047ba32ffa2fbce92c4202a279'
 PROTECTED_SELF_METHODS = (
     '_action_for_public_intent', '_bound_public_write', '_candidate_for_this_model',
     '_current_candidate_matches', '_onboarding_status', '_progression_required',
-    '_public_gate_denial', '_public_payload_denial', 'activate_candidate',
+    '_public_gate_denial', '_public_context_denial', '_public_payload_denial', 'activate_candidate',
     'activate_self_model_candidate', 'content_schema', 'continue_module_one',
     'get_active', 'module_one_status', 'open_brain_direct', 'prepare', 'query_self_model',
     'recheck_candidate', 'search', 'store_candidate', 'submit_self_model_candidate',
 )
 # L20 whole-file restore proof: content_schema changes only facets visibility
 # help. All other protected methods remain byte-for-byte AST equivalent to L19.
-PROTECTED_SELF_METHODS_SHA256 = '45149f76209b006c997b9c3b00a28db642b28e13a9c9e068906e8c4b2e4b28e5'
+# The new read-only denial helper is protected too; no method is exempted.
+PROTECTED_SELF_METHODS_SHA256 = 'b1ad725faa0a27ddd850ff294535aaa0b61613ea47c570b0c6c4a8df8a74fa98'
 
 
 def tree(filename):
@@ -218,6 +223,34 @@ class UsageConsistencyTests(unittest.TestCase):
         self.assertEqual(set(PROTECTED_SELF_METHODS), set(methods))
         self.assertEqual(PROTECTED_SELF_METHODS_SHA256,
                          hashlib.sha256(json.dumps(methods, sort_keys=True).encode()).hexdigest())
+
+    def test_context_denial_restore_proves_every_other_authorization_node_unchanged(self):
+        parsed = tree('service.py')
+        cls = next(n for n in parsed.body
+                   if isinstance(n, ast.ClassDef) and n.name == 'SelfModelAccessService')
+        helpers = [n for n in cls.body if isinstance(n, ast.FunctionDef)
+                   and n.name == '_public_context_denial']
+        self.assertEqual(1, len(helpers))
+        cls.body.remove(helpers[0])
+        bound = next(n for n in cls.body if isinstance(n, ast.FunctionDef)
+                     and n.name == '_bound_public_write')
+        returns = [n for n in ast.walk(bound) if isinstance(n, ast.Return)
+                   and isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Attribute)
+                   and n.value.func.attr == '_public_context_denial']
+        self.assertEqual(2, len(returns))
+        extra_arguments = {stable_ast_snapshot(ast.parse(expression, mode='eval').body)
+                           for expression in ('"write_context_ref_required"',
+                                              'binding.get("binding_reason_code")')}
+        for returned in returns:
+            call = returned.value
+            self.assertEqual('self', call.func.value.id)
+            self.assertEqual(2, len(call.args))
+            self.assertFalse(call.keywords)
+            extra_arguments.remove(stable_ast_snapshot(call.args.pop()))
+            call.func.attr = '_public_gate_denial'
+        self.assertFalse(extra_arguments)
+        self.assertEqual(PRE_CONTEXT_DENIAL_SERVICE_SHA256,
+                         non_documentation_hash('service.py', parsed))
 
     def test_snapshot_does_not_depend_on_ast_dump(self):
         with patch.object(ast, "dump", side_effect=AssertionError("ast.dump must not be used")):

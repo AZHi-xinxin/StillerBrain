@@ -568,6 +568,32 @@ class SelfModelAccessService:
         result["decision"] = reason
         return result
 
+    def _public_context_denial(
+        self, reason: str, binding_reason: str | None = None,
+    ) -> dict[str, Any]:
+        """A stage's next mutation is not permission to retry an invalid context.
+
+        Keep the stage reference separately, with no live refs/capabilities or
+        model-authored values in diagnostics. This changes guidance, not authority.
+        """
+        result = self._public_gate_denial(reason)
+        result["stage_allowed_actions"] = result["allowed_actions"]
+        result["allowed_actions"] = []
+        result["write_context_available"] = False
+        result["why_locked"] = "当前写入上下文未通过核验；阶段动作仅供参考，不能用同一失效引用重复提交。"
+        result["next_action"] = (
+            "先核对 write_context_ref 是否逐字来自当前连接最近一次有效打开结果，"
+            "不要使用文档占位、截断值或旧窗口引用。需要新上下文时按当前连接的既有授权流程打开，"
+            "再使用返回的实际引用和 row_version；不要绕过授权或重放写操作。"
+        )
+        if binding_reason in {
+            "write_context_ref_required", "write_context_not_opened_or_mismatched",
+            "write_context_binding_mismatch", "current_wake_required",
+            "direct_grant_expired", "write_context_expired", "injected_context_required",
+        }:
+            result["binding_reason_code"] = binding_reason
+        return result
+
     @staticmethod
     def _action_for_public_intent(stage: str, intent: str) -> str | None:
         """Resolve one reviewed public intent without trusting a client action name."""
@@ -624,7 +650,7 @@ class SelfModelAccessService:
         if self.onboarding is None:
             raise SelfRevisionError("module-one onboarding gate is not configured")
         if not isinstance(write_context_ref, str) or not write_context_ref.strip():
-            return self._public_gate_denial("brain_open_required")
+            return self._public_context_denial("brain_open_required", "write_context_ref_required")
         binding = self.onboarding.current_open_write_context(
             owner_id=self.owner_id,
             model_id=self.model_id,
@@ -632,8 +658,9 @@ class SelfModelAccessService:
             required_scope="self_revision",
         )
         if binding.get("write_context_available") is not True:
-            return self._public_gate_denial(
-                str(binding.get("reason_code") or "brain_open_required")
+            return self._public_context_denial(
+                str(binding.get("reason_code") or "brain_open_required"),
+                binding.get("binding_reason_code"),
             )
 
         # Do not reveal detailed payload feedback until the caller has proved this

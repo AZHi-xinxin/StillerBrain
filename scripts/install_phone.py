@@ -20,6 +20,7 @@ import signal
 import stat
 import subprocess
 import sys
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 FORMAT = "stiller-phone-bridge/1"
@@ -93,7 +94,39 @@ def host_layout(args):
     return layout(ROOT, args.directory or home / "StillerBrain-phone", home, prefix, args.name)
 
 
-def clean_environment(ctx):
+def download_proxy_environment():
+    """Only credential-free HTTP(S) proxies; never inherit arbitrary host variables."""
+    env = {}
+    for key in ("http_proxy", "https_proxy", "all_proxy"):
+        value = os.environ.get(key, os.environ.get(key.upper(), "")).strip()
+        if not value:
+            continue
+        try:
+            parsed = urlsplit(value)
+            valid = (len(value) <= 2048 and not any(ord(c) < 33 or ord(c) == 127 for c in value)
+                     and parsed.scheme in ("http", "https") and parsed.hostname
+                     and parsed.username is None and parsed.password is None
+                     and parsed.path in ("", "/") and not parsed.query and not parsed.fragment
+                     and parsed.port is not None and 1 <= parsed.port <= 65535)
+        except ValueError:
+            valid = False
+        if not valid:
+            raise PhoneError("下载代理格式不支持：请使用带端口、不含账号密码的 HTTP/HTTPS 代理地址；未开始下载。")
+        env[key] = value
+        env[key.upper()] = value
+    # apt does not consistently honor all_proxy. Supply a fallback for both protocols.
+    for key in ("http_proxy", "https_proxy"):
+        if key not in env and "all_proxy" in env:
+            env[key] = env[key.upper()] = env["all_proxy"]
+    bypass = os.environ.get("no_proxy", os.environ.get("NO_PROXY", "")).strip()
+    if bypass:
+        if len(bypass) > 4096 or not re.fullmatch(r"[A-Za-z0-9.,:*_\[\]/ -]+", bypass):
+            raise PhoneError("下载代理的 no_proxy 列表格式不支持；未开始下载。")
+        env["no_proxy"] = env["NO_PROXY"] = bypass
+    return env
+
+
+def clean_environment(ctx, *, download=False):
     # Never pass provider keys, proxy credentials or PRoot override hooks to downloads.
     env = {key: os.environ[key] for key in ("TERM", "COLORTERM", "LANG", "LC_ALL",
             "TERMUX_VERSION", "TERMUX_APP__APP_VERSION_NAME") if key in os.environ}
@@ -103,13 +136,20 @@ def clean_environment(ctx):
                 "PATH": str(ctx["prefix"] / "bin") + ":/system/bin",
                 "TMPDIR": str(ctx["prefix"] / "tmp"), "PYTHONNOUSERSITE": "1",
                 "PYTHONDONTWRITEBYTECODE": "1", "PYTHONUTF8": "1"})
+    if download:
+        env.update(download_proxy_environment())
     return env
 
 
-def execute(ctx, command, *, capture=False, timeout=None, include_stderr=False):
-    result = subprocess.run(list(map(str, command)), cwd=ctx["source"],
-                            env=clean_environment(ctx), shell=False, check=False,
-                            capture_output=capture, text=True, timeout=timeout)
+def execute(ctx, command, *, capture=False, timeout=None, include_stderr=False, download=False):
+    try:
+        result = subprocess.run(list(map(str, command)), cwd=ctx["source"],
+                                env=clean_environment(ctx, download=download), shell=False, check=False,
+                                capture_output=capture, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise PhoneError("当前步骤等待超时；已有目录保留，请检查下载连接后重试同一步。") from None
+    except OSError:
+        raise PhoneError("当前步骤的程序未能启动；请检查安装环境，已有目录保留。") from None
     if result.returncode:
         raise PhoneError("当前步骤未完成，已有目录保留。不会重置发行版、替换密钥或删除记忆。")
     if capture:
@@ -290,14 +330,27 @@ def owned_container(ctx, record):
     return owner
 
 
-def guest_command(ctx, command):
+def guest_command(ctx, command, *, download=False):
     # PRoot's isolated mode is not a security sandbox; it avoids unnecessary binds.
     return [proot_binary(ctx), "login", "--isolated",
             "--bind", str(ctx["source"]) + ":" + GUEST_SOURCE,
             "--bind", str(ctx["state"]) + ":" + GUEST_STATE,
             "--work-dir", GUEST_SOURCE, ctx["name"], "--", "/usr/bin/env", "-i",
             "HOME=/root", "PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LANG=C.UTF-8",
-            "DEBIAN_FRONTEND=noninteractive", "PYTHONDONTWRITEBYTECODE=1", *command]
+            "DEBIAN_FRONTEND=noninteractive", "PYTHONDONTWRITEBYTECODE=1",
+            *([key + "=" + value for key, value in download_proxy_environment().items()] if download else []),
+            *command]
+
+
+@contextmanager
+def prepare_step(label):
+    print("正在准备：" + label, flush=True)
+    try:
+        yield
+    except PhoneError as error:
+        raise PhoneError(label + "未完成。" + str(error)) from None
+    except (OSError, ValueError):
+        raise PhoneError(label + "未完成，已有目录保留。请先处理本步骤，不要继续 install 或清空目录。") from None
 
 
 def verify_os(ctx):
@@ -342,14 +395,16 @@ def prepare(ctx, record):
     if not ctx["container"].exists():
         if ctx["legacy"].exists():
             raise PhoneError("同名旧版发行版已存在，拒绝自动迁移。")
-        execute(ctx, [proot_binary(ctx), "install", IMAGE, "--name", ctx["name"], "--architecture", "aarch64"])
+        with prepare_step("Ubuntu 镜像下载与解包（不是模型账号授权）"):
+            execute(ctx, [proot_binary(ctx), "install", IMAGE, "--name", ctx["name"], "--architecture", "aarch64"], download=True)
         # A failed/unknown install is NEVER adopted on retry. Only a confirmed
         # success may write ownership; an existing unmarked rootfs is preserved.
         digest = manifest_digest(ctx)
         exclusive_json(ctx["container"] / ".stiller-phone-owner.json",
                        {"identity": record, "manifest_sha256": digest})
-    owned_container(ctx, record)
-    verify_os(ctx)
+    with prepare_step("发行版来源和系统版本核对"):
+        owned_container(ctx, record)
+        verify_os(ctx)
     ready = ctx["state"] / "phone-prepared.json"
     if ready.exists():
         if read_json(ready) != {"identity": record}:
@@ -358,17 +413,22 @@ def prepare(ctx, record):
         verify_storage(ctx)
         print("已准备，无需重装发行版或 Python。")
         return
-    execute(ctx, guest_command(ctx, ["/usr/bin/apt-get", "-o", "Acquire::Retries=2",
-                                   "-o", "APT::Update::Error-Mode=any", "update"]))
-    execute(ctx, guest_command(ctx, ["/usr/bin/apt-get", "install", "--yes", "--no-install-recommends",
-                                   "python3.12", "python3.12-venv", "ca-certificates"]))
-    verify_runtime(ctx)
-    verify_storage(ctx)
+    with prepare_step("Ubuntu 软件源索引下载"):
+        execute(ctx, guest_command(ctx, ["/usr/bin/apt-get", "-o", "Acquire::Retries=2",
+                                       "-o", "APT::Update::Error-Mode=any", "update"], download=True), download=True)
+    with prepare_step("Python 3.12 和系统依赖下载"):
+        execute(ctx, guest_command(ctx, ["/usr/bin/apt-get", "install", "--yes", "--no-install-recommends",
+                                       "python3.12", "python3.12-venv", "ca-certificates"], download=True), download=True)
+    with prepare_step("Python 运行环境与私有存储检查"):
+        verify_runtime(ctx)
+        verify_storage(ctx)
     exclusive_json(ready, {"identity": record})
     print("Ubuntu/Python 已准备。下一步显式运行 install；尚未配置或调用真实模型。")
 
 
 def operate(ctx, record, action):
+    if not (ctx["state"] / "phone-prepared.json").exists():
+        raise PhoneError("Ubuntu/Python 准备尚未完成。请先处理 prepare 的失败步骤；未启动 ST，也无需重新输入模型密钥。")
     owned_container(ctx, record)
     if read_json(ctx["state"] / "phone-prepared.json") != {"identity": record}:
         raise PhoneError("请先完成 prepare，未启动 ST。")

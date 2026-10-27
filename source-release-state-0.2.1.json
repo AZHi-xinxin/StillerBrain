@@ -1,0 +1,67 @@
+{
+  "format": "stiller-source-release-state/1",
+  "version": "0.2.1",
+  "release_channel": "stable",
+  "distribution": "source-available-stable-release",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "base_public_commit": "f0693716e2f7ffa1dafa72890a3c94b3fcd538aa",
+  "historical_public_state": "source-release-state-0.2.0.json",
+  "implemented_revisions": "Fresh human replacement, normal empty completion, self action alias discovery and dispatch, recoverable tool result feedback and next-call templates",
+  "core_runtime_matches_accepted_frozen_candidate": true,
+  "frozen_candidate_sha256": "cd1bf01595856eea3d66c9510a63a227a452e8bdf007bda3e7a77455a0146372",
+  "publication_only_python_changes": [],
+  "automated_regressions_use_synthetic_state": true,
+  "publication_real_model_calls": 0,
+  "publication_live_service_changes": false,
+  "human_acceptance": {
+    "accepted": true,
+    "scope": "Maintainer accepted paired ST and Orbis fixes before GitHub publication",
+    "all_clients_models_and_existing_windows_certified": false,
+    "private_test_content_published": false
+  },
+  "production_readiness_certified": false,
+  "database_upgrade": {
+    "schema_changed_since_previous_public_release": false,
+    "initialization_adds_tables": [],
+    "existing_memory_rows_rewritten": false,
+    "preserve_private_config_and_identity": true,
+    "stop_writes_and_backup_before_upgrade": true
+  },
+  "frozen_candidate_regression": {
+    "linux": [
+      {
+        "group": "runtime",
+        "run": 963,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "group": "mcp",
+        "run": 610,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "group": "gateway",
+        "run": 807,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 1
+      }
+    ]
+  },
+  "current_python_file_count": 311,
+  "current_python_inventory_sha256": "1c1e0cf6fcbc43b131cb4cbc02566075856d48780d91dad3cee8445a72e6ecb8",
+  "source_unchanged_during_regression": true,
+  "core_dependencies_changed": false,
+  "optional_dependencies_changed": false,
+  "validation_details": "docs/UPDATE-VALIDATION.md",
+  "integrity_manifest": "SOURCE-PACKAGE-MANIFEST.json",
+  "integrity_check": "python -B scripts/check_source_package.py",
+  "github_publication_authorized": true,
+  "stable_release_authorized": true,
+  "extended_deployment_gate": "python -B scripts/check_release.py",
+  "notes": "Stable product patch release; historical experimental routes and unfulfilled extended audit gates remain unchanged."
+}

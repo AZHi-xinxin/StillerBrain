@@ -274,8 +274,18 @@ class GatewayPerformanceLogTests(unittest.TestCase):
     def test_invalid_json_emits_one_safe_failure_record(self) -> None:
         body = (b'{"messages":["' + PROMPT_MARKER.encode("utf-8") + b'"],')
 
-        with self.assertLogs("stiller.rikkahub.performance", level="INFO") as logs:
-            status, _ = self.post_raw(body)
+        emitted = threading.Event()
+        original_emit = _RequestPerformance.emit
+
+        def emit_and_signal(performance):
+            original_emit(performance)
+            emitted.set()
+
+        # Error responses can also finish before the request's finally logs.
+        with patch.object(_RequestPerformance, "emit", emit_and_signal):
+            with self.assertLogs("stiller.rikkahub.performance", level="INFO") as logs:
+                status, _ = self.post_raw(body)
+                self.assertTrue(emitted.wait(timeout=3), "server did not emit failure metrics")
 
         self.assertEqual(400, status)
         record, text = self.performance_record(logs.records)

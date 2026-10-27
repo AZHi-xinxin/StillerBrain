@@ -1,8 +1,7 @@
 {
   "format": "stiller-source-package/1",
+  "version": "0.2.2",
   "distribution": "source-available-stable-release",
-  "version": "0.2.1",
-  "base_public_commit": "c1fd3efd658b468cd666205c0f71514a74e29f65",
   "files": [
     {
       "path": ".env.example",
@@ -18,7 +17,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "6eb9ec1545c26aad06dd720557dd3aac1d34e0cd9136c7cc83c9b5a4151458fa"
+      "sha256": "50e3fc6f4615219e4515eceee4c053fbb60a5d019ea9fc13dc124417fa1ef947"
     },
     {
       "path": "COMMERCIAL-LICENSE.md",
@@ -42,7 +41,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "9501d848da463f76158a35031502573037b4e56cf451fec37a1641c3e5bbcfc6"
+      "sha256": "ce1812ac7f96c890eab2efa4ac4e8d888ecb97c4e9164f0f8729929e62f5eca3"
     },
     {
       "path": "RELEASE-NOTES-0.2.0-preview.1.md",
@@ -79,6 +78,10 @@
     {
       "path": "RELEASE-NOTES-0.2.1.md",
       "sha256": "ce62842336375a34b7fcbcc322a225321b806717835c86b4c35953848822541a"
+    },
+    {
+      "path": "RELEASE-NOTES-0.2.2.md",
+      "sha256": "7c89b6e394dafdd7b2d1c66d4746feade13589fd4b939c4c74a17fa8642500c4"
     },
     {
       "path": "RELEASE-NOTES-preview.3.md",
@@ -165,12 +168,20 @@
       "sha256": "2cd3f3bc929fd433c9f593857ef01aca471576cad3c898b463dd620136c2fcaf"
     },
     {
+      "path": "docs/MEMORY-DESIRES.md",
+      "sha256": "1ea1daf373e014f705d4e15f21455cc385736ea6a8ba5b6c0ec3307b7e34b1fb"
+    },
+    {
       "path": "docs/MEMORY-IMAGES.md",
-      "sha256": "aa5c73aaddafe88342abab14acfac20cbd3cc62659569e124e70f793259b2456"
+      "sha256": "9b0c01d893e76620cf0bbf342c4cf46aac13cbccd6b75e4b8436a8a1db64f4bc"
     },
     {
       "path": "docs/MODULES.md",
       "sha256": "90082af992d9da4e5d04826965534bb7b8ccdabe3e66a7a5ce952ec83cfa31aa"
+    },
+    {
+      "path": "docs/NIGHTLY-20261025.txt",
+      "sha256": "ebb698edc15823a17e41fc1b27b9203e98d678b86654035a54b11875e2b289d4"
     },
     {
       "path": "docs/OPERATIONS.md",
@@ -182,7 +193,7 @@
     },
     {
       "path": "docs/PHONE-LOCAL.md",
-      "sha256": "59ce9fddc592721e5d66e38f4fc8a9ee3034adf88ec284ba84460e3f61e7148c"
+      "sha256": "b31feb929a70576525545299b6b7daa968a4458238891072ac9ecf2d4b339219"
     },
     {
       "path": "docs/PHONE-UPGRADE.md",
@@ -190,7 +201,7 @@
     },
     {
       "path": "docs/RELEASE-CHECKLIST.md",
-      "sha256": "c11727aac1de07dd9c58a8c0016e93861afe327d62d88f888a4a2aec2055a787"
+      "sha256": "1f3b7bdc30f174bf346231663c8234cc825a45f9cf4a1f349aecf8d09be5437e"
     },
     {
       "path": "docs/RETRIEVAL.md",
@@ -202,7 +213,7 @@
     },
     {
       "path": "docs/TOOLS.md",
-      "sha256": "099a08a7fa3101d3ed752a1a5ebf385ec35e3d14224f2be514e32bfd48227ce3"
+      "sha256": "e8619bb4812d80ba1b05d32b80fd0736820f9c377d1ab5176e19aa5dcc8cc649"
     },
     {
       "path": "docs/UPDATE-VALIDATION-0.2.0-preview.2.md",
@@ -230,7 +241,7 @@
     },
     {
       "path": "docs/UPDATE-VALIDATION.md",
-      "sha256": "76dd98723a2c605cd910104bc207d8ce6ccc80d258c7c23d7528a31e163d527f"
+      "sha256": "1e9d9610b1864d987ef17d45f28f60105b2868a59a3f99ceb4ccf5fb0cea7bb0"
     },
     {
       "path": "docs/assets/stiller-cover.svg",
@@ -274,11 +285,11 @@
     },
     {
       "path": "mcp_server/compact_catalog_schema.py",
-      "sha256": "91102df9298ee7c649da4ecc22c0edef0f44c6aea1991fc1c1a4e9a7a78dcc16"
+      "sha256": "14d0708a2fb16c8c14da5903b550a4b173f47a3d3292a1caed740497fd3875d4"
     },
     {
       "path": "mcp_server/compact_tool_dispatch.py",
-      "sha256": "763f7c1f91cea5efe54327bf8d3a001fcc0d1079710047e385c4394bde95bc99"
+      "sha256": "93d888b9c63aee0df8e0eb977e794355e8d803fa667cb7c8e76d5f64de2c9be7"
     },
     {
       "path": "mcp_server/control_server.py",
@@ -306,7 +317,7 @@
     },
     {
       "path": "mcp_server/execution_guard.py",
-      "sha256": "ec8009a08913ef66cebc197896ac1f48ccaaccc59b5d4d7c993266eaf5bfe3c0"
+      "sha256": "444bc6aee1217653106a559923991ed3748f906d65ec73319126dc29e5f8fd58"
     },
     {
       "path": "mcp_server/governance_service.py",
@@ -327,6 +338,10 @@
     {
       "path": "mcp_server/learning_service.py",
       "sha256": "25a54ba9c2ec37df61d02ee389d6c5883e32a481789edad01356ba9b1657f838"
+    },
+    {
+      "path": "mcp_server/memory_desire_service.py",
+      "sha256": "e8aa17dd9ee06cd6c01de83888bb651ac6dc278d32f435c423db2991880e6b6e"
     },
     {
       "path": "mcp_server/memory_image_service.py",
@@ -358,7 +373,7 @@
     },
     {
       "path": "mcp_server/public_contract.py",
-      "sha256": "9aa75af71339a6e98870c25160b0961824c747157a60cd549ad3e5d7b2e3319b"
+      "sha256": "4c9fcacf228db737a83f3d83d683a44b1dc993dab8b06f90b1668d8a47cb4247"
     },
     {
       "path": "mcp_server/requirements.txt",
@@ -370,11 +385,11 @@
     },
     {
       "path": "mcp_server/server.py",
-      "sha256": "5d3b7331f66889d4384112a4e4bac50391d286fd2543ffafbfd7b50ae788475f"
+      "sha256": "09456ca4cff7e61cd8157f8712ff55a99166cc2805f843b41b5d436b4a9094e2"
     },
     {
       "path": "mcp_server/service.py",
-      "sha256": "1858b00723dae92e46ce1e0b6270100ac7b3fe6de153e4dfd579fcdb9219c774"
+      "sha256": "98101d68502e8aed6c1c4bcb597ea7c7b08c98a53bbd991e946aee834c9a4f4c"
     },
     {
       "path": "mcp_server/simple_tool_catalog.py",
@@ -418,7 +433,7 @@
     },
     {
       "path": "mcp_server/tests/test_daily_content_only_schema.py",
-      "sha256": "876b3f529ce7cd163ce52a8afe935dfd491dd2efd9d9448ddfaebec7471241ff"
+      "sha256": "701310acd55db48c7331b514f0b0483178ee6961f0e17492b691c1b5670c2b07"
     },
     {
       "path": "mcp_server/tests/test_daily_memory_during_self_edit.py",
@@ -434,7 +449,7 @@
     },
     {
       "path": "mcp_server/tests/test_daily_native_transport.py",
-      "sha256": "63da5bf829fb792a30b0ac0db4ca70f39ee2664340e6d59b411c0d4507cb1e8a"
+      "sha256": "3979233607295ffdb52cd86620bc529c956ba6671aee292b94860e6baab48175"
     },
     {
       "path": "mcp_server/tests/test_emotion_layer_transport.py",
@@ -454,7 +469,7 @@
     },
     {
       "path": "mcp_server/tests/test_gateway_self_authorization_integration.py",
-      "sha256": "661b8c67a0232539aa7a96c96eb746d1f83dd360ed99405e6ec92440c6791c7c"
+      "sha256": "3dafcab0298b032487a301ae3b64bf9f275e82d7fd7e2a1c0adbc386d6227866"
     },
     {
       "path": "mcp_server/tests/test_governance_auto_cas_transport.py",
@@ -470,7 +485,7 @@
     },
     {
       "path": "mcp_server/tests/test_keyword_string_compat.py",
-      "sha256": "ab58b6279580b38f49b07c5fc5a272299b6a13633ec3ea9432ac6e953e3782ce"
+      "sha256": "f19277451b3e82c61fd1fce89d5fc5c342fd12cd7f66870f563529dcbee139f8"
     },
     {
       "path": "mcp_server/tests/test_keyword_type_guidance.py",
@@ -485,12 +500,16 @@
       "sha256": "cfdcaf54bda8c3f88ae5e4612c3afcb72e538a9352027e3b891031fc7948d182"
     },
     {
+      "path": "mcp_server/tests/test_memory_desire_transport.py",
+      "sha256": "5247a05d2f4d874ca86591bb52817b25e6b0692b202d20786e4be58f3ce34678"
+    },
+    {
       "path": "mcp_server/tests/test_memory_image_service.py",
       "sha256": "23354dae45330ee75d8fbe8dbe958b6dec8d9533ec9187ba68d1e184ded88d58"
     },
     {
       "path": "mcp_server/tests/test_memory_image_transport.py",
-      "sha256": "f5fa20be2d5f416be5c408dcc68ffb0b5e9baf45761499c2c27a88bde112fb5c"
+      "sha256": "bb988396ab65ae15c75c57e734413bce6009147e1d6c6ecbccada944b4973b9e"
     },
     {
       "path": "mcp_server/tests/test_memory_image_upload_service.py",
@@ -502,11 +521,11 @@
     },
     {
       "path": "mcp_server/tests/test_memory_relation_transport.py",
-      "sha256": "0b9b14c5c6e0835a2b7a777814455040f343ff63777c0afc26bc37a47c071154"
+      "sha256": "bbf2c0f4ce485a62e6205d187a44c9c19406debe82afee5312a6eff877f21fb4"
     },
     {
       "path": "mcp_server/tests/test_native_modules_no_sandbox.py",
-      "sha256": "5a7d52593f963a32ea02dbe0703e39faf33858da7fdfc463a6c88368d422f217"
+      "sha256": "05e37c8e560bc73db4e9ed004a728d9724c810e2e1a7536687695063534c98b9"
     },
     {
       "path": "mcp_server/tests/test_neutral_memory_defaults.py",
@@ -514,7 +533,7 @@
     },
     {
       "path": "mcp_server/tests/test_onboarding_facade.py",
-      "sha256": "224af486988d6e9d2ad34c921ca10c66286e7d624a61690b940fd0e389448e43"
+      "sha256": "e45939e7cb8b440a9274ae725090758c3effb9007befc4580106b91d0c53dc22"
     },
     {
       "path": "mcp_server/tests/test_open_context_diagnostics.py",
@@ -534,7 +553,7 @@
     },
     {
       "path": "mcp_server/tests/test_ordinary_revision_gateway_contract.py",
-      "sha256": "1adb360d893ff064bf14205197726a3565d27d61cd8c602ebf0ba08c93e0a3db"
+      "sha256": "6d82b0b4c906afe35e23b74b9ff1e17a0143a22de70ac849fdfc4866a1722bc9"
     },
     {
       "path": "mcp_server/tests/test_ordinary_tool_candidate_review.py",
@@ -542,11 +561,11 @@
     },
     {
       "path": "mcp_server/tests/test_person_advisory_surface.py",
-      "sha256": "5184c073768d4513ba265fc873024a170866f4a5b1d7928d9c8119c7e8b9003f"
+      "sha256": "e73ef5ab0b0bb345967080e7030cf6766ff81b1253772c5806dc69cb6019661c"
     },
     {
       "path": "mcp_server/tests/test_person_rewrite_ai_directed.py",
-      "sha256": "8345b1344574b6dc50ee12e9031865a5a680d0d3340ffda643de550ad77d411f"
+      "sha256": "39c051752334175fcc40aed403144dde998af35afea383a6c40610ef53277c97"
     },
     {
       "path": "mcp_server/tests/test_person_rewrite_field_guidance.py",
@@ -618,7 +637,7 @@
     },
     {
       "path": "mcp_server/tests/test_simple_profile_transport.py",
-      "sha256": "53ff25388651f57d9b883129d0820091c8bc78bfe2e3fb501836526894e3bc1d"
+      "sha256": "cbb976fa78505b95c09ee9f3fbfd1499a8cf107bcd3f0e3a7a102c11929f4911"
     },
     {
       "path": "mcp_server/tests/test_simple_tool_catalog.py",
@@ -626,11 +645,11 @@
     },
     {
       "path": "mcp_server/tests/test_static_module_help.py",
-      "sha256": "dd1d4038084d02bc6bd8cf117f65f4d263f411f6d5a35868f6caef98856d33a1"
+      "sha256": "cc21f8567962dc81392863815a06aef8760dcbe325fd41a4327d585f7de450e4"
     },
     {
       "path": "mcp_server/tests/test_tool_catalog.py",
-      "sha256": "55c357c91ede0b5d4aaaf975c38006eb5e485ec3411fca52875f9ab9915f922d"
+      "sha256": "d3ce4b4d53b386307bebfea23acf21f31e9912c3f7533d3f06a9078c7889aebb"
     },
     {
       "path": "mcp_server/tests/test_tool_catalog_diagnostic_guidance.py",
@@ -646,7 +665,7 @@
     },
     {
       "path": "mcp_server/tests/test_tool_description_consistency.py",
-      "sha256": "2ec10df2a8d72b7f7f9ed480ccce1690cfd6b7ae5bafa53f174a87b1604fbb5d"
+      "sha256": "5698e23ca36a394dea30e35a84b25d9070bc550e8a81036db6ee2fc18d4a583d"
     },
     {
       "path": "mcp_server/tests/test_tool_experience_confidence_transport.py",
@@ -654,7 +673,7 @@
     },
     {
       "path": "mcp_server/tests/test_tool_experience_readback.py",
-      "sha256": "65aa5aa196928573e1d87213aea5d3b0b401dc79cef3d70ac28d8609c912adb8"
+      "sha256": "0d62b64d4e3574ba7ad6a94806507f870d26db6fe46a9c3bdcd015954c3e5bcc"
     },
     {
       "path": "mcp_server/tests/test_tool_guidance_service.py",
@@ -674,7 +693,7 @@
     },
     {
       "path": "mcp_server/tests/test_unified_recall_transport.py",
-      "sha256": "07bcc80b10d25fc1bebe9c27a5a22484912bb14130bbe8f27d435350daad532d"
+      "sha256": "f1e79f23527b002b06207127fb245601cecb9652479401dd03bd7d8cda11d9f9"
     },
     {
       "path": "mcp_server/tests/test_unified_tool_revision.py",
@@ -690,7 +709,7 @@
     },
     {
       "path": "mcp_server/tests/test_work_memory_transport.py",
-      "sha256": "ffbdebb0a5b5ec3b3ef51e4e64410079a04f5a4d2bbc49bf73e50eeccc8c938b"
+      "sha256": "c3598bfc5966832a9e4702d695be8884387027f95973f1eb5a7b114956f396b6"
     },
     {
       "path": "mcp_server/tool_catalog_profile.py",
@@ -702,7 +721,7 @@
     },
     {
       "path": "mcp_server/unified_recall_service.py",
-      "sha256": "445eb3d75bfc4bace4cb6515219f23b184759de2a3bf7d670179b4d9a3cb9666"
+      "sha256": "b9254094126b3d23945933bc82223d6db4cda2bb3a769e617880e601201530a5"
     },
     {
       "path": "mcp_server/usage_guide.py",
@@ -774,7 +793,7 @@
     },
     {
       "path": "packaging_tests/test_install_phone.py",
-      "sha256": "b5433a3eb295d746f0dbd4d67ed9b40d13b219a526dbf0fae4de4659c1b71029"
+      "sha256": "d453b978f5b593c0e417187ba0f78991869593c14f9a581586b1491110351df1"
     },
     {
       "path": "packaging_tests/test_install_stiller.py",
@@ -790,7 +809,7 @@
     },
     {
       "path": "packaging_tests/test_operations_local_smoke.py",
-      "sha256": "ddc5a8e59d173d8e13e9bf7f7e2e84f804a84ce7d64c26aba1e36209d0911b51"
+      "sha256": "b32d5dfc87cfbd824cd87072a0ef8ca56080e5d751f093ff254f8de6bff944c3"
     },
     {
       "path": "packaging_tests/test_phone_storage.py",
@@ -905,6 +924,46 @@
       "sha256": "bb1b5bce40a2608a4dad453c82cdd2a892d9439ad2841467f5b219a09b53286c"
     },
     {
+      "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/body-a.json",
+      "sha256": "986fd2048b786c29544c25f7145c1fa4e37bdeb440c9afeb1a4e126868b147ee"
+    },
+    {
+      "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/body-b.json",
+      "sha256": "b1ed0066c440710a43229817d3b2543d33163a4a17a1466f26f5d3f6238c4142"
+    },
+    {
+      "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/body-first.json",
+      "sha256": "59fd72dadc04c06af507ffecd98d71cd1310288b10b25ae8240876d706f3f2e3"
+    },
+    {
+      "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/body-tool.json",
+      "sha256": "99566a80585e7f9c4d23eaec08f437bda3cd738ac66f434cedc989a65770251b"
+    },
+    {
+      "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/first-turn.json",
+      "sha256": "a9e41a5d800b6cde3f6198ef244acd964e28403ac9875504bc31ac645617cff0"
+    },
+    {
+      "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/image-only.json",
+      "sha256": "79263e4162f4d25326a9a56d3c766aac6a16f9fec8ab3e2752ebe0116b0de53a"
+    },
+    {
+      "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/plain.json",
+      "sha256": "040829cf8c5c4e61f6b8561b3ddebb135c686c3b657ba44dea089be906ace814"
+    },
+    {
+      "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/recall-a.json",
+      "sha256": "63f8274f5f3de966c5571bd01cc412d0e7b3358c2ed1d84873e8cb8cca7cb203"
+    },
+    {
+      "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/recall-b.json",
+      "sha256": "5222037c49d14b44211ff722e025b23f807c07447e3d409fcba5646b10b2ec95"
+    },
+    {
+      "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/tool-continuation.json",
+      "sha256": "de0b50896bd83c848a90bbae4229764b97b5b0567fb40301f96d2c445ceb9644"
+    },
+    {
       "path": "rikkahub_gateway/tests/test_atlas_end_to_end.py",
       "sha256": "c88a56e5f51e8f6a52f706b475cbb0744c1ff978c732a947434c51a9da4722ea"
     },
@@ -1006,7 +1065,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_performance_observability.py",
-      "sha256": "1c6dffeea912b98550402b39489142cd492c27a3fd71cac909f637e26a430814"
+      "sha256": "b7d8019d1071b8d0b4ef543062e07b0a77660bb1398bff0a8a141232032d6fee"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_split_tool_adversarial.py",
@@ -1047,6 +1106,14 @@
     {
       "path": "rikkahub_gateway/tests/test_manual_routes.py",
       "sha256": "eebf5199c0fcaccff8b1ba816aaa3ec6721fd0ac9548e19f385310001d8e2065"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_orbis_body_wire.py",
+      "sha256": "09ddf28130cd2806bf1e9a2f3eb8c8378d786f3abd3fd8314aed8c32da52db13"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_orbis_memory_wire.py",
+      "sha256": "0c5883dedc5444d8e7cd602b9836518ba58753342e1559db3a47a1408bc42f77"
     },
     {
       "path": "rikkahub_gateway/tests/test_person_rewrite_validation_guidance.py",
@@ -1118,7 +1185,7 @@
     },
     {
       "path": "runtime/compact_tool_routes.py",
-      "sha256": "80bce448713f34595ef95d3643d3d68ed96b92bc4fa1440a9e3e8e56ff562558"
+      "sha256": "6030818e70d60560b2285fe10f5aacdc792161fc0b7fe9d31cb3b6e8926f3fee"
     },
     {
       "path": "runtime/credential_guard.py",
@@ -1134,11 +1201,11 @@
     },
     {
       "path": "runtime/emotional_memory.py",
-      "sha256": "2de1f7449d8820c49eb553b7a89046a969e68dd4b9fac3098796a06e83ddf78b"
+      "sha256": "924aedb67ab4392e98a7dd5783bdf3c20b26066a385bcbf2816e9fe9b228a160"
     },
     {
       "path": "runtime/execution_binding.py",
-      "sha256": "e4635921a7645f6ddf885dadf9d76df26b8a8690fc35fe75f5e78b2a99f9330b"
+      "sha256": "7e6f68bf99d5d345030b15414e66382eab127ea5de47ec75e14f6e20d149a7c1"
     },
     {
       "path": "runtime/execution_profiles.py",
@@ -1169,6 +1236,14 @@
       "sha256": "52a07cde88fc50408ae7e603bc06b7ed861c659fb2987df4459e8a167066b050"
     },
     {
+      "path": "runtime/memory_desires.py",
+      "sha256": "28783b145313995745c7037cfb7d5f41efd8747a08916f5fdf2ffaf96d3dbdae"
+    },
+    {
+      "path": "runtime/memory_image_recall.py",
+      "sha256": "583d81b01bcb8d5ab6cbc937b3468b084679ae6dfb34fa59eb49d3f3673d7a5f"
+    },
+    {
       "path": "runtime/memory_image_uploads.py",
       "sha256": "0d8d21109d20d0c37540ce2027214b03b464ad731748eaf6755123e8fc7ec6a8"
     },
@@ -1186,11 +1261,11 @@
     },
     {
       "path": "runtime/onboarding.py",
-      "sha256": "be55e132d3f13f0f35e3ee263b136fb643ef96ed8bab6182b3c4109dd5cda3cc"
+      "sha256": "385358789ec8a58b59e57aa57455ed1026efc96454171320fa7c02497c543e08"
     },
     {
       "path": "runtime/ordinary_access.py",
-      "sha256": "41f65cab687ef18212b36843edb0dc0ad8ccad9ad307f9dcd8236ab8764a2957"
+      "sha256": "3e34aae153daa7ecc787f5de4288b5140bd76280f2ab8f837eee5f5d35ce5dc4"
     },
     {
       "path": "runtime/person_reference_advisory.py",
@@ -1310,7 +1385,7 @@
     },
     {
       "path": "scripts/install_phone.py",
-      "sha256": "90ac98fa9348dc1410e33964b51dd70c4be96e7e8f37e87820f7ae66d379d907"
+      "sha256": "23029c612ffd59a51be8081c0ff18fd12dd27ee89913e7c30c4176ed986fa4f0"
     },
     {
       "path": "scripts/install_stiller.py",
@@ -1381,12 +1456,16 @@
       "sha256": "bd82a0b89e4960f77f77037e7b7b18f635fe91eee7ca61b074e365baaf4a15f4"
     },
     {
+      "path": "source-release-state-0.2.1.json",
+      "sha256": "dcb74f4c1d7a7ddace0847b7af1152fc3b19dffe9fec3e6aa0844ba3e985bfe4"
+    },
+    {
       "path": "source-release-state-preview.5.json",
       "sha256": "5f21cbf24d9d098a1ee1522268d5763e179958a48fa638eb2a162e9cb5848ab7"
     },
     {
       "path": "source-release-state.json",
-      "sha256": "dcb74f4c1d7a7ddace0847b7af1152fc3b19dffe9fec3e6aa0844ba3e985bfe4"
+      "sha256": "48493adf71698aaed86730ec20d7466cdf517e22c527aa9c9ac972b96250750c"
     },
     {
       "path": "tests/__init__.py",
@@ -1450,7 +1529,7 @@
     },
     {
       "path": "tests/test_direct_grants.py",
-      "sha256": "3aa9aa2944e16b6cf8a5e661a184835a92271f61fa8d4c9d68aa1c8e830069f2"
+      "sha256": "eabd0bacedd65c568b1a97b611730c6cce2040375633206da9f6e6b46ba40fdb"
     },
     {
       "path": "tests/test_emotional_memory.py",
@@ -1501,8 +1580,20 @@
       "sha256": "63342a165c78165b819eaf51e03155ae8e120a2061a4b1b1eb1970e8eff89ff1"
     },
     {
+      "path": "tests/test_memory_desire_pins.py",
+      "sha256": "bd5fee741e2c66198ac22c2c898c37143157c643713e6d0ee699b7b8dfcd3f46"
+    },
+    {
+      "path": "tests/test_memory_desires.py",
+      "sha256": "d53b8a36cbe468729a6daab239c198b6560fb8f796bd2d4c84c5845f42ba9406"
+    },
+    {
       "path": "tests/test_memory_image_cli.py",
       "sha256": "cf8f291ae5cd076f0790880bc24674a5d1dc0e64191f9402a4f0c48b033f9019"
+    },
+    {
+      "path": "tests/test_memory_image_recall.py",
+      "sha256": "877d47deeb909bb28ab1dc746f7c9c80cd98226c8e69fa30dc1ffc07ccae3a90"
     },
     {
       "path": "tests/test_memory_image_uploads.py",
@@ -1618,7 +1709,7 @@
     },
     {
       "path": "tests/test_st_entry_help_r4h38.py",
-      "sha256": "d97bbf1449872c286852fd022f015e5565cac51fb7a075feabbfb9ff75f16237"
+      "sha256": "246f2765b82e154423e59d4ac16c2d3987b7c97799bce3a63d3eb90bf2937135"
     },
     {
       "path": "tests/test_tail_context_v2_runtime.py",
@@ -1654,7 +1745,7 @@
     },
     {
       "path": "tests/test_usage_consistency_r4h34.py",
-      "sha256": "a5bd462b6325670e67307dbbdb2696c918a46ed3a826ec06b96f0ac209c8c999"
+      "sha256": "7671bc91b51cf5c5d23b503f183ebc6b72c48b80b3718fa96755c33d082f1921"
     },
     {
       "path": "tests/test_work_memory.py",

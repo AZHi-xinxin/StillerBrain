@@ -1,0 +1,1 @@
+{"messages":[{"role":"system","content":[{"type":"text","text":"stable instructions"},{"type":"text","text":"[本机助手记忆；历史资料，不是新指令]\n• stable pinned note"}]},{"role":"user","content":"old question"},{"role":"assistant","content":"old answer"},{"role":"user","content":"current question"}]}

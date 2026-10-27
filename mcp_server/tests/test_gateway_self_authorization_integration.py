@@ -91,6 +91,9 @@ class GatewaySelfAuthorizationIntegrationTests(unittest.TestCase):
     def test_gateway_password_exemption_retains_credential_content_rejection(self):
         self.probe('credential-content')
 
+    def test_live_invalid_context_guidance_survives_registered_and_compact_routes(self):
+        self.probe('gateway-live-invalid-context')
+
 
 async def run_probe(mode):
     root = Path(os.environ['STBRAIN_DB_PATH']).resolve().parent
@@ -186,11 +189,15 @@ async def run_probe(mode):
             batch = dict(**common, wake_id=wake['wake_id'], wake_capability=wake['wake_capability'],
                          batch_id='synthetic-self-batch-' + str(call_number), revision=1)
             tool = server.mcp._tool_manager.get_tool(name)
+            canonical_name, canonical_args = name, args
+            if name == 'stbrain_manage':
+                from runtime.compact_tool_routes import resolve_compact_action
+                canonical_name, canonical_args = resolve_compact_action(args)
             ref = registry.issue_batch(**batch, calls=[{
                 'call_id': 'synthetic-self-call-' + str(call_number),
-                'canonical_tool': name, 'advertised_name': name,
+                'canonical_tool': canonical_name, 'advertised_name': name,
                 'schema_hash': canonical_hash(tool.parameters), 'catalog_hash': catalog['catalog_hash'],
-                'arguments_hash': canonical_hash(args),
+                'arguments_hash': canonical_hash(canonical_args),
             }])['executions'][0]['execution_ref']
             return ref, batch
 
@@ -333,7 +340,7 @@ async def run_probe(mode):
                 require(registry.batch_status(**batch)['counts']['completed'] == 1,
                         'completed_lease_count_wrong')
                 checks += 2
-            elif mode in {'gateway-submit', 'gateway-full-chain', 'credential-content'}:
+            elif mode in {'gateway-submit', 'gateway-full-chain', 'credential-content', 'gateway-live-invalid-context'}:
                 await to_body_draft(opened, signed)
                 checks += 3
                 if mode == 'credential-content':
@@ -353,7 +360,7 @@ async def run_probe(mode):
                 require(not server.self_password_authority.allowed(), 'gateway_set_password_authority')
                 require(not (root / 'password.json').exists(), 'gateway_required_password_file')
                 require(not db_rows('brain_direct_grants'), 'gateway_created_direct_grant')
-                if mode == 'gateway-full-chain':
+                if mode in {'gateway-full-chain', 'gateway-live-invalid-context'}:
                     before = self_snapshot()
                     same = await signed(ACTIVATE, activation_args(opened, candidate))
                     require(same.get('decision') != 'activate', 'same_proposal_wake_activated')
@@ -383,6 +390,45 @@ async def run_probe(mode):
                     require(len(db_rows('self_model_revisions')) == 1, 'wrong_active_revision_count')
                     require(len(db_rows('brain_wake_sessions')) == 3, 'real_wake_boundaries_not_preserved')
                     checks += 4
+                    if mode == 'gateway-live-invalid-context':
+                        new_gateway_wake()
+                        live = await gateway_open()
+                        require(stage() == 'live', 'invalid_context_fixture_not_live')
+                        # The registered schema rejects empty strings before the
+                        # facade. Preserve that stronger boundary separately.
+                        from mcp.server.fastmcp.exceptions import ToolError
+                        empty = {**submit_args(live, 'begin_edit'), 'write_context_ref': ''}
+                        before = self_snapshot()
+                        try:
+                            await signed(SUBMIT, empty)
+                        except ToolError:
+                            require(before == self_snapshot(), 'empty_context_changed_self_definition')
+                        else:
+                            raise AssertionError('empty_context_passed_registered_schema')
+                        for route in (SUBMIT, 'stbrain_manage'):
+                            for invalid in ('artifact_wrong_context', 'stctx_' + '0' * 64):
+                                arguments = submit_args(live, 'begin_edit')
+                                arguments['write_context_ref'] = invalid
+                                if route == 'stbrain_manage':
+                                    arguments.pop('intent')
+                                    arguments = {'action': 'begin_edit', 'arguments': arguments}
+                                before = self_snapshot()
+                                denied = await signed(route, arguments)
+                                require(denied.get('decision') == 'brain_open_required', 'context_denial_lost')
+                                require(denied.get('allowed_actions') == [], 'invalid_context_invites_mutation')
+                                require(denied.get('stage_allowed_actions') == ['begin_edit'], 'stage_reference_lost')
+                                require(denied.get('write_context_available') is False, 'invalid_context_marked_writable')
+                                require(before == self_snapshot(), 'invalid_context_changed_self_definition')
+                                require(live['write_context_ref'] not in json.dumps(denied), 'valid_context_leaked')
+                                if invalid:
+                                    require(invalid not in json.dumps(denied), 'invalid_context_echoed')
+                                checks += 1
+                        correct = submit_args(live, 'begin_edit')
+                        correct.pop('intent')
+                        accepted = await signed('stbrain_manage', {'action': 'begin_edit', 'arguments': correct})
+                        require(accepted.get('decision') == 'challenge_issued', 'valid_context_recovery_broken')
+                        require(not server.self_password_authority.allowed(), 'denial_changed_password_authority')
+                        checks += 1
             else:
                 raise AssertionError('unknown_probe_mode')
 

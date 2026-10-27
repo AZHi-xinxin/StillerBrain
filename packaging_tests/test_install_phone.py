@@ -251,7 +251,7 @@ class PhoneBridgeTests(unittest.TestCase):
         record = phone.state_record(self.ctx, self.digest, create=True)
         (self.ctx["container"] / "rootfs").mkdir(parents=True)
         with patch.object(phone, "execute") as run:
-            with self.assertRaises(OSError):
+            with self.assertRaisesRegex(phone.PhoneError, "发行版来源和系统版本核对"):
                 phone.prepare(self.ctx, record)
             run.assert_not_called()
         self.assertTrue((self.ctx["container"] / "rootfs").exists())
@@ -307,6 +307,57 @@ class PhoneBridgeTests(unittest.TestCase):
             env = phone.clean_environment(self.ctx)
         self.assertNotIn("synthetic", json.dumps(env))
         self.assertEqual(str(self.prefix), env["TERMUX__PREFIX"])
+
+    def test_download_proxy_reaches_host_and_guest_but_not_runtime(self):
+        values = {"HTTP_PROXY": "http://127.0.0.1:10808", "HTTPS_PROXY": "http://127.0.0.1:10808",
+                  "NO_PROXY": "localhost,127.0.0.1", "STBRAIN_UPSTREAM_API_KEY": "synthetic-secret",
+                  "PROOT_TMP_DIR": "synthetic-hook", "PD_DOCKER_AUTH": "synthetic-auth"}
+        with patch.dict(os.environ, values, clear=True), patch.object(phone, "proot_binary", return_value="proot-distro"):
+            download = phone.clean_environment(self.ctx, download=True)
+            guest = phone.guest_command(self.ctx, ["/usr/bin/apt-get", "update"], download=True)
+            runtime = phone.clean_environment(self.ctx)
+            runtime_guest = phone.guest_command(self.ctx, ["/usr/bin/python3.12", "service.py"])
+        self.assertEqual(values["HTTP_PROXY"], download["http_proxy"])
+        self.assertIn("https_proxy=" + values["HTTPS_PROXY"], guest)
+        self.assertIn("no_proxy=localhost,127.0.0.1", guest)
+        self.assertNotIn("synthetic-", json.dumps(download) + json.dumps(guest))
+        self.assertNotIn("proxy", json.dumps(runtime) + json.dumps(runtime_guest))
+
+    def test_invalid_or_authenticated_proxy_stops_before_any_download_without_echo(self):
+        for value in ("http://name:synthetic-secret@localhost:8080", "socks5://localhost:1080",
+                      "http://localhost:bad", "http://localhost:8080/x", "http://localhost:8080\nKEY=secret"):
+            with self.subTest(value=value), patch.dict(os.environ, {"HTTP_PROXY": value}, clear=True), \
+                 patch.object(phone.subprocess, "run") as run:
+                with self.assertRaisesRegex(phone.PhoneError, "下载代理格式不支持") as failure:
+                    phone.execute(self.ctx, ["download"], download=True)
+                self.assertNotIn("synthetic-secret", str(failure.exception))
+                run.assert_not_called()
+
+    def test_prepare_apt_uses_download_proxy_and_failure_is_not_marked_ready(self):
+        record = self.owned()
+        with patch.dict(os.environ, {"ALL_PROXY": "http://127.0.0.1:10808"}, clear=True), \
+             patch.object(phone, "proot_binary", return_value="proot-distro"), patch.object(phone, "verify_os"), \
+             patch.object(phone, "execute", side_effect=phone.PhoneError("连接失败")) as run, redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(phone.PhoneError, "Ubuntu 软件源索引下载"):
+                phone.prepare(self.ctx, record)
+        self.assertTrue(run.call_args.kwargs["download"])
+        self.assertIn("http_proxy=http://127.0.0.1:10808", run.call_args.args[1])
+        self.assertFalse((self.state / "phone-prepared.json").exists())
+        self.assertTrue((self.ctx["container"] / ".stiller-phone-owner.json").exists())
+
+    def test_install_before_prepare_explains_previous_stage_without_asking_for_model_key(self):
+        record = self.owned()
+        with patch.object(phone, "execute") as run:
+            with self.assertRaisesRegex(phone.PhoneError, "准备尚未完成"):
+                phone.operate(self.ctx, record, "install")
+            run.assert_not_called()
+
+    def test_timeout_is_fixed_and_does_not_reveal_subprocess_output(self):
+        with patch.object(phone.subprocess, "run", side_effect=subprocess.TimeoutExpired(
+                ["synthetic-secret"], 1, output="synthetic-secret")):
+            with self.assertRaisesRegex(phone.PhoneError, "等待超时") as failure:
+                phone.execute(self.ctx, ["download"], timeout=1)
+        self.assertNotIn("synthetic-secret", str(failure.exception))
 
     def test_subprocess_has_no_shell_and_no_implicit_check_or_credentials(self):
         result = SimpleNamespace(returncode=0, stdout="ok")

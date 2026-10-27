@@ -272,3 +272,8 @@
 日常档只常驻其中的统一存入和工具卡入口；其他存入操作的当前说明可用 `stbrain_tools(action=...)` 按需读取。网关新对话第一轮的 ST 入口提醒是另一项可选提示，只在本轮提供 `stbrain_open` 且总注入开关允许时出现，不构成保存前的必经步骤。
 
 源码依据：[server.py](../mcp_server/server.py)、[公开参数契约](../mcp_server/public_contract.py)、[普通修改 Schema](../mcp_server/ordinary_revision_schema.py)、[使用帮助](../mcp_server/usage_guide.py)。
+
+
+## 0.2.2 欲望层
+
+查询 `stbrain_tools(category="desires")` 发现 `memory_desires`，精简档按返回契约经 `stbrain_manage` 执行。支持 guide/list/read/put/archive/restore/delete/pin/unpin/plan_draft。示例与语义见 [欲望层指南](MEMORY-DESIRES.md)。

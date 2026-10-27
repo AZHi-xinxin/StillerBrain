@@ -332,6 +332,9 @@ class OnboardingFacadeTests(unittest.TestCase):
             expected_row_version=row_version,
         )
         self.assertEqual("brain_open_required", unopened["decision"])
+        self.assertEqual([], unopened["allowed_actions"])
+        self.assertFalse(unopened["write_context_available"])
+        self.assertEqual("write_context_not_opened_or_mismatched", unopened["binding_reason_code"])
         self.assertEqual(before["state"], self.service.module_one_status()["state"])
 
         unopened_activation = self.service.activate_self_model_candidate(
@@ -386,6 +389,8 @@ class OnboardingFacadeTests(unittest.TestCase):
             expected_row_version=row_version,
         )
         self.assertEqual("brain_open_required", delayed["decision"])
+        self.assertEqual([], delayed["allowed_actions"])
+        self.assertFalse(delayed["write_context_available"])
         self.assertEqual(before, self.service.module_one_status()["state"])
 
         current = self.service.submit_self_model_candidate(

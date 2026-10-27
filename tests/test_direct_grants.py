@@ -796,6 +796,9 @@ class DirectGrantCoreTests(unittest.TestCase):
             self.assertEqual(before, self._logical_dump())
 
     def test_distinct_direct_grants_preserve_review_and_activation_wake_boundaries(self) -> None:
+        self._activate_direct_self_model()
+
+    def _activate_direct_self_model(self) -> None:
         first_grant = self.issue("self-1", ["self_revision"])
         first = self.open(first_grant["grant_ref"])
         self.assertEqual(
@@ -861,6 +864,40 @@ class DirectGrantCoreTests(unittest.TestCase):
         self.assertEqual("activate", activated["decision"])
         self.assertTrue(activated["pointer_changed"])
         self.assertEqual(3, self._count("brain_wake_sessions"))
+
+    def test_live_direct_edit_reports_invalid_context_without_a_retry_loop(self) -> None:
+        from mcp_server.service import SelfModelAccessService
+        from runtime import SelfModelStore
+
+        self._activate_direct_self_model()
+        service = SelfModelAccessService(
+            SelfModelStore(self.database), owner_id=self.owner, model_id=self.model,
+            onboarding=self.store, direct_client_principal=self.principal,
+            ordinary_memory_access=True,
+        )
+        grant = self.issue("live-edit", ["self_revision"])
+        opened = service.open_brain_direct(grant_ref=grant["grant_ref"])
+        self.assertTrue(opened["write_context_available"])
+        self.assertEqual("live", opened["current_status"]["state"]["stage"])
+        before = self._logical_dump()
+        rejected = service.submit_self_model_candidate(
+            intent="begin_edit", write_context_ref="artifact_wrong_context",
+            expected_row_version=opened["row_version"],
+        )
+        self.assertEqual(before, self._logical_dump())
+        self.assertEqual("brain_open_required", rejected["decision"])
+        self.assertIs(False, rejected.get("write_context_available"))
+        self.assertEqual([], rejected["allowed_actions"])
+        self.assertEqual(["begin_edit"], rejected["stage_allowed_actions"])
+        self.assertEqual("write_context_not_opened_or_mismatched", rejected["binding_reason_code"])
+        for private in (grant["grant_ref"], opened["write_context_ref"], "artifact_wrong_context"):
+            self.assertNotIn(private, json.dumps(rejected))
+        # Recovery guidance must not relax the gate or consume a valid context.
+        accepted = service.submit_self_model_candidate(
+            intent="begin_edit", write_context_ref=opened["write_context_ref"],
+            expected_row_version=opened["row_version"],
+        )
+        self.assertEqual("challenge_issued", accepted["decision"])
 
     def _count(self, table: str) -> int:
         with closing(sqlite3.connect(self.database)) as connection:

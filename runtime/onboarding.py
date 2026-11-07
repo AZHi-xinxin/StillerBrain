@@ -55,6 +55,7 @@ from .execution_profiles import (
 FLOW_VERSION = "module-one/1"
 CONTEXT_LAYOUT_CONTRACT = "stbrain-context-layout/1"
 TAIL_CONTEXT_LAYOUT_CONTRACT = "stbrain-context-layout/2"
+USER_DATA_CONTEXT_LAYOUT_CONTRACT = "stbrain-context-layout/3"
 _CONTEXT_LAYOUT_UNSET = object()
 MAX_CALM_PROMPT_CHARS = 2000
 MAX_CANDIDATE_REASON_CHARS = 2000
@@ -3225,19 +3226,27 @@ class ModuleOneOnboardingStore:
 
     @staticmethod
     def _validate_context_layout_offer(value: Any) -> dict[str, str]:
-        """Accept only the explicit v2 offer; null is not a legacy downgrade."""
+        """Accept an exact negotiated layout; null is not a legacy downgrade.
+
+        V3 authorizes the gateway to carry dynamic frame contents as labelled
+        data parts in the latest human message, after source/capture checks.
+        The stable identity frame remains SYSTEM, and no frame content changes.
+        """
         expected = {
             "contract": TAIL_CONTEXT_LAYOUT_CONTRACT,
             "insertion_rule": "after-client-messages",
         }
-        if not isinstance(value, Mapping) or dict(value) != expected:
+        user_data = {"contract": USER_DATA_CONTEXT_LAYOUT_CONTRACT,
+                     "insertion_rule": "within-current-human-data"}
+        if not isinstance(value, Mapping) or dict(value) not in (expected, user_data):
             raise OnboardingError("context_layout_offer_invalid")
-        return dict(expected)
+        return dict(value)
 
     @classmethod
     def _validate_stored_context_layout(cls, value: Any) -> dict[str, Any] | None:
         """Read a previously selected version without widening either input field."""
-        if isinstance(value, Mapping) and value.get("contract") == TAIL_CONTEXT_LAYOUT_CONTRACT:
+        if isinstance(value, Mapping) and value.get("contract") in (
+                TAIL_CONTEXT_LAYOUT_CONTRACT, USER_DATA_CONTEXT_LAYOUT_CONTRACT):
             return cls._validate_context_layout_offer(value)
         return cls._validate_context_layout(value)
 

@@ -105,7 +105,8 @@ class GatewayUnadvertisedFeedbackTests(unittest.TestCase):
         self.assertEqual(expected_status, status)
         error = self.events(raw)[-2]["error"] if status == 200 else json.loads(raw)["error"]
         self.assertEqual("tool_not_advertised", error["code"])
-        self.assertEqual({"message", "type", "code"}, set(error))
+        self.assertEqual({"message", "type", "code", "request_id"}, set(error))
+        self.assertRegex(error["request_id"], r"^[0-9a-f]{32}$")
         self.assertIn("tool_not_advertised", error["message"])
         if protected_collision:
             self.assertEqual("tool_not_advertised", error["message"])
@@ -118,7 +119,8 @@ class GatewayUnadvertisedFeedbackTests(unittest.TestCase):
                 self.assertIn(phrase, error["message"])
         self.assertEqual(1, len(logs.records))
         record = json.loads(logs.records[0].getMessage())
-        self.assertEqual({"event", "at", "code", "streamed_prefix"}, set(record))
+        self.assertEqual({"event", "at", "code", "streamed_prefix", "request_id"}, set(record))
+        self.assertEqual(error["request_id"], record["request_id"])
         self.assertEqual("tool_not_advertised", record["code"])
         self.assertEqual(stream and prefix, record["streamed_prefix"])
         self.assertIsNone(logs.records[0].exc_info)

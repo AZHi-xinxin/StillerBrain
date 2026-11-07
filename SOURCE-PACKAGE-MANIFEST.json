@@ -1,7 +1,7 @@
 {
   "format": "stiller-source-package/1",
-  "version": "0.2.2",
-  "distribution": "source-available-stable-release",
+  "version": "0.2.2+main.20261107",
+  "distribution": "source-available-development-preview",
   "files": [
     {
       "path": ".env.example",
@@ -17,7 +17,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "50e3fc6f4615219e4515eceee4c053fbb60a5d019ea9fc13dc124417fa1ef947"
+      "sha256": "adae8d6c49a47443af061a763b445d6448d462e6b9f3ef4c1ec8595b5f536449"
     },
     {
       "path": "COMMERCIAL-LICENSE.md",
@@ -41,7 +41,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "ce1812ac7f96c890eab2efa4ac4e8d888ecb97c4e9164f0f8729929e62f5eca3"
+      "sha256": "9320b834fa611970f637248163e0f31710b0c67afd55605c4051eb7041ad676b"
     },
     {
       "path": "RELEASE-NOTES-0.2.0-preview.1.md",
@@ -138,6 +138,10 @@
     {
       "path": "docs/GATEWAY-RECOVERY.md",
       "sha256": "d213735cdacecca2951329e4e55f5b770db04ce2d8a250892364e3163e0ca507"
+    },
+    {
+      "path": "docs/GATEWAY-UPDATE-20261107.md",
+      "sha256": "8f2e7edd52cfa6a7733efd51db3caa83299e7242ef1d0e218f6810bb6ac059f8"
     },
     {
       "path": "docs/GUIDE.md",
@@ -293,7 +297,7 @@
     },
     {
       "path": "mcp_server/control_server.py",
-      "sha256": "070a6004d454da8a52edcbb02de73b4077b786277d16270187089d8e7fe9d47a"
+      "sha256": "62c71e0dbf59705b798130f9df6e9f99541b7735d8fd152662eb4e436828cf71"
     },
     {
       "path": "mcp_server/daily_argument_metadata.py",
@@ -869,11 +873,11 @@
     },
     {
       "path": "rikkahub_gateway/README.md",
-      "sha256": "e4594615f2dca57b50c9750ca328cec5e5364e547bf62dc17a90764db6e0b18e"
+      "sha256": "b2e5ad7e2a6f4d5d820476e377c138dbb36dee26490d078b0ea3fd97c05f4754"
     },
     {
       "path": "rikkahub_gateway/ROUTE_MANAGEMENT.md",
-      "sha256": "9c1cf44e371f84b7b0a668639c8565ceefe1aea2c47e320c35bdcada218be230"
+      "sha256": "b615ce7d4de2904979265783a3642d0b8e3899e1edb47c4a9e709ec059b3da79"
     },
     {
       "path": "rikkahub_gateway/__init__.py",
@@ -888,12 +892,28 @@
       "sha256": "53416eb64e1228b4a570e4d36f7e2a3c5c14356f431cc66cc1ff4f8b0ad302dc"
     },
     {
+      "path": "rikkahub_gateway/cache_layout.py",
+      "sha256": "7d34ae920de346c8c7c7ba8bb75b1541d465a0acbc322a5acc78c65054674934"
+    },
+    {
+      "path": "rikkahub_gateway/catalog_diagnostics.py",
+      "sha256": "82fcde0dd48efe00dd3dd1ae520037b55033fb95bc16a860dd0c26ba51c18dea"
+    },
+    {
       "path": "rikkahub_gateway/consultation_reference.py",
       "sha256": "ad3f85f2014ab3d6fc667380cff2522afb7e814be0b025fa8d50624bd32e77d3"
     },
     {
+      "path": "rikkahub_gateway/image_files.py",
+      "sha256": "04ae0f191fdf1165654fe0fdad7e06c9a5c8e01fe868e31927b2bfbb0b996ab9"
+    },
+    {
       "path": "rikkahub_gateway/management.py",
       "sha256": "81593433786602c5edab8966c36547f9e164f510ef64b877ac917564110e0ad8"
+    },
+    {
+      "path": "rikkahub_gateway/protocol_diagnostics.py",
+      "sha256": "2c64e5db5854fcc804fdc228077acfabefa0aa2c10bb831063d0de139c69e558"
     },
     {
       "path": "rikkahub_gateway/reasoning_control.py",
@@ -901,7 +921,7 @@
     },
     {
       "path": "rikkahub_gateway/routes.py",
-      "sha256": "6e7d71be2cac90790c7440239f19602d3176aa097ada93757df021eef741790a"
+      "sha256": "333e40f72f32f13f81f404a56b0aa635d562eee572a39454bb5857467dfd2d33"
     },
     {
       "path": "rikkahub_gateway/run_offline_checks.py",
@@ -909,7 +929,7 @@
     },
     {
       "path": "rikkahub_gateway/server.py",
-      "sha256": "2d4ede0e55b1fbfc85347d9eb67fcdd95684706cf3a1a386da58c5b466b1c982"
+      "sha256": "5343a59551248aef26957d139649c7eb29282eef8423140721b9d6e168a0de0f"
     },
     {
       "path": "rikkahub_gateway/short_term.py",
@@ -925,43 +945,43 @@
     },
     {
       "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/body-a.json",
-      "sha256": "986fd2048b786c29544c25f7145c1fa4e37bdeb440c9afeb1a4e126868b147ee"
+      "sha256": "2cf72e18157fa45da399ca34567d7d9ff223abe018de41ae777b76ffa936f37e"
     },
     {
       "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/body-b.json",
-      "sha256": "b1ed0066c440710a43229817d3b2543d33163a4a17a1466f26f5d3f6238c4142"
+      "sha256": "a79bff1c083538bc8ffb27a93da2cef2a97a01b26991ee637bb521a3a30be60f"
     },
     {
       "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/body-first.json",
-      "sha256": "59fd72dadc04c06af507ffecd98d71cd1310288b10b25ae8240876d706f3f2e3"
+      "sha256": "2d5cc60b3bad3760c5839fc04b428f50c30e4931f2ea85789eeae17b92c0390b"
     },
     {
       "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/body-tool.json",
-      "sha256": "99566a80585e7f9c4d23eaec08f437bda3cd738ac66f434cedc989a65770251b"
+      "sha256": "e7cc47e5a00635d37d75e2a284cf8cd3f7e290bb282c686c1e3f28a5b4be25c6"
     },
     {
       "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/first-turn.json",
-      "sha256": "a9e41a5d800b6cde3f6198ef244acd964e28403ac9875504bc31ac645617cff0"
+      "sha256": "e122f26fef8d701ca3b2448721de5f59460eaa2346b45389d876fabef8521f0b"
     },
     {
       "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/image-only.json",
-      "sha256": "79263e4162f4d25326a9a56d3c766aac6a16f9fec8ab3e2752ebe0116b0de53a"
+      "sha256": "8b558d69180167f733e0fb2f83e63497bdd495fa74b5b3bc8f9f5b6fed70d278"
     },
     {
       "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/plain.json",
-      "sha256": "040829cf8c5c4e61f6b8561b3ddebb135c686c3b657ba44dea089be906ace814"
+      "sha256": "533dc88c736f9ba1eb3a4f9a9edefc774d7beca84c710692d7272b188e7992dc"
     },
     {
       "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/recall-a.json",
-      "sha256": "63f8274f5f3de966c5571bd01cc412d0e7b3358c2ed1d84873e8cb8cca7cb203"
+      "sha256": "7d4abfe82156bd27e6c4b574b34e3d887a7c3cbd3a8e9bcec9fef34a31daff06"
     },
     {
       "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/recall-b.json",
-      "sha256": "5222037c49d14b44211ff722e025b23f807c07447e3d409fcba5646b10b2ec95"
+      "sha256": "337529b1b80d21a2dc50dd45d31746022fd1272c3dc2f5344165134c02266cff"
     },
     {
       "path": "rikkahub_gateway/tests/fixtures/orbis-memory-wire/tool-continuation.json",
-      "sha256": "de0b50896bd83c848a90bbae4229764b97b5b0567fb40301f96d2c445ceb9644"
+      "sha256": "e21105ddcb91993d85bcb92ff18419b1c3a13f9d700a01e0cc8f9e97f448bb0c"
     },
     {
       "path": "rikkahub_gateway/tests/test_atlas_end_to_end.py",
@@ -974,6 +994,10 @@
     {
       "path": "rikkahub_gateway/tests/test_cache_layout.py",
       "sha256": "ab36176cb0dfefeec5928da181cae4aaa32ce0995bf009d4d2b1650b721ccdef"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_catalog_diagnostics.py",
+      "sha256": "7778bc38c0c7324bccaf490d2ebae66ca6001826d9d2783026835e16d750a399"
     },
     {
       "path": "rikkahub_gateway/tests/test_consultation_profiles.py",
@@ -1016,8 +1040,12 @@
       "sha256": "29cce37131736ea31c33df734f25d1e138892825fdbac3fa7759f3efc253db30"
     },
     {
+      "path": "rikkahub_gateway/tests/test_gateway_done_http.py",
+      "sha256": "92efb5650c0fb83ce0cab9c74887b6b98d44ee5eb6ad614f22427820f5705911"
+    },
+    {
       "path": "rikkahub_gateway/tests/test_gateway_empty_recovery.py",
-      "sha256": "cb27e230a98d5953c988f70857a189ba4520d5388b51f7703d0b195ce5980a7b"
+      "sha256": "baa9d3df4439a4179133280ead55ce28eb572455537cade9a90bd3a9dd7e310c"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_execution_projection.py",
@@ -1029,7 +1057,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_failure_observability.py",
-      "sha256": "847108d15f2e5845c9fe9372da2cbc89fd290b37e33a648fd29e7be5cadd804a"
+      "sha256": "57165a747bb3792091ff88e8c667bb5bc53054483f908c4ef46ef2a8e783e7bc"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_http_wire.py",
@@ -1065,7 +1093,11 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_performance_observability.py",
-      "sha256": "b7d8019d1071b8d0b4ef543062e07b0a77660bb1398bff0a8a141232032d6fee"
+      "sha256": "6fdc99ad5befa6135d40cd0c565794f6c777068ed0627c3d2f04de4febc8649c"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_gateway_protocol_completion.py",
+      "sha256": "0f251e0204f2da42721c38bb26c86067f9cf6e08e7b0d3f50161b4185fd6cb59"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_split_tool_adversarial.py",
@@ -1097,15 +1129,23 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_unadvertised_feedback.py",
-      "sha256": "3b9c9a85c0df9ccd863fb322eff331449f7ade428f6837c6ec72c5468febfd79"
+      "sha256": "084e437ed5597f79b65789bbb0fed5b03e7845e5edf49fbf4941ec9f854e0136"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_validation_feedback.py",
-      "sha256": "3077f9bafa451c34da718a5f1e6c62e6bf2403c650bf02bc95cc65246ea784b0"
+      "sha256": "eb9d02fa61d633d05cff7c8f5064424f6dea8842a30691601139128f8b9993af"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_image_files.py",
+      "sha256": "707c67890ad4e2dee11ff6f28ead5e7c19de643839837dc32045ec32c39fd4c5"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_image_files_http.py",
+      "sha256": "ead3c8fd9bec8308f4d4a44c47d2ff133215ccccdbf91bed87ade96894e5e502"
     },
     {
       "path": "rikkahub_gateway/tests/test_manual_routes.py",
-      "sha256": "eebf5199c0fcaccff8b1ba816aaa3ec6721fd0ac9548e19f385310001d8e2065"
+      "sha256": "cc403e9c41fe60f5204b3e6286683488adb8766493d229498462bf75262ad717"
     },
     {
       "path": "rikkahub_gateway/tests/test_orbis_body_wire.py",
@@ -1118,6 +1158,14 @@
     {
       "path": "rikkahub_gateway/tests/test_person_rewrite_validation_guidance.py",
       "sha256": "931ee2ab63884ef4abdc3affcd98423d3cfcafc3e33bae50496e5f97a997904e"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_pro_user_data_boundaries.py",
+      "sha256": "7f7920af09a9f5fa12ca0805bb0ad258e4ebdf234fd72c9dd3ef34c3be9d2288"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_pro_user_data_layout.py",
+      "sha256": "57b5a11bdd130b948dc7d54d0e78ab53106e9250f6be13a5ed42672c4bfda9ec"
     },
     {
       "path": "rikkahub_gateway/tests/test_public_stream_model.py",
@@ -1133,7 +1181,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_route_management.py",
-      "sha256": "cd9629668e493c5e95f0f3f59b0389623192e11af60948a6c7fc502e3c049b4a"
+      "sha256": "41bc4cfbd06657c31c6ec22841ff98576bfb6adedbc464bae4571311612a0d05"
     },
     {
       "path": "rikkahub_gateway/tests/test_session_continuity_delivery.py",
@@ -1261,7 +1309,7 @@
     },
     {
       "path": "runtime/onboarding.py",
-      "sha256": "385358789ec8a58b59e57aa57455ed1026efc96454171320fa7c02497c543e08"
+      "sha256": "577a09d5ff97703f489f6601c1e4ed3bbecce836ea52f84211266a2489bf1261"
     },
     {
       "path": "runtime/ordinary_access.py",
@@ -1460,12 +1508,16 @@
       "sha256": "dcb74f4c1d7a7ddace0847b7af1152fc3b19dffe9fec3e6aa0844ba3e985bfe4"
     },
     {
+      "path": "source-release-state-0.2.2.json",
+      "sha256": "48493adf71698aaed86730ec20d7466cdf517e22c527aa9c9ac972b96250750c"
+    },
+    {
       "path": "source-release-state-preview.5.json",
       "sha256": "5f21cbf24d9d098a1ee1522268d5763e179958a48fa638eb2a162e9cb5848ab7"
     },
     {
       "path": "source-release-state.json",
-      "sha256": "48493adf71698aaed86730ec20d7466cdf517e22c527aa9c9ac972b96250750c"
+      "sha256": "c8aaa2bf882d3c8231c3b93ecc82b99faecb3943b5d357940d013bf2c3f63983"
     },
     {
       "path": "tests/__init__.py",

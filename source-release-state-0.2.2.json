@@ -1,0 +1,71 @@
+{
+  "format": "stiller-source-release-state/1",
+  "version": "0.2.2",
+  "release_channel": "stable",
+  "distribution": "source-available-stable-release",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "base_public_commit": "a1f0b8fe220968733ac8a641bc6e21e248945238",
+  "historical_public_state": "source-release-state-0.2.1.json",
+  "implemented_revisions": "Optional emotional-memory desires, independent pinning, selected image hints, phone upgrade and download diagnostics, invalid write-context guidance",
+  "publication_real_model_calls": 0,
+  "publication_live_service_changes": false,
+  "production_readiness_certified": false,
+  "human_acceptance": {
+    "accepted": true,
+    "scope": "Desire CRUD/archive and independent pinning accepted in existing deployment; one paired Orbis development phone install/reopen accepted",
+    "all_clients_models_and_existing_windows_certified": false,
+    "natural_recall_long_term_quality_certified": false,
+    "private_test_content_published": false
+  },
+  "database_upgrade": {
+    "schema_changed_since_previous_public_release": true,
+    "initialization_adds_tables": [
+      "memory_desires",
+      "memory_desire_history",
+      "memory_desire_pins",
+      "memory_desire_pin_history"
+    ],
+    "existing_memory_rows_rewritten": false,
+    "preserve_private_config_and_identity": true,
+    "stop_writes_and_backup_before_upgrade": true
+  },
+  "automated_regressions_use_synthetic_state": true,
+  "frozen_candidate_regression": {
+    "linux": [
+      {
+        "group": "mcp_server/tests",
+        "tests": 612,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "group": "packaging_tests",
+        "tests": 252,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "group": "rikkahub_gateway/tests",
+        "tests": 820,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 1
+      },
+      {
+        "group": "tests",
+        "tests": 982,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ]
+  },
+  "validation_details": "docs/UPDATE-VALIDATION.md",
+  "integrity_manifest": "SOURCE-PACKAGE-MANIFEST.json",
+  "core_dependencies_changed": false,
+  "github_publication_authorized": true,
+  "stable_release_authorized": true,
+  "notes": "No production service changed during publication. Termux route remains experimental; forthcoming Orbis host support is separate."
+}

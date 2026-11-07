@@ -40,8 +40,12 @@ class TailActionStream(httpx.SyncByteStream):
     def __init__(self, raw, action):
         self.raw, self.action = raw, action
     def __iter__(self):
-        yield self.raw
+        # Replace the generation before its terminal frame is received, not
+        # while requesting HTTP EOF after a semantically completed response.
+        prefix, terminal = self.raw.rsplit(DONE, 1)
+        yield prefix
         self.action()
+        yield DONE + terminal
 
 
 class SilentCompletionTests(unittest.TestCase):

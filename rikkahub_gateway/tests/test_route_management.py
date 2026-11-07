@@ -76,6 +76,19 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(result, self.store.upsert(payload()))
         self.assertEqual(KEY, self.store.snapshot()[0].api_key)
 
+    def test_unicode_names_persist_restart_and_idempotent_receipt_exactly(self):
+        value = payload(publicModel='[自选]星河 Pro', upstreamModel='[反重力]gemini-3.1-pro【高】')
+        result = self.store.upsert(value)
+        self.assertEqual(value['publicModel'], result['publicModel'])
+        self.store.close()
+        self.store = RouteStore(self.directory, ADMIN, (self.legacy,))
+        self.assertEqual(result, self.store.upsert(value))
+        self.assertEqual(result, self.store.receipt(value['requestId'])['result'])
+        route, = self.store.snapshot()
+        self.assertEqual(value['publicModel'], route.public_model)
+        self.assertEqual(value['upstreamModel'], route.upstream_model)
+        self.assertNotIn(KEY, json.dumps(self.store.listing()))
+
     def test_unknown_request_only_after_healthy_state(self):
         with patch.object(self.store, "_read", side_effect=ManagementError(503, "management_unavailable")):
             self.assertCode("management_unavailable", lambda: self.store.receipt("2" * 32))
@@ -110,7 +123,7 @@ class StoreTests(unittest.TestCase):
     def test_exact_schema_types_and_control_credentials_rejected(self):
         for changed in [dict(extra="x"), dict(expectedRevision=True), dict(requestId="UPPER"),
                         dict(schema="other"), dict(apiKey=ADMIN), dict(apiKey="chat-" + "c" * 40),
-                        dict(publicModel="bad name"), dict(upstreamModel="model\n"), dict(apiKey="bad\nkey")]:
+                        dict(publicModel="bad\tname"), dict(upstreamModel="model\n"), dict(apiKey="bad\nkey")]:
             self.assertCode("invalid_request", lambda: self.store.upsert(payload(**changed)))
 
     def test_no_secrets_in_any_visible_fields(self):

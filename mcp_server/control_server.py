@@ -447,7 +447,7 @@ class ControlApplication:
                 return self.execution_store.revoke_batch(**arguments)
             raise ExecutionBindingError("execution_route_invalid")
         if route == "/v1/host/wakes":
-            return self.onboarding.issue_wake(
+            result = self.onboarding.issue_wake(
                 **common,
                 host_id=_required_text(body, "host_id"),
                 thread_id=_required_text(body, "thread_id"),
@@ -456,6 +456,8 @@ class ControlApplication:
                 execution_profile=body.get("execution_profile", "default"),
                 replace_incomplete=body.get("replace_incomplete", False),
             )
+            # Authenticated host capability; not included in model context.
+            return {**result, "context_layout_capabilities": ["stbrain-context-layout/3"]}
         if route == "/v1/host/context/prepare":
             # Preserve absent vs null. Old Control ignores the new offer field;
             # new Control must never silently select a layout from two inputs.

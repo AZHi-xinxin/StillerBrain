@@ -40,6 +40,10 @@
 
 `requestId` 为 32 位小写十六进制。新条目必需 `apiKey`；更新已管理条目时省略该字段保留原密钥，显式空值拒绝。`publicModel` 是稳定条目标识。上游必须是公开 HTTPS 基础地址，不含用户信息、查询、片段或路径穿越。提交前由人类核对并确认。成功回执为 `schema=orbis.st.routes-upsert-result/1`，包含 `requestId`、`revision`、`publicModel`、`status=saved`。
 
+模型名称支持中文、方括号、全角括号及名称中间的普通空格，例如 `publicModel` 可填 `[自选]星河 Pro`，`upstreamModel` 可原样填 `[渠道]gemini-pro【高】`。公开线路名最多 128 个 Unicode 字符，上游模型 ID 最多 256 个；首尾空格、换行、制表符、不可见控制/方向字符及无效 Unicode 不接受。大小写、括号和组合字符不会被自动改写，必须与服务商实际模型 ID 一致；`--auxiliary-no-memory` 仍为系统保留后缀，不能作为新公开线路名的结尾。环境变量里的额外路由使用相同规则。
+
+旧 ST 网关或旧 Orbis 线路管理页可能仍拒绝这些名称，需要更新对应组件。不要删除供应商模型 ID 中的中文或括号来绕过校验，也不要直接修改受源码完整性保护的运行目录；按正常升级流程部署。模型目录能列出只说明路由配置可读，并不证明上游账号有权限或真实生成已成功。
+
 全局版本不符返回 `409 revision_conflict`。相同请求 ID、不同载荷返回 `409 request_conflict`；相同 ID 与载荷返回原回执，即使后来又编辑过。POST 结果未知时先查上述只读回执，不自动重发密钥或换 ID；只有在持久状态健康且成功加锁读取后才返回 `found=false`。幂等日志有容量上限，满时拒绝继续写，不自动删旧记录。
 
 其他错误码包括 `invalid_request`、`unsafe_upstream`、`unauthorized`、`management_disabled`、`immutable_route`、`route_limit_reached`、`journal_limit_reached`、`management_unavailable`、`method_not_allowed`。

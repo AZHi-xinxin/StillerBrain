@@ -12,7 +12,7 @@ from urllib.parse import quote
 
 import httpx
 
-from rikkahub_gateway.routes import GatewayRoute, routes_from_env
+from rikkahub_gateway.routes import GatewayRoute, routes_from_env, validate_route
 from rikkahub_gateway.server import GatewayApplication, GatewayConfig, GatewayError, _GatewayHandler
 from rikkahub_gateway.tests.test_gateway import FakeControl, config
 from rikkahub_gateway.tests import test_gateway as legacy
@@ -49,8 +49,7 @@ class RegistryTests(unittest.TestCase):
         for value in ["bad\rmodel", "bad\x7fmodel"]:
             with self.assertRaises(ValueError):
                 replace(config(), public_model=value)
-        with self.assertRaises(ValueError):
-            self.load(json.dumps([record(public_model="新模型")]))
+        self.assertEqual("新模型", self.load(json.dumps([record(public_model="新模型")]))[0].public_model)
 
     def test_exact_refs_pretty_json_and_reused_account_key(self):
         loaded = self.load(json.dumps([record(), record(public_model="second/flash")], indent=2))
@@ -59,6 +58,31 @@ class RegistryTests(unittest.TestCase):
         with self.assertRaises(FrozenInstanceError):
             loaded[0].api_key = "changed"
         self.assertNotIn(SECOND_KEY, repr(loaded))
+
+    def test_unicode_provider_ids_are_loaded_verbatim(self):
+        for label in ('[反重力]gemini-3.1-pro', '【官转】Gemini 3.1 Pro', '中文模型（测试）',
+                      'vendor/pro@2026', '模型🚀', 'cafe\u0301', 'café', 'model"quoted\\name'):
+            with self.subTest(label=label):
+                loaded, = self.load(json.dumps([record(public_model=label, upstream_model=label)], ensure_ascii=False))
+                self.assertEqual(label, loaded.public_model)
+                self.assertEqual(label, loaded.upstream_model)
+
+    def test_new_model_ids_reject_hidden_controls_separators_and_surrogates(self):
+        invalid = ('', ' ', ' model', 'model ', 'model\n', 'model\r', 'mo\t del', 'm\x00n',
+                   'm\x7fn', 'm\x85n', 'm\u00a0n', 'm\u2028n', 'm\u2029n',
+                   'm\u200bn', 'm\u202en', 'm\u2066n', 'm\ufeffn', 'm\ud800n', 'm\ue000n')
+        for value in invalid:
+            for field in ('public_model', 'upstream_model'):
+                with self.subTest(field=field, value=repr(value)), self.assertRaises(ValueError):
+                    self.load(json.dumps([record(**{field: value})]))
+
+    def test_model_lengths_count_unicode_code_points_and_keep_aux_reserved(self):
+        route = GatewayRoute('星' * 128, SECOND.upstream_base_url, '🚀' * 256, SECOND_KEY)
+        validate_route(route)
+        for value in (replace(route, public_model='星' * 129), replace(route, upstream_model='🚀' * 257),
+                      replace(route, public_model='[中文]' + '--auxiliary-no-memory')):
+            with self.assertRaises(ValueError):
+                validate_route(value)
 
     def test_bad_json_shape_duplicate_keys_and_deep_json_are_sanitized(self):
         cases = ["", "null", "{}", "1", '"text"', '[{"public_model":"a","public_model":"b"}]',
@@ -222,6 +246,40 @@ class ManualRouteTests(unittest.TestCase):
         self.assertEqual(SECOND.public_model, json.loads(h.wfile.getvalue())["model"])
         self.assertEqual(config().upstream_api_key, self.app.config.upstream_api_key)
         self.assertEqual(1, sum(path == "/v1/host/wakes" for path, _ in self.control.calls))
+
+    def test_unicode_alias_and_upstream_survive_json_sse_and_auxiliary_wire(self):
+        route = replace(SECOND, public_model='[自选]星河 Pro', upstream_model='[反重力]gemini-3.1-pro【高】')
+        self.app = GatewayApplication(replace(config(), extra_routes=(route,)), control=self.control, upstream=self.client)
+        self.addCleanup(self.app.close_short_term)
+        self.assertIn(route.public_model, [row['id'] for row in self.app.models()['data']])
+        for auxiliary in (False, True):
+            for stream in (False, True):
+                alias = route.auxiliary_model if auxiliary else route.public_model
+                before = len(self.control.calls)
+                self.replies = [httpx.Response(200, content=ANSWER)] if stream else []
+                h = self.handler(self.payload(alias, stream=stream)); h.do_POST()
+                self.assertEqual([200], h.statuses)
+                sent = self.requests[-1]
+                self.assertEqual(route.completion_url, str(sent.url))
+                self.assertEqual('Bearer ' + SECOND_KEY, sent.headers['Authorization'])
+                self.assertEqual(route.upstream_model, json.loads(sent.content)['model'])
+                raw = h.wfile.getvalue()
+                values = [json.loads(line[6:]) for line in raw.splitlines() if line.startswith(b'data: {')] if stream else [json.loads(raw)]
+                self.assertTrue(values)
+                self.assertTrue(all(v['model'] == alias for v in values))
+                self.assertNotIn(SECOND_KEY.encode(), raw)
+                if auxiliary:
+                    self.assertEqual(before, len(self.control.calls))
+
+    def test_unicode_label_not_normalized_and_unknown_variant_never_falls_back(self):
+        route = replace(SECOND, public_model='[渠道]café', upstream_model='[渠道]gemini')
+        self.app = GatewayApplication(replace(config(), extra_routes=(route,)), control=self.control, upstream=self.client)
+        self.addCleanup(self.app.close_short_term)
+        for variant in ('[渠道]cafe\u0301', 'gemini', '[渠道]café '):
+            h = self.handler(self.payload(variant)); h.do_POST()
+            self.assertEqual([400], h.statuses)
+        self.assertEqual([], self.requests)
+        self.assertEqual([], self.control.calls)
 
     def test_switch_after_complete_uses_next_selected_route_without_changing_authority(self):
         self.handler().do_POST()

@@ -10,9 +10,21 @@ from urllib.parse import urlsplit
 AUXILIARY_SUFFIX = "--auxiliary-no-memory"
 MAX_ROUTES_BYTES = 65536
 MAX_EXTRA_ROUTES = 16
-PUBLIC_MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
-UPSTREAM_MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@-]{0,255}\Z")
+MAX_PUBLIC_MODEL_CHARS = 128
+MAX_UPSTREAM_MODEL_CHARS = 256
 ROUTE_KEY_ENV = re.compile(r"STBRAIN_UPSTREAM_ROUTE_[A-Z][A-Z0-9_]{0,63}_API_KEY\Z")
+
+
+def valid_model_label(value: str, maximum: int) -> bool:
+    """Model IDs are exact JSON strings, not URLs or executable identifiers.
+
+    Keep printable Unicode and internal ASCII spaces verbatim, including provider
+    channel prefixes such as [反重力]. Never normalize, trim or strip brackets.
+    isprintable excludes controls, bidi/zero-width format characters, surrogates
+    and non-ASCII separators, while still accepting an ordinary internal space.
+    """
+    return (isinstance(value, str) and 1 <= len(value) <= maximum
+            and value == value.strip() and value.isprintable())
 
 
 @dataclass(frozen=True)
@@ -50,17 +62,17 @@ def valid_route_base(value: str, *, legacy_http: bool = False) -> bool:
 
 
 def validate_route(route: GatewayRoute, *, legacy_http: bool = False, legacy_labels: bool = False) -> None:
-    def valid_label(value: str, pattern: re.Pattern) -> bool:
+    def valid_label(value: str, maximum: int) -> bool:
         if not isinstance(value, str):
             return False
         if legacy_labels:
             # Preserve already-installed human-facing/Unicode legacy aliases verbatim.
             return bool(value.strip()) and all(ord(char) >= 32 and ord(char) != 127 for char in value)
-        return bool(pattern.fullmatch(value))
+        return valid_model_label(value, maximum)
     if (not isinstance(route, GatewayRoute)
-            or not valid_label(route.public_model, PUBLIC_MODEL)
+            or not valid_label(route.public_model, MAX_PUBLIC_MODEL_CHARS)
             or (not legacy_labels and route.public_model.endswith(AUXILIARY_SUFFIX))
-            or not valid_label(route.upstream_model, UPSTREAM_MODEL)
+            or not valid_label(route.upstream_model, MAX_UPSTREAM_MODEL_CHARS)
             or not valid_route_base(route.upstream_base_url, legacy_http=legacy_http)
             or not isinstance(route.api_key, str) or not 1 <= len(route.api_key) <= 4096
             or any(not 33 <= ord(char) <= 126 for char in route.api_key)):

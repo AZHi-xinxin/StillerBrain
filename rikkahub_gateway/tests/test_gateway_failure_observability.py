@@ -175,10 +175,13 @@ class GatewayFailureObservabilityTests(unittest.TestCase):
             if line.startswith("data: ")
         ]
 
-    def assert_safe_log(self, records, code: str, prefix: bool) -> None:
+    def assert_safe_log(self, records, code: str, prefix: bool, *, has_request_id: bool = True) -> None:
         self.assertEqual(1, len(records))
         record = json.loads(records[0].getMessage())
         expected_keys = {"event", "at", "code", "streamed_prefix"}
+        if has_request_id:
+            expected_keys.add("request_id")
+            self.assertRegex(record["request_id"], r"^[0-9a-f]{32}$")
         if code == "tool_arguments_schema_invalid":
             expected_keys.add("validation")
             self.assertEqual({
@@ -369,7 +372,7 @@ class GatewayFailureObservabilityTests(unittest.TestCase):
     def test_logger_rejects_unknown_details_and_protected_constant_collision(self) -> None:
         with self.assertLogs("stiller.rikkahub.gateway", level="WARNING") as logs:
             _log_gateway_failure(ARGUMENT_MARKER, streamed_prefix=False)
-        self.assert_safe_log(logs.records, "gateway_request_failed", False)
+        self.assert_safe_log(logs.records, "gateway_request_failed", False, has_request_id=False)
         with self.assertNoLogs("stiller.rikkahub.gateway", level="WARNING"):
             _log_gateway_failure(
                 "upstream_protected_value",

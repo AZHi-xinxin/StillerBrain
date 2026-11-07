@@ -112,7 +112,8 @@ class GatewayValidationFeedbackTests(unittest.TestCase):
             with self.subTest(prefix=prefix):
                 status, raw, error, record, metric = self.safe_failure(prefix=prefix)
                 self.assertEqual(200 if prefix else 502, status)
-                self.assertEqual({"event", "at", "code", "streamed_prefix", "validation"}, set(record))
+                self.assertEqual({"event", "at", "code", "streamed_prefix", "validation", "request_id"}, set(record))
+                self.assertRegex(record["request_id"], r"^[0-9a-f]{32}$")
                 self.assertEqual(prefix, record["streamed_prefix"])
                 diagnostic = error["validation"]
                 self.assertEqual(diagnostic, record["validation"])
@@ -178,7 +179,8 @@ class GatewayValidationFeedbackTests(unittest.TestCase):
         self.assertNotIn("validation", record)
         self.assertNotIn(TOOL_NAME, error["message"])
         self.assertNotIn("target_ref", raw.decode("utf-8") + json.dumps(record))
-        self.assertEqual({"event", "at", "code", "streamed_prefix"}, set(record))
+        self.assertEqual({"event", "at", "code", "streamed_prefix", "request_id"}, set(record))
+        self.assertRegex(record["request_id"], r"^[0-9a-f]{32}$")
 
     def test_adapter_cannot_publish_diagnostic_tool_name_outside_current_catalog(self):
         class SpoofingPolicy(helpers.RecordingPolicy):

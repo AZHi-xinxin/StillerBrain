@@ -59,6 +59,8 @@ class FakeControl:
             }
         if path == "/v1/host/context/confirm":
             return {"decision": "injected"}
+        if path == "/v1/host/context/tools":
+            return {"decision": "tools_updated", "catalog_hash": payload["advertised_tools"]["catalog_hash"]}
         if path == "/v1/host/context/close":
             return {"decision": "closed"}
         raise AssertionError(path)
@@ -518,7 +520,7 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(["same_name"], [item["canonical_name"] for item in catalog["entries"]])
         self.assertEqual(_digest(catalog["entries"]), catalog["catalog_hash"])
 
-    def test_tool_continuation_rejects_missing_or_changed_catalog(self) -> None:
+    def test_tool_continuation_accepts_current_catalog_after_receiving_old_results(self) -> None:
         tools = [
             {
                 "type": "function",
@@ -546,27 +548,17 @@ class GatewayTests(unittest.TestCase):
             {"role": "tool", "tool_call_id": "call-home", "content": "ok"},
         ]
 
-        with self.assertRaises(GatewayError) as missing:
-            self.app.prepare_turn(self.request(continuation_messages), self.headers)
-        self.assertEqual("tool_continuation_catalog_missing", missing.exception.code)
-        self.assertEqual({"call-home"}, first.session.expected_tool_call_ids)
-
         changed_tools = json.loads(json.dumps(tools))
         changed_tools[0]["function"]["parameters"]["properties"]["power"] = {
             "type": "string"
         }
-        with self.assertRaises(GatewayError) as changed:
-            self.app.prepare_turn(
-                self.request(continuation_messages, tools=changed_tools), self.headers
-            )
-        self.assertEqual("tool_continuation_catalog_mismatch", changed.exception.code)
-        self.assertEqual({"call-home"}, first.session.expected_tool_call_ids)
-
         continued = self.app.prepare_turn(
-            self.request(continuation_messages, tools=tools), self.headers
+            self.request(continuation_messages, tools=changed_tools), self.headers
         )
         self.assertTrue(continued.continuation)
         self.assertEqual(first.session.wake_id, continued.session.wake_id)
+        self.assertEqual(changed_tools, continued.payload["tools"])
+        self.assertEqual(_advertised_tool_catalog({"tools": changed_tools}), continued.session.advertised_tools)
 
     def test_incomplete_catalog_cannot_authorize_a_tool_continuation(self) -> None:
         malformed_tools = [

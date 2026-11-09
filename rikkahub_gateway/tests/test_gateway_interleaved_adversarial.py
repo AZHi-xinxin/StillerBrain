@@ -266,7 +266,7 @@ class GatewayInterleavedAdversarialTests(unittest.TestCase):
             with self.subTest(count=len(calls)):
                 self.assert_rejected_without_consuming(self.interleaved(calls), session)
 
-    def test_arguments_names_and_catalog_are_still_exactly_bound(self):
+    def test_issued_arguments_and_names_are_still_exactly_bound(self):
         session = self.arm()
         for field, value in (
             ("name", "fake_breath_search"),
@@ -280,8 +280,9 @@ class GatewayInterleavedAdversarialTests(unittest.TestCase):
                 self.assert_rejected_without_consuming(messages, session)
         tools = copy.deepcopy(self.tools)
         tools[0]["function"]["parameters"]["properties"]["added"] = {"type": "string"}
-        code = self.assert_rejected_without_consuming(self.interleaved(self.calls[:2]), session, tools=tools)
-        self.assertEqual("tool_continuation_catalog_mismatch", code)
+        continued = self.app.prepare_turn(self.request(self.interleaved(self.calls[:2]), tools=tools), self.headers)
+        self.assertTrue(continued.continuation)
+        self.assertEqual(tools, continued.payload["tools"])
 
     def test_other_thread_cannot_use_an_exact_interleaved_batch(self):
         session = self.arm()

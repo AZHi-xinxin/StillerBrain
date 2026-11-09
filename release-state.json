@@ -2,7 +2,7 @@
   "format": "stiller-public-release-state/1",
   "version": "0.2.0",
   "scope": "extended-general-deployment-readiness-not-product-release-channel",
-  "product_release_channel": "stable",
+  "product_release_channel": "preview",
   "source_frozen": true,
   "license_approved": true,
   "clean_environment_verified": false,
@@ -11,5 +11,5 @@
   "privacy_review_complete": false,
   "user_acceptance_complete": false,
   "publication_authorized": true,
-  "notes": "0.2.0 is an authorized stable product release. This legacy gate retains broader all-platform/general deployment audit requirements, not the product version label. Scoped regression and new-window human acceptance passed and are recorded in source-release-state.json; unmet extended audits and optional-route acceptance are not relabeled as complete. Publication does not modify live services. See docs/UPDATE-VALIDATION.md and docs/RELEASE-CHECKLIST.md."
+  "notes": "Current product release 0.2.3-preview.1 is a testing prerelease. Historical expanded audit flags are not changed by publication; see source-release-state.json and docs/UPDATE-VALIDATION.md."
 }

@@ -330,13 +330,10 @@ class AnchoredInterruptionTests(unittest.TestCase):
                 self.assertEqual([], old.session.host_receipts)
                 self.app.finish_turn(new, keep_for_tools=False)
 
-    def test_catalog_name_arguments_order_and_duplicate_changes_rejected(self):
+    def test_issued_name_arguments_order_and_duplicate_changes_rejected(self):
         _, calls = self.arm()
         base = self.new_human(calls)
         variants = []
-        catalog = copy.deepcopy(base)
-        catalog["tools"][0]["function"]["parameters"]["properties"]["channel"]["maxLength"] = 8
-        variants.append(catalog)
         renamed = copy.deepcopy(base)
         renamed["messages"][2]["tool_calls"][0]["function"]["name"] = calls[1].tool_name
         variants.append(renamed)
@@ -349,6 +346,14 @@ class AnchoredInterruptionTests(unittest.TestCase):
         variants.append(duplicate)
         for payload in variants:
             self.rejected_without_control(payload)
+
+    def test_changed_catalog_does_not_break_an_anchored_new_human(self):
+        from rikkahub_gateway.server import _advertised_tool_catalog
+        old, calls = self.arm()
+        payload = self.new_human(calls)
+        payload["tools"] = []
+        self.assertTrue(self.app._anchored_new_human(old.session, payload["messages"], payload,
+            self.headers, _advertised_tool_catalog(payload)))
 
     def test_extra_non_tool_tail_message_or_additional_human_is_rejected(self):
         _, calls = self.arm()

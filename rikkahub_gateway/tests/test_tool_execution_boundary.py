@@ -187,60 +187,25 @@ class ToolExecutionBoundaryTests(unittest.TestCase):
         self.assertNotIn("private-recursive-schema-label", str(caught.exception))
         self.assertNotIn("living-room", str(caught.exception))
 
-    def test_history_reference_failure_is_also_controlled(self) -> None:
-        payload = copy.deepcopy(self.payload)
-        schema = payload["tools"][0]["function"]["parameters"]
-        schema["properties"]["device"] = {"$ref": "#/$defs/missing"}
-        current_catalog = _advertised_tool_catalog(payload)
-        current_schema_hash = canonical_hash(schema)
-        expected = ToolExecutionBinding(
-            contract="native-tool-execution-binding/1",
-            wake_id="wake:history",
-            tool_call_id=self.call().tool_call_id,
-            tool_name=self.call().tool_name,
-            catalog_hash=current_catalog["catalog_hash"],
-            schema_hash=current_schema_hash,
-            arguments_hash=canonical_hash({"device": "living-room", "state": "on"}),
-            issued_at_ms=1,
+    def test_history_matches_the_issued_call_without_requiring_current_schema(self) -> None:
+        expected = self.boundary.bind_call(
+            wake_id="wake:history", catalog=self.catalog,
+            schemas=self.schemas, call=self.call(),
         )
-        with self.assertRaises(ToolExecutionBoundaryError) as caught:
-            self.boundary.verify_history_call(
-                expected=expected,
-                catalog=current_catalog,
-                schemas=advertised_schemas(payload),
-                call=self.call(),
-            )
-        self.assertEqual(
-            "advertised_tool_schema_reference_unresolved", str(caught.exception)
-        )
+        # A result is for the previously validated call, even after that tool
+        # has been removed or its schema has changed in the next request.
+        self.boundary.verify_history_call(expected=expected, call=self.call())
 
-    def test_history_recursive_reference_failure_is_also_controlled(self) -> None:
-        payload = copy.deepcopy(self.payload)
-        schema = {"$ref": "#", "title": "private-recursive-schema-label"}
-        payload["tools"][0]["function"]["parameters"] = schema
-        current_catalog = _advertised_tool_catalog(payload)
-        expected = ToolExecutionBinding(
-            contract="native-tool-execution-binding/1",
-            wake_id="wake:recursive-history",
-            tool_call_id=self.call().tool_call_id,
-            tool_name=self.call().tool_name,
-            catalog_hash=current_catalog["catalog_hash"],
-            schema_hash=canonical_hash(schema),
-            arguments_hash=canonical_hash({"device": "living-room", "state": "on"}),
-            issued_at_ms=1,
+    def test_history_changed_arguments_still_rejected(self) -> None:
+        expected = self.boundary.bind_call(
+            wake_id="wake:history", catalog=self.catalog,
+            schemas=self.schemas, call=self.call(),
         )
-        with self.assertRaises(ToolExecutionBoundaryError) as caught:
+        with self.assertRaises(ToolExecutionBoundaryError):
             self.boundary.verify_history_call(
                 expected=expected,
-                catalog=current_catalog,
-                schemas=advertised_schemas(payload),
-                call=self.call(),
+                call=self.call('{"device":"bedroom","state":"on"}'),
             )
-        self.assertEqual(
-            "advertised_tool_schema_recursion_unsupported", str(caught.exception)
-        )
-        self.assertNotIn("private-recursive-schema-label", str(caught.exception))
-        self.assertNotIn("living-room", str(caught.exception))
 
     def test_buffered_stream_reassembles_arguments_before_validation(self) -> None:
         events = [

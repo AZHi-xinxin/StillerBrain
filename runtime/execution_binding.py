@@ -287,7 +287,8 @@ class ExecutionStore:
                     raise ExecutionBindingError("execution_batch_conflict")
                 return {"executions": executions, "batch_revision": revision}
             snapshot = connection.execute(
-                "SELECT advertised_tools_json FROM brain_context_snapshots WHERE wake_id=? AND status='injected'",
+                "SELECT COALESCE(current_tools_json,advertised_tools_json) FROM brain_context_snapshots "
+                "WHERE wake_id=? AND status='injected'",
                 (wake_id,),
             ).fetchone()
             catalog = json.loads(snapshot[0]) if snapshot is not None else {}

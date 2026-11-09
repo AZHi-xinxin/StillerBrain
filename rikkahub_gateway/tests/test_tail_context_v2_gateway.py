@@ -275,16 +275,14 @@ class TailContextV2GatewayTests(unittest.TestCase):
         self.assertEqual("st_context_hash_mismatch", caught.exception.code)
         self.assertEqual(before, first.session)
 
-    def test_tool_arguments_catalog_and_result_ids_not_relaxed_by_tail(self):
+    def test_issued_arguments_and_result_ids_not_relaxed_by_tail(self):
         first, tools, history = self.arm()
-        for mutation in ("arguments", "catalog", "result_id"):
+        for mutation in ("arguments", "result_id"):
             with self.subTest(mutation=mutation):
                 changed, changed_tools = copy.deepcopy(history), copy.deepcopy(tools)
                 changed[0]["content"] = "Changed client system must not bypass tool checks"
                 if mutation == "arguments":
                     changed[-2]["tool_calls"][0]["function"]["arguments"] = '{"command":"different"}'
-                elif mutation == "catalog":
-                    changed_tools[0]["function"]["parameters"]["properties"]["command"]["type"] = "integer"
                 else:
                     changed[-1]["tool_call_id"] = "unissued"
                 before = copy.deepcopy(first.session)
@@ -293,6 +291,17 @@ class TailContextV2GatewayTests(unittest.TestCase):
                 self.assertEqual(409, caught.exception.status)
                 self.assertEqual(before, first.session)
         self.assertIs(first.session, self.prepare(history, tools=tools).session)
+
+    def test_current_catalog_can_change_without_rebuilding_tail_context(self):
+        first, tools, history = self.arm()
+        bundle = copy.deepcopy(first.session.context_bundle)
+        changed = copy.deepcopy(tools)
+        changed[0]["function"]["parameters"]["properties"]["command"]["type"] = "integer"
+        continued = self.prepare(history, tools=changed)
+        self.assertIs(first.session, continued.session)
+        self.assertEqual(bundle, continued.session.context_bundle)
+        self.assertEqual(changed, continued.payload["tools"])
+        self.assertEqual(1, sum(path.endswith("/prepare") for path, _ in self.control.calls))
 
     def test_long_history_prefix_can_survive_dynamic_recall_change_but_is_not_cache_proof(self):
         first = self.prepare()

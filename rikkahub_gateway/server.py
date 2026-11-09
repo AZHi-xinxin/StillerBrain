@@ -38,7 +38,6 @@ from urllib.parse import unquote, urlsplit
 import httpx
 
 from .balance import BalanceError, read_balance
-from .catalog_diagnostics import mismatch_record
 from .image_files import ImageFiles, ImageFilesError, MAX_REQUEST_BYTES as IMAGE_FILES_MAX_REQUEST_BYTES
 from .atlas import AtlasGateway, handle_atlas_request
 from .routes import GatewayRoute, MAX_EXTRA_ROUTES, routes_from_env, validate_route
@@ -1136,6 +1135,7 @@ class TurnSession:
     advertised_tools: dict[str, Any]
     created_at: float
     expires_at: datetime
+    tool_catalog_sync_pending: bool = False
     route: GatewayRoute | None = field(default=None, repr=False)
     execution_profile: str = DEFAULT_PROFILE
     input_origin: str = "human_message"
@@ -1154,6 +1154,7 @@ class TurnSession:
     execution_revision: int = 0
     execution_batch_closed: bool = False
     execution_call_ids: set[str] = field(default_factory=set, repr=False)
+    execution_history: dict[str, str] = field(default_factory=dict, repr=False)
     delivered_at_monotonic: float | None = None
     abnormal_wait_started: float | None = None
     recovery_timer: threading.Timer | None = field(default=None, repr=False)
@@ -1472,6 +1473,7 @@ class GatewayApplication:
                          if call.tool_call_id in refs else call for call in calls]
             session.execution_batch_id = batch_id
             session.execution_call_ids = set(refs)
+            session.execution_history.update({call["call_id"]: call["advertised_name"] for call in managed})
             return decorated
 
     def mark_response_delivered(self, prepared: PreparedTurn) -> None:
@@ -1763,7 +1765,7 @@ class GatewayApplication:
         exact request history and signed current calls. Complete A/T units may
         contain a proper ordered subset (Rikka can omit an unexecuted tool card).
         Their results are NOT witnessed here, including local cancellation text.
-        Missing declarations/results, changed history/catalog or another explicit
+        Missing declarations/results, changed history or another explicit
         thread fail closed. With no stable thread, an exact cloned branch is
         indistinguishable from the original physical window; no identity is guessed.
         """
@@ -1772,7 +1774,6 @@ class GatewayApplication:
                 or session.delivered_at_monotonic is None
                 or not session.expected_tool_calls or not session.history_anchor_digest
                 or len(messages) < 3 or messages[-1].get("role") != "user"
-                or catalog != session.advertised_tools
                 or (headers.get("x-st-thread-id")
                     and headers["x-st-thread-id"] != session.thread_id)):
             return False
@@ -1814,7 +1815,6 @@ class GatewayApplication:
                 projected.append(message)
             if len(projected) != count or _digest(projected) != session.history_anchor_digest:
                 return False
-            schemas = advertised_schemas(payload)
             ids = [call.tool_call_id for call in calls]
             if not ids or len(set(ids)) != len(ids) or ids != raw_current_order:
                 return False
@@ -1823,7 +1823,7 @@ class GatewayApplication:
             for call in calls:
                 self.execution_boundary.verify_history_call(
                     expected=session.expected_tool_calls[call.tool_call_id],
-                    catalog=catalog, schemas=schemas, call=call)
+                    call=call)
         except (GatewayError, ToolExecutionBoundaryError, KeyError, TypeError, ValueError):
             return False
         return True
@@ -1971,7 +1971,6 @@ class GatewayApplication:
                 or {item.get("tool_call_id") for item in results} != set(all_ids)):
             return
         try:
-            schemas = advertised_schemas(payload)
             # Validate result structure without witnessing/consuming any subset.
             for item in results:
                 if item.get("role") != "tool" or "content" not in item:
@@ -1979,10 +1978,10 @@ class GatewayApplication:
             by_id = {item["tool_call_id"]: item for item in results}
             for call in settled_calls:
                 self._verify_settled_tool_replay(session=session, call=call,
-                    tool_message=by_id[call.tool_call_id], schemas=schemas)
+                    tool_message=by_id[call.tool_call_id])
             for call in current_calls:
                 self.execution_boundary.verify_history_call(expected=session.expected_tool_calls[call.tool_call_id],
-                    catalog=session.advertised_tools, schemas=schemas, call=call)
+                    call=call)
         except (KeyError, ToolExecutionBoundaryError):
             return
         session.abnormal_wait_started = time.monotonic()
@@ -2583,7 +2582,6 @@ class GatewayApplication:
         session: TurnSession,
         call: NativeToolCall,
         tool_message: Mapping[str, Any],
-        schemas: Mapping[str, Mapping[str, Any]],
     ) -> None:
         """Verify one Rikka-replayed, already-settled call without witnessing it again.
 
@@ -2618,8 +2616,6 @@ class GatewayApplication:
             or receipt.get("wake_id") != session.wake_id
             or receipt.get("tool_call_id") != call.tool_call_id
             or receipt.get("tool_name") != call.tool_name
-            or receipt.get("catalog_hash")
-            != session.advertised_tools.get("catalog_hash")
             or not self.execution_boundary.verify_receipt(receipt)
         ):
             raise ToolExecutionBoundaryError(
@@ -2638,8 +2634,6 @@ class GatewayApplication:
         try:
             self.execution_boundary.verify_history_call(
                 expected=expected,
-                catalog=session.advertised_tools,
-                schemas=schemas,
                 call=call,
             )
             result_hash = canonical_hash(
@@ -3158,25 +3152,6 @@ class GatewayApplication:
                     )
                 if continuation_call_ids & self._retired_tool_call_ids:
                     raise GatewayError(409, "tool_continuation_context_lost")
-                if advertised_tools != current.advertised_tools:
-                    diagnostic=mismatch_record(current.advertised_tools,advertised_tools,tuple(current.protected_values))
-                    if diagnostic is not None:
-                        _FAILURE_LOGGER.warning("%s",diagnostic)
-                    if (
-                        current.advertised_tools.get("entries")
-                        and "tools" not in payload
-                        and "functions" not in payload
-                    ):
-                        raise GatewayError(
-                            409,
-                            "tool_continuation_catalog_missing",
-                            "工具续轮缺少本轮原始工具目录，请从新的用户消息重新开始。",
-                        )
-                    raise GatewayError(
-                        409,
-                        "tool_continuation_catalog_mismatch",
-                        "工具续轮的工具目录或参数结构已改变，请从新的用户消息重新开始。",
-                    )
                 if not advertised_tools["catalog_complete"]:
                     raise GatewayError(
                         409,
@@ -3258,7 +3233,6 @@ class GatewayApplication:
                 # it because ``bind_response_tool_calls`` is mandatory there.
                 if current.expected_tool_calls:
                     try:
-                        schemas = advertised_schemas(payload)
                         by_id = {
                             str(message["tool_call_id"]): message
                             for message in tool_messages
@@ -3268,7 +3242,6 @@ class GatewayApplication:
                                 session=current,
                                 call=call,
                                 tool_message=by_id[call.tool_call_id],
-                                schemas=schemas,
                             )
                         for call in declared_calls:
                             expected = current.expected_tool_calls.get(call.tool_call_id)
@@ -3278,8 +3251,6 @@ class GatewayApplication:
                                 )
                             self.execution_boundary.verify_history_call(
                                 expected=expected,
-                                catalog=advertised_tools,
-                                schemas=schemas,
                                 call=call,
                             )
                     except ToolExecutionBoundaryError as exc:
@@ -3288,6 +3259,21 @@ class GatewayApplication:
                             str(exc),
                             "工具续轮中的名称、参数或结构与本网关签发的调用不一致。",
                         ) from exc
+                if advertised_tools != current.advertised_tools or current.tool_catalog_sync_pending:
+                    # Refresh only the current tool view. Context/memory and the
+                    # issued call bindings keep their original identity/digests.
+                    # An acknowledgment can be lost after Control commits.
+                    # Any retry must resync, even if it returns to the old catalog.
+                    current.tool_catalog_sync_pending = True
+                    updated = self.control.post("/v1/host/context/tools", {
+                        "wake_id": current.wake_id,
+                        "wake_capability": current.wake_capability,
+                        "advertised_tools": advertised_tools,
+                    })
+                    if (updated.get("decision") != "tools_updated"
+                            or updated.get("catalog_hash") != advertised_tools["catalog_hash"]):
+                        raise GatewayError(502, "st_tool_catalog_update_unconfirmed")
+                    current.tool_catalog_sync_pending = False
                 # Consume the batch before forwarding so concurrent replays cannot
                 # reuse the same tool result lineage.
                 if current.abnormal_wait_started is not None:
@@ -3319,6 +3305,7 @@ class GatewayApplication:
                         session.protected_values.update(
                             _extract_protected_tool_values(message)
                         )
+                    session.advertised_tools = copy.deepcopy(advertised_tools)
                 except (KeyError, ToolExecutionBoundaryError, TypeError, ValueError) as exc:
                     self._current_session = None
                     self._close_session(current)
@@ -3839,19 +3826,22 @@ class GatewayApplication:
                 raise GatewayError(502, "execution_reference_invalid")
             previous_comma, position = delimiter, delimiter + 1
 
-    def _upstream_execution_projection(self, payload: Mapping[str, Any], profile=DEFAULT_PROFILE) -> Mapping[str, Any]:
+    def _upstream_execution_projection(self, payload: Mapping[str, Any], profile=DEFAULT_PROFILE,
+                                       session: TurnSession | None = None) -> Mapping[str, Any]:
         """Keep host authority intact; omit its reserved input from the model.
 
         Never strip by token-looking text, by a tool-name suffix, or from an
-        unmarked/non-ST schema. A past tool absent from the current catalog is
-        deliberately not guessed to be host-managed.
+        unmarked/non-ST schema. Issued calls from this wake retain their exact
+        call ID/name provenance even when the current catalog removes the tool.
+        Unrecognized past tools are deliberately not guessed to be host-managed.
         """
         payload = without_host_only_image_transport(payload)
         if not self.config.require_execution_binding:
             return payload
         managed = {name for name, schema in advertised_schemas(payload).items()
                    if self._execution_tool(schema) is not None}
-        if not managed:
+        issued = session.execution_history if session is not None else {}
+        if not managed and not issued:
             return payload
         projected = copy.deepcopy(payload)
         definitions = [item["function"] for item in projected.get("tools", [])]
@@ -3880,14 +3870,18 @@ class GatewayApplication:
                 if not isinstance(call, Mapping) or call.get("type") != "function":
                     continue
                 function = call.get("function")
-                if (isinstance(function, dict) and function.get("name") in managed
+                if (isinstance(function, dict)
+                        and (function.get("name") in managed
+                             or (isinstance(call.get("id"), str) and call["id"] in issued
+                                 and issued[call["id"]] == function.get("name")))
                         and isinstance(function.get("arguments"), str)):
                     function["arguments"] = self._without_host_execution_argument(function["arguments"])
         return projected
 
-    def encode_upstream_payload(self, payload: Mapping[str, Any], profile=DEFAULT_PROFILE, route=None) -> bytes:
+    def encode_upstream_payload(self, payload: Mapping[str, Any], profile=DEFAULT_PROFILE, route=None,
+                                *, session: TurnSession | None = None) -> bytes:
         try:
-            projected = self.image_files.project(self._upstream_execution_projection(payload, profile), route or self.default_route)
+            projected = self.image_files.project(self._upstream_execution_projection(payload, profile, session), route or self.default_route)
         except ImageFilesError as exc:
             raise GatewayError(exc.status, exc.code) from None
         encoded = json.dumps(
@@ -5216,7 +5210,8 @@ class _GatewayHandler(BaseHTTPRequestHandler):
         performance = getattr(self, "_request_performance", None)
         if performance is not None:
             performance.stage = "upstream_encode"
-        encoded_payload = self.app.encode_upstream_payload(prepared.payload, prepared.session.execution_profile, prepared.route)
+        encoded_payload = self.app.encode_upstream_payload(prepared.payload, prepared.session.execution_profile, prepared.route,
+                                                         session=prepared.session)
         if performance is not None:
             performance.upstream_request_bytes = len(encoded_payload)
             performance.start_upstream()
@@ -5300,7 +5295,8 @@ class _GatewayHandler(BaseHTTPRequestHandler):
 
     def _proxy_stream(self, prepared: PreparedTurn) -> None:
         exchange = _StreamExchange(
-            encoded=self.app.encode_upstream_payload(prepared.payload, prepared.session.execution_profile, prepared.route),
+            encoded=self.app.encode_upstream_payload(prepared.payload, prepared.session.execution_profile, prepared.route,
+                                                     session=prepared.session),
             deadline=time.monotonic() + self.app.config.timeout_seconds,
             route=prepared.route,
             disconnect_watch=getattr(self, "_client_disconnect_watch", None),

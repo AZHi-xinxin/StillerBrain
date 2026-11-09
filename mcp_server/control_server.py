@@ -484,6 +484,13 @@ class ControlApplication:
                 advertised_tools=_advertised_tools(body),
                 **layout_arguments,
             )
+        if route == "/v1/host/context/tools":
+            return self.onboarding.update_advertised_tools(
+                **common,
+                wake_id=_required_text(body, "wake_id"),
+                wake_capability=_required_text(body, "wake_capability"),
+                advertised_tools=_advertised_tools(body),
+            )
         if route == "/v1/host/context/confirm":
             return self.onboarding.confirm_context_injected(
                 **common,

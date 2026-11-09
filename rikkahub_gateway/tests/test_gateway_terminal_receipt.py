@@ -273,6 +273,12 @@ class TerminalReceiptLoopbackTests(unittest.TestCase):
         self.addCleanup(upstream.close)
         app = GatewayApplication(replace(fixtures.config(), require_execution_binding=True,
             execution_epoch='synthetic-terminal-http'), control=control, upstream=upstream)
+        delivered = threading.Event()
+        mark_delivered = app.mark_response_delivered
+        def after_delivery(prepared):
+            mark_delivered(prepared)
+            delivered.set()
+        self.enterContext(patch.object(app, 'mark_response_delivered', side_effect=after_delivery))
         server = ThreadingHTTPServer(('127.0.0.1', 0), _GatewayHandler)
         server.application = app
         worker = threading.Thread(target=server.serve_forever, daemon=True)
@@ -300,6 +306,9 @@ class TerminalReceiptLoopbackTests(unittest.TestCase):
             self.assertEqual('st-turn-control/1', response_headers['X-ST-Turn-Control'])
             self.assertEqual('d' * 32, response_headers['X-ST-Request-ID'])
             self.assertEqual(1, len(sent))
+            # Reading the final response byte does not synchronize the server's
+            # subsequent delivery callback. Observe it before inspecting timers.
+            self.assertTrue(delivered.wait(2), 'response delivery callback did not finish')
             waiting = app._current_session
             self.assertIsNotNone(waiting)
             self.assertTrue(waiting.expected_tool_call_ids)

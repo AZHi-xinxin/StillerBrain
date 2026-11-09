@@ -215,12 +215,9 @@ class GatewayMixedLineageTests(unittest.TestCase):
         self.assertIs(messages, self.helper.app._normalize_split_tool_declarations(messages))
         self.assert_rejected_without_consuming(prepared, messages, "tool_continuation_lineage_mismatch")
 
-    def test_normalized_chain_still_checks_catalog_name_arguments_and_receipt(self) -> None:
+    def test_normalized_chain_checks_issued_name_arguments_and_receipt(self) -> None:
         prepared = self.arm()
         messages = self.split(self.calls[:2])
-        changed_tools = copy.deepcopy(self.tools)
-        changed_tools[1]["function"]["parameters"]["properties"]["extra"] = {"type": "string"}
-        self.assert_rejected_without_consuming(prepared, messages, "tool_continuation_catalog_mismatch", tools=changed_tools)
         for field, value in (("name", "workspace_shell"), ("arguments", json.dumps({"query": "changed"}))):
             altered = copy.deepcopy(messages)
             altered[2]["tool_calls"][0]["function"][field] = value

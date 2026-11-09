@@ -785,35 +785,14 @@ class HostExecutionBoundary:
         self,
         *,
         expected: ToolExecutionBinding,
-        catalog: Mapping[str, Any],
-        schemas: Mapping[str, Mapping[str, Any]],
         call: NativeToolCall,
     ) -> None:
-        # Rebind using the same structural rules, but do not run policy twice.
+        # This call was already validated before delivery. A later request's
+        # tools describe FUTURE calls, not the contract of this issued call.
         if call.tool_call_id != expected.tool_call_id or call.tool_name != expected.tool_name:
             raise ToolExecutionBoundaryError("tool_continuation_binding_mismatch")
-        schema_hash = self._catalog_entry(catalog, call.tool_name)
-        schema = schemas.get(call.tool_name)
-        if not isinstance(schema, Mapping) or canonical_hash(schema) != schema_hash:
-            raise ToolExecutionBoundaryError("tool_continuation_binding_mismatch")
         arguments = parse_arguments(call.arguments_text)
-        try:
-            Draft202012Validator(dict(schema)).validate(arguments)
-        except Unresolvable as exc:
-            raise ToolExecutionBoundaryError(
-                "advertised_tool_schema_reference_unresolved"
-            ) from exc
-        except RecursionError as exc:
-            raise ToolExecutionBoundaryError(
-                "advertised_tool_schema_recursion_unsupported"
-            ) from exc
-        except ValidationError as exc:
-            raise ToolExecutionBoundaryError("tool_continuation_binding_mismatch") from exc
-        if (
-            expected.catalog_hash != catalog.get("catalog_hash")
-            or expected.schema_hash != schema_hash
-            or expected.arguments_hash != canonical_hash(arguments)
-        ):
+        if expected.arguments_hash != canonical_hash(arguments):
             raise ToolExecutionBoundaryError("tool_continuation_binding_mismatch")
 
     def _signature(self, record: Mapping[str, Any]) -> str:

@@ -945,6 +945,12 @@ class ModuleOneOnboardingStore:
                     "ALTER TABLE brain_context_snapshots "
                     "ADD COLUMN advertised_tools_json TEXT NOT NULL DEFAULT '{}'"
                 )
+            if "current_tools_json" not in snapshot_columns:
+                # The original context and its digest remain immutable. Only
+                # subsequent tool availability changes within an injected wake.
+                connection.execute(
+                    "ALTER TABLE brain_context_snapshots ADD COLUMN current_tools_json TEXT"
+                )
             if "context_layout_json" not in snapshot_columns:
                 # Additive host-only metadata.  Existing wakes retain their
                 # legacy single-message hash and never switch layout in place.
@@ -4017,7 +4023,7 @@ class ModuleOneOnboardingStore:
                 "context_hash": wake["context_hash"],
                 "write_context_ref": opened["artifact_id"],
                 "row_version": state["row_version"],
-                "advertised_tools": json.loads(snapshot["advertised_tools_json"]),
+                "advertised_tools": json.loads(snapshot["current_tools_json"] or snapshot["advertised_tools_json"]),
                 "context_mode": (
                     DIRECT_CONTEXT_MODE if direct_mode else "gateway_injected"
                 ),
@@ -4050,10 +4056,38 @@ class ModuleOneOnboardingStore:
             if snapshot is None:
                 return None
             try:
-                value = json.loads(snapshot["advertised_tools_json"])
+                value = json.loads(snapshot["current_tools_json"] or snapshot["advertised_tools_json"])
             except (TypeError, json.JSONDecodeError):
                 return None
             return value if isinstance(value, dict) else None
+
+    def update_advertised_tools(
+        self, *, owner_id: str, model_id: str, wake_id: str,
+        wake_capability: str, advertised_tools: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Accept host-validated current tools without regenerating brain context."""
+        if not isinstance(advertised_tools, Mapping) or len(_canonical(advertised_tools)) > 200_000:
+            raise OnboardingError("advertised_tools_invalid")
+        with self._connect() as connection:
+            self._begin(connection)
+            state = self._state_row(connection, owner_id, model_id)
+            if state is None:
+                raise OnboardingError("onboarding state is not initialized")
+            wake, reason = self._validate_wake(
+                connection, owner_id=owner_id, model_id=model_id,
+                wake_id=wake_id, wake_capability=wake_capability,
+                require_current=True, require_injected=True,
+            )
+            if reason:
+                return self._deny(state, reason)
+            updated = connection.execute(
+                "UPDATE brain_context_snapshots SET current_tools_json=? "
+                "WHERE wake_id=? AND status='injected'",
+                (_canonical(advertised_tools), wake_id),
+            )
+            if updated.rowcount != 1:
+                return self._deny(state, "context_not_injected")
+            return {"decision": "tools_updated", "catalog_hash": advertised_tools.get("catalog_hash")}
 
     def current_edit_challenge_response(
         self,

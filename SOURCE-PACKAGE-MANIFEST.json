@@ -1,6 +1,6 @@
 {
   "format": "stiller-source-package/1",
-  "version": "0.2.2+main.20261107",
+  "version": "0.2.3-preview.1",
   "distribution": "source-available-development-preview",
   "files": [
     {
@@ -17,7 +17,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "adae8d6c49a47443af061a763b445d6448d462e6b9f3ef4c1ec8595b5f536449"
+      "sha256": "fdde4bbd82515e4ba918a9be7b2bbe73663c06564b1dbadc83e9f9b93f0c15b0"
     },
     {
       "path": "COMMERCIAL-LICENSE.md",
@@ -41,7 +41,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "9320b834fa611970f637248163e0f31710b0c67afd55605c4051eb7041ad676b"
+      "sha256": "7183d1c0b437e010b5847bc416d10ba229fcd75546fc40b2a6f91b6a1689af86"
     },
     {
       "path": "RELEASE-NOTES-0.2.0-preview.1.md",
@@ -84,6 +84,10 @@
       "sha256": "7c89b6e394dafdd7b2d1c66d4746feade13589fd4b939c4c74a17fa8642500c4"
     },
     {
+      "path": "RELEASE-NOTES-0.2.3-preview.1.md",
+      "sha256": "19fc4e96518afad3ba7b3fef8388bea4c0fb6a5a4f46926ead7a91210e0bc9ea"
+    },
+    {
       "path": "RELEASE-NOTES-preview.3.md",
       "sha256": "e3a19379b7dccb2a479d856c5e11901284d029c30607a61e46254bdd3e220aef"
     },
@@ -117,11 +121,11 @@
     },
     {
       "path": "docs/CACHE-TROUBLESHOOTING.md",
-      "sha256": "da501c7f0c91e430b409ed526b0cc586179e0917c491ea71ce78c6dcac9041cf"
+      "sha256": "08856a722304c63c58851e3ee08551b416210d5d7cd8c6af4fb371f601e17b7f"
     },
     {
       "path": "docs/CACHE.md",
-      "sha256": "1351b2ad6c9f7b5941c0c5510c90d121de555ecf4a0baec5a94d060f7e0344d6"
+      "sha256": "fde5590ba04e2465426e00a7275350e24d623b6b4789d6d26c4986ba8430c210"
     },
     {
       "path": "docs/DAILY-MEMORY-QUICKSTART.md",
@@ -130,6 +134,10 @@
     {
       "path": "docs/DEPENDENCIES.md",
       "sha256": "e36d8fee6d085e46e2e880743d802473fe0b5b6b09e3d31d5eec9d731fc25218"
+    },
+    {
+      "path": "docs/DYNAMIC-TOOLS.md",
+      "sha256": "677a2086f9c517d468c2f4c16917656a52c0ec38c788ee776f0965658937cd8a"
     },
     {
       "path": "docs/EMOTION-LAYER.md",
@@ -245,7 +253,7 @@
     },
     {
       "path": "docs/UPDATE-VALIDATION.md",
-      "sha256": "1e9d9610b1864d987ef17d45f28f60105b2868a59a3f99ceb4ccf5fb0cea7bb0"
+      "sha256": "600933059662bffd654a1871ea47e4420f93058f6b349ae654c1b45007367361"
     },
     {
       "path": "docs/assets/stiller-cover.svg",
@@ -297,7 +305,7 @@
     },
     {
       "path": "mcp_server/control_server.py",
-      "sha256": "62c71e0dbf59705b798130f9df6e9f99541b7735d8fd152662eb4e436828cf71"
+      "sha256": "a60715ac4a280050152a579a674baf48dcda579eecaeccc06618c58e24617a65"
     },
     {
       "path": "mcp_server/daily_argument_metadata.py",
@@ -849,7 +857,7 @@
     },
     {
       "path": "release-state.json",
-      "sha256": "8eca9bb9d4feb16a601e3794c2fb5e069a3cd70c1b6abaa5ef1d28dc38f769ee"
+      "sha256": "856522e92d3316ce92e66b409b14487cba819003fe8319528dc8b91b727228ce"
     },
     {
       "path": "requirements-linux-arm64-py312.lock",
@@ -929,7 +937,7 @@
     },
     {
       "path": "rikkahub_gateway/server.py",
-      "sha256": "5343a59551248aef26957d139649c7eb29282eef8423140721b9d6e168a0de0f"
+      "sha256": "e775e1b90f4831deb60921f9dfe57dec819ab53d5756e1e8146f891c89adecff"
     },
     {
       "path": "rikkahub_gateway/short_term.py",
@@ -1012,12 +1020,20 @@
       "sha256": "05b5197cf64aa8a745f9a73226ecb5f4c34cd0ba9133dedcba490407448dece7"
     },
     {
+      "path": "rikkahub_gateway/tests/test_dynamic_tools.py",
+      "sha256": "0d6c5d09cb32e6a613b365ce8f80f5ade3356ccfdde51b97d31fc122a0033646"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_dynamic_tools_http.py",
+      "sha256": "54eb99bd4dec680fbbc04f6f465cc9286e66ac7b8e82919030df3b1cf40a1226"
+    },
+    {
       "path": "rikkahub_gateway/tests/test_fresh_human_replacement.py",
       "sha256": "da569624cdd0ca5e16b7229341ef93b5a7b4779364b5ec39102024d4f2ae7e2e"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway.py",
-      "sha256": "201d7f7b2b381c9446f5fe3056384695f98d3ba6987b08cadddda91300c4d2af"
+      "sha256": "29bc23056ce27bc6987640f6f70a22dd228cebe381482f15daceed7665786ae3"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_additional_fields_feedback.py",
@@ -1069,7 +1085,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_interleaved_adversarial.py",
-      "sha256": "4b7e8f56c5eda7273df8008ff94c01e38722643154b1a0e29055434c804100a6"
+      "sha256": "b31c4d7ca47f22f10787364d0a0a131b368fb60c1ea644e572e9da49a6c564ca"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_interleaved_lineage.py",
@@ -1081,7 +1097,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_interruption_recovery.py",
-      "sha256": "4f018854ad1ca8ba70940ed1bf0cb472f96c5c1148caebfa7119d22a5eefd2eb"
+      "sha256": "2870759aa4702c4e75ff2bdc51f7ffd8c9400c59929f013bd639695f84410a2f"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_long_stream_limits.py",
@@ -1089,7 +1105,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_mixed_lineage.py",
-      "sha256": "0db0585c2e188ce3689aa8e8e7dac2e7bfd160bac82864d43a407acd8153e02a"
+      "sha256": "c8ceb6dc84ca1ca497ae5ae512de5a30634363d5166bb79fe6599671973341d3"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_performance_observability.py",
@@ -1109,7 +1125,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_terminal_receipt.py",
-      "sha256": "ba821fd7012b6a128bf37a83f3abb9f714ef9103654010aa66e17afd0300131f"
+      "sha256": "7fe26cfb72965cce17406fd1600c970ae587e9fa36f5422fe4ebdd51a4c5ed2c"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_thread_recovery.py",
@@ -1201,11 +1217,11 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_tail_context_v2_gateway.py",
-      "sha256": "de1428a9ad80e5c951a102430e9d26bf179469c9f039dc4c42465485318c7fa4"
+      "sha256": "720dba16a81d467942ca964a7f48067e8f0604686e0fe7fe84736ac8ed8b3a8c"
     },
     {
       "path": "rikkahub_gateway/tests/test_tool_execution_boundary.py",
-      "sha256": "0ff8f8d556ca9ad38fdb510f45ee23d5db2e81c365d605ad09fca93364d8ff40"
+      "sha256": "8af622fc46cece275f6a2727468730c08d15d113114961c2306b9deef761b186"
     },
     {
       "path": "rikkahub_gateway/tests/test_tool_result_wait_timeout.py",
@@ -1213,7 +1229,7 @@
     },
     {
       "path": "rikkahub_gateway/tool_execution.py",
-      "sha256": "81d464b74400dbac72e63711a59ece00df77961078262ba74b7d0b1e41a63da3"
+      "sha256": "d3efafcf745aa04bcf2a90987818e33ba40c416015fbac9a505bd3f3529f7b53"
     },
     {
       "path": "runtime/__init__.py",
@@ -1253,7 +1269,7 @@
     },
     {
       "path": "runtime/execution_binding.py",
-      "sha256": "7e6f68bf99d5d345030b15414e66382eab127ea5de47ec75e14f6e20d149a7c1"
+      "sha256": "a8bf2717efb7436139ae860d522d8a6433b5b792a98c966980fa891f6974777f"
     },
     {
       "path": "runtime/execution_profiles.py",
@@ -1309,7 +1325,7 @@
     },
     {
       "path": "runtime/onboarding.py",
-      "sha256": "577a09d5ff97703f489f6601c1e4ed3bbecce836ea52f84211266a2489bf1261"
+      "sha256": "da3b42f7ca1e2fbfb2de0e01395e9febbd8dcb578db700955baeb100e0a29891"
     },
     {
       "path": "runtime/ordinary_access.py",
@@ -1512,12 +1528,16 @@
       "sha256": "48493adf71698aaed86730ec20d7466cdf517e22c527aa9c9ac972b96250750c"
     },
     {
+      "path": "source-release-state-0.2.3-preview.1.json",
+      "sha256": "4727c53e231f84cb06ede623af1728bfdfed941becf7bc1236d50201c4ca1742"
+    },
+    {
       "path": "source-release-state-preview.5.json",
       "sha256": "5f21cbf24d9d098a1ee1522268d5763e179958a48fa638eb2a162e9cb5848ab7"
     },
     {
       "path": "source-release-state.json",
-      "sha256": "c8aaa2bf882d3c8231c3b93ecc82b99faecb3943b5d357940d013bf2c3f63983"
+      "sha256": "4727c53e231f84cb06ede623af1728bfdfed941becf7bc1236d50201c4ca1742"
     },
     {
       "path": "tests/__init__.py",
@@ -1582,6 +1602,10 @@
     {
       "path": "tests/test_direct_grants.py",
       "sha256": "eabd0bacedd65c568b1a97b611730c6cce2040375633206da9f6e6b46ba40fdb"
+    },
+    {
+      "path": "tests/test_dynamic_tools_runtime.py",
+      "sha256": "8574b475533a31b0e57048fa06745e8e51894a6bb726b1b2b0942892b276cf4d"
     },
     {
       "path": "tests/test_emotional_memory.py",

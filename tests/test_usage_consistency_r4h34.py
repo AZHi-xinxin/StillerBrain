@@ -84,8 +84,36 @@ PROTECTED_SELF_METHODS = (
 PROTECTED_SELF_METHODS_SHA256 = 'b1ad725faa0a27ddd850ff294535aaa0b61613ea47c570b0c6c4a8df8a74fa98'
 
 
+# 2026-11-03: read-only active projection adds exactly two discovery fields.
+# Pin those new AST values, then remove only those dictionary entries to prove
+# the entire prior service/authorization baseline. No whole method is exempted.
+FACET_DISCOVERY_AST_SHA256 = 'b1a261dc6ad4330824ff28aa94a5250b045c95db180616227ae64d0b141bd76c'
+
+
 def tree(filename):
-    return ast.parse((MCP / filename).read_bytes(), filename=filename)
+    parsed = ast.parse((MCP / filename).read_bytes(), filename=filename)
+    if filename != "service.py":
+        return parsed
+    method = next(n for n in ast.walk(parsed) if isinstance(n, ast.FunctionDef)
+                  and n.name == "query_self_model")
+    fields = {}
+    for node in ast.walk(method):
+        if not isinstance(node, ast.Dict):
+            continue
+        kept = []
+        for key, value in zip(node.keys, node.values):
+            if isinstance(key, ast.Constant) and key.value in {"available_facet_names", "facet_selection"}:
+                if key.value in fields:
+                    raise AssertionError("duplicate facet discovery field")
+                fields[key.value] = stable_ast_snapshot(value)
+            else:
+                kept.append((key, value))
+        node.keys = [key for key, _ in kept]
+        node.values = [value for _, value in kept]
+    if set(fields) != {"available_facet_names", "facet_selection"} or hashlib.sha256(
+            json.dumps(fields, sort_keys=True).encode()).hexdigest() != FACET_DISCOVERY_AST_SHA256:
+        raise AssertionError("unreviewed facet discovery projection")
+    return parsed
 
 
 def dictionary_field(parsed, key):

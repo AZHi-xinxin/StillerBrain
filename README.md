@@ -1,6 +1,6 @@
 # Stiller Brain（ST）
 
-> 当前测试版 **0.2.3-preview.1**：允许续轮更新工具目录，重点验证工具增减、改名时的 409。最新正式包仍为 v0.2.2，待真实测试者验收后再转正式。见[测试版更新与升级](RELEASE-NOTES-0.2.3-preview.1.md)。
+> 当前正式版 **0.2.3**：工具目录变更 409 修复已获原试用者验收；补齐关键词召回提示与可选 GPT Responses 接入。见[更新与升级](RELEASE-NOTES-0.2.3.md)。
 
 昕昕 & 阿止
 
@@ -18,7 +18,7 @@ ST 是面向 LLM 的长期记忆后端。它接住 AI 自己写下的经历、�
 
 我们把这样的交流方式叫作：“我想起了。”
 
-[开始使用](#开始使用) · [安装向导](docs/INSTALL.md) · [手机本地部署（实验）](docs/PHONE-LOCAL.md) · [两种接入](#两种接入一份记忆) · [模块地图](#一份大脑各有所长) · [浮现机制](#记忆怎样浮现) · [架构](#把经历接回对话的架构) · [设计理念](#设计理念) · [本版更新](RELEASE-NOTES-0.2.3-preview.1.md) · [网关命中率排查](docs/CACHE-TROUBLESHOOTING.md)
+[开始使用](#开始使用) · [安装向导](docs/INSTALL.md) · [手机本地部署（实验）](docs/PHONE-LOCAL.md) · [两种接入](#两种接入一份记忆) · [模块地图](#一份大脑各有所长) · [浮现机制](#记忆怎样浮现) · [架构](#把经历接回对话的架构) · [设计理念](#设计理念) · [本版更新](RELEASE-NOTES-0.2.3.md) · [网关命中率排查](docs/CACHE-TROUBLESHOOTING.md)
 
 **ST 0.2.2 · 给还想做的事，一个位置。** 情感记忆可以附上可选心愿，自主改写、归档与独立置顶；当往事符合浮现条件时，心愿可随它回来。增加所选记忆的图片线索，合入手机实验路线升级/回退、下载代理与写入上下文诊断。[本次更新与升级](RELEASE-NOTES-0.2.2.md) · [欲望层用法](docs/MEMORY-DESIRES.md)
 
@@ -224,7 +224,7 @@ AI 可以管理自写提示、单条计划或工具卡的提醒、人称建议�
 
 ## 日常怎么用
 
-以下说明 `0.2.3-preview.1` 的用法；下载源码不会替已有实例自动升级。日常工具档有 8 个入口：`stbrain_open`、`remember_memory`、`remember_work_memory`、`remember_tool_guidance`、`revise_memory`、`advance_plan`、`stbrain_tools`、`stbrain_manage`。前六个处理常用读写；后两个按分类查找功能和执行操作，详细参数需要时再展开。当前工具箱包含常用能力、工作记忆、记忆关联、图片附件和兼容操作，准确目录以连接实例返回为准；原有权限仍分别校验。
+以下说明 `0.2.3` 的用法；下载源码不会替已有实例自动升级。日常工具档有 8 个入口：`stbrain_open`、`remember_memory`、`remember_work_memory`、`remember_tool_guidance`、`revise_memory`、`advance_plan`、`stbrain_tools`、`stbrain_manage`。前六个处理常用读写；后两个按分类查找功能和执行操作，详细参数需要时再展开。当前工具箱包含常用能力、工作记忆、记忆关联、图片附件和兼容操作，准确目录以连接实例返回为准；原有权限仍分别校验。
 
 在客户端把 ST MCP 地址末尾设为 `/mcp?tool_profile=daily`，重连并刷新目录后，从新回合开始使用。默认 `/mcp` 的完整模型目录为 54 项（包含 4 个图片操作）；传输层另列 1 项 host-only 图片运输能力，宿主应过滤，不发给模型。升级不会自动替用户切档；已有其他查询参数时追加 `&tool_profile=daily`，已有 `tool_profile` 时修改原值。完整接入与示例见 [日常指南](docs/GUIDE.md#选择日常八入口)。
 
@@ -289,7 +289,7 @@ python3.12 -B scripts/install_stiller.py
 
 ## 当前状态与后续方向
 
-`0.2.3-preview.1` · 测试版 · Python / SQLite · 换窗近期记忆 · 可选本地语义检索 · 日常 8 入口
+`0.2.3` · 正式版 · Python / SQLite · 换窗近期记忆 · 可选本地语义检索 · 日常 8 入口
 
 **ST 服务在 Windows 和 Linux 均有实际运行与验收记录。** 本版普通存入、随手记、工具卡，以及配套 Orbis 的星图和原图存取已有具体链路的使用者验收。源码回归、实例升级、用户体验与安装向导各自的验证范围见 [本版验证记录](docs/UPDATE-VALIDATION.md)，不把历史记录计为本次重新测试。
 

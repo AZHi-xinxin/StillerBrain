@@ -85,7 +85,17 @@ class ReviewPagesFacadeTests(unittest.TestCase):
         before = copy.deepcopy(self.service.module_one_status()["state"])
         events = self.service.store.list_events(self.service.model_id)
         with mock.patch.object(self.service.store, "build_injection", side_effect=AssertionError("Read is not injection")):
-            self.assertTrue(self.service.query_self_model(view="active")["result"]["active_available"])
+            projection = self.service.query_self_model(view="active")["result"]
+            self.assertTrue(projection["active_available"])
+            self.assertEqual({}, projection["facets"])
+            self.assertEqual(sorted(body["facets"]), projection["available_facet_names"])
+            self.assertEqual("not_requested", projection["facet_selection"]["mode"])
+            self.assertNotIn(body["facets"]["side_0"], json.dumps(projection, ensure_ascii=False))
+            selected = self.service.query_self_model(view="active", facet_names=["side_0", "unknown"])["result"]
+            self.assertEqual({"side_0": body["facets"]["side_0"]}, selected["facets"])
+            self.assertEqual(["unknown"], selected["missing_facets"])
+            self.assertEqual("explicit_names", selected["facet_selection"]["mode"])
+            self.assertEqual({}, self.service.query_self_model(view="active", facet_names=[])["result"]["facets"])
         self.assertEqual(before, self.service.module_one_status()["state"])
         self.assertEqual(events, self.service.store.list_events(self.service.model_id))
 

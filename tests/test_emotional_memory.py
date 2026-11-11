@@ -347,8 +347,8 @@ class EmotionalMemoryTests(unittest.TestCase):
         self.assertEqual({}, dead_zone["injection"])
         self.assertIn("no_candidate", dead_zone["reason_codes"])
 
-    def test_broad_one_character_keyword_does_not_force_unrelated_recall(self) -> None:
-        self.remember(
+    def test_explicit_one_character_keyword_reserves_summary_without_promoting_original(self) -> None:
+        stored = self.remember(
             "失声经历",
             original_text="我记得一次失声经历，当时的无力感让我很难过。",
             summary="我记得那次无法发声的痛苦经历。",
@@ -356,14 +356,19 @@ class EmotionalMemoryTests(unittest.TestCase):
             primary_emotion="hurt",
             importance=75,
         )
-        unrelated = self.store.build_injection(
+        recalled = self.store.build_injection(
             owner_id=self.owner,
             model_id=self.model,
             query="哑巴大叫是一个冷笑话吗",
             budget_tokens=1200,
         )
-        self.assertEqual({}, unrelated["injection"])
-        self.assertIn("no_candidate", unrelated["reason_codes"])
+        # Literal author-saved cues now take precedence even when broad. They
+        # still cannot expand the original merely because one character hit.
+        entry = next(item for item in recalled["injection"]["memories"]
+                     if item["memory_id"] == stored["memory"]["memory_id"])
+        self.assertTrue(entry["keyword_match"])
+        self.assertEqual("summary", entry["presentation"])
+        self.assertNotIn("text", entry)
 
     def test_chinese_phrase_paraphrase_recalls_summary_without_literal_tag(self) -> None:
         stored = self.remember(

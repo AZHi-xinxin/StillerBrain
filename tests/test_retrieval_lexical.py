@@ -52,7 +52,7 @@ def old_score(row: dict, query: str, emotions: set[str]) -> tuple[float, bool]:
 
 
 class LexicalEquivalenceTests(unittest.TestCase):
-    def test_prepared_formula_matches_frozen_score_and_exact_flag(self):
+    def test_prepared_formula_preserves_frozen_score_with_saved_keyword_floor(self):
         rng = random.Random(3811)
         alphabet = '甲乙丙丁一二三四风雨秋ABCxyz１１２éßİǰ\u0307\u030c， !'
         cases = [('', '甲'), ('ＡＢ', 'ab'), ('人死后会变成星星', '人死后变星'),
@@ -66,6 +66,10 @@ class LexicalEquivalenceTests(unittest.TestCase):
             emotions = em._query_emotions(query)
             with self.subTest(query_length=len(query), cue_length=len(cue)):
                 expected, exact = old_score(row, query, emotions)
+                # The saved-keyword contract now guarantees candidacy at 0.2;
+                # the underlying fuzzy formula and exact-match flag stay intact.
+                if any(em._hint_occurs(query, word) for word in json.loads(row['keywords_json'])):
+                    expected = max(0.2, expected)
                 actual, actual_exact = em.EmotionalMemoryStore._row_score(row, query, emotions)
                 self.assertEqual(expected, actual)
                 self.assertEqual(round(expected, 4), round(actual, 4))

@@ -1475,6 +1475,16 @@ class SelfModelAccessService:
                     },
                     "facets": {name: content["facets"][name] for name in names if name in content["facets"]},
                     "missing_facets": [name for name in names if name not in content["facets"]],
+                    "available_facet_names": sorted(content["facets"]),
+                    "facet_selection": {
+                        "mode": "explicit_names" if facet_names is not None else "not_requested",
+                        "requested_count": len(names),
+                        "available_count": len(content["facets"]),
+                        "instruction": (
+                            "facets只返回facet_names选中的侧写；空对象不代表活动版没有侧写。"
+                            "可用名称见available_facet_names；按精确名称查询，或用view=edit_basis读取完整活动版。"
+                        ),
+                    },
                     "anchor_references": content["anchor_references"] if include_anchor_references else [],
                     "active_revision_id": active["revision_id"],
                     "content_hash": active["content_hash"],

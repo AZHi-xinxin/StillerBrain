@@ -327,7 +327,19 @@ def _hint_occurs_folded(folded: str, hint: str) -> bool:
         return False
     if any("\u4e00" <= char <= "\u9fff" for char in needle):
         return needle in folded
+    if needle.isascii():
+        # A saved Latin alias can be embedded in Chinese prose. Chinese
+        # neighbours are not part of that Latin word; "ann" still must not
+        # match "annual" or "joann".
+        boundary = r"[^\W\u4e00-\u9fff]"
+        return re.search(rf"(?<!{boundary}){re.escape(needle)}(?!{boundary})", folded) is not None
     return re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", folded) is not None
+
+
+def _direct_keyword_hit(row: sqlite3.Row, query: str) -> bool:
+    """Every deliberately stored literal cue has priority, including short names."""
+    folded = query.casefold()
+    return any(_hint_occurs_folded(folded, cue) for cue in _json(row["keywords_json"], []))
 
 
 def _minimum_ordered_span(haystack: str, needle: str) -> int | None:
@@ -2345,6 +2357,10 @@ class EmotionalMemoryStore:
             + 0.10 * (row["importance"] / 100)
             + keyword_boost
         )
+        # A deliberately saved cue is a retrieval candidate even when short or
+        # surrounded by unrelated wording. It does not grant original access.
+        if keyword_hits and _direct_keyword_hit(row, prepared.folded):
+            score = max(score, 0.2)
         return min(0.99, score), exact
 
     @staticmethod
@@ -2740,7 +2756,8 @@ class EmotionalMemoryStore:
                         for row, score, exact, depth in eligible]
             eligible.extend((semantic_rows[ref], dense.candidate_priority(cosine), False, 0)
                             for ref, cosine in semantic_only.items())
-            eligible.sort(key=lambda item: (-item[1], -item[0]["importance"], item[0]["memory_id"]))
+            eligible.sort(key=lambda item: (not _direct_keyword_hit(item[0], query),
+                                           -item[1], -item[0]["importance"], item[0]["memory_id"]))
 
             memories: list[dict[str, Any]] = []
             for row, score, exact, depth in eligible[:10]:
@@ -2767,6 +2784,12 @@ class EmotionalMemoryStore:
                     "origin_label": _origin_label(row["origin"], row["confidence"]),
                     "confidence": row["confidence"],
                 }
+                if _direct_keyword_hit(row, query):
+                    item["keyword_match"] = True
+                    if defer_budget and presentation == "original":
+                        # The mixed selector may reserve the already-authored
+                        # summary before spending space on this original.
+                        item["keyword_summary"] = row["summary"]
                 if presentation == "original":
                     item["text"] = row["original_text"]
                     item["gate_decision"] = "speak"

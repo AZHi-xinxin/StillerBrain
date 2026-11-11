@@ -34,6 +34,8 @@ class GatewayRoute:
     upstream_model: str
     api_key: str = field(repr=False)
     managed: bool = False
+    api_mode: str = "chat_completions"
+    proxy_url: str = field(default="", repr=False)
 
     @property
     def auxiliary_model(self) -> str:
@@ -41,7 +43,8 @@ class GatewayRoute:
 
     @property
     def completion_url(self) -> str:
-        return self.upstream_base_url.rstrip("/") + "/chat/completions"
+        path = "/responses" if self.api_mode == "responses" else "/chat/completions"
+        return self.upstream_base_url.rstrip("/") + path
 
 
 def valid_route_base(value: str, *, legacy_http: bool = False) -> bool:
@@ -61,6 +64,16 @@ def valid_route_base(value: str, *, legacy_http: bool = False) -> bool:
         return False
 
 
+def valid_loopback_proxy(value):
+    try:
+        url = urlsplit(value)
+        return (url.scheme == "http" and url.hostname in {"127.0.0.1", "::1"}
+                and url.port is not None and not url.username and not url.password
+                and not url.path and not url.query and not url.fragment)
+    except (TypeError, ValueError):
+        return False
+
+
 def validate_route(route: GatewayRoute, *, legacy_http: bool = False, legacy_labels: bool = False) -> None:
     def valid_label(value: str, maximum: int) -> bool:
         if not isinstance(value, str):
@@ -70,6 +83,8 @@ def validate_route(route: GatewayRoute, *, legacy_http: bool = False, legacy_lab
             return bool(value.strip()) and all(ord(char) >= 32 and ord(char) != 127 for char in value)
         return valid_model_label(value, maximum)
     if (not isinstance(route, GatewayRoute)
+            or route.api_mode not in {"chat_completions", "responses"}
+            or (route.proxy_url and not valid_loopback_proxy(route.proxy_url))
             or not valid_label(route.public_model, MAX_PUBLIC_MODEL_CHARS)
             or (not legacy_labels and route.public_model.endswith(AUXILIARY_SUFFIX))
             or not valid_label(route.upstream_model, MAX_UPSTREAM_MODEL_CHARS)
@@ -101,13 +116,15 @@ def routes_from_env(env: Mapping[str, str]) -> tuple[GatewayRoute, ...]:
             raise ValueError()
         result = []
         for record in records:
-            if (not isinstance(record, dict) or set(record) != {
+            if (not isinstance(record, dict) or set(record) - {"api_mode", "proxy_url"} != {
                     "public_model", "upstream_base_url", "upstream_model", "api_key_env"}
                     or any(not isinstance(value, str) for value in record.values())
                     or not ROUTE_KEY_ENV.fullmatch(record["api_key_env"])):
                 raise ValueError()
             route = GatewayRoute(record["public_model"], record["upstream_base_url"],
-                                 record["upstream_model"], env[record["api_key_env"]])
+                                 record["upstream_model"], env[record["api_key_env"]],
+                                 api_mode=record.get("api_mode", "chat_completions"),
+                                 proxy_url=record.get("proxy_url", ""))
             validate_route(route)
             if any(route.api_key == env.get(name) for name in (
                     "STBRAIN_MCP_TOKEN", "STBRAIN_WAKE_SECRET", "STBRAIN_WAKE_TOKEN", "STBRAIN_HOST_TOKEN",

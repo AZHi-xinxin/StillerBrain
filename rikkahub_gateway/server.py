@@ -42,6 +42,7 @@ from .image_files import ImageFiles, ImageFilesError, MAX_REQUEST_BYTES as IMAGE
 from .atlas import AtlasGateway, handle_atlas_request
 from .routes import GatewayRoute, MAX_EXTRA_ROUTES, routes_from_env, validate_route
 from .reasoning_control import apply_upstream_reasoning_control
+from .responses_adapter import ResponsesAdapter, ResponsesTurnState
 from .protocol_diagnostics import normalize_protocol_diagnostic, protocol_error_detail
 from .cache_layout import (USER_DATA_CONTEXT_LAYOUT_CONTRACT, USER_DATA_RULE,
                            apply_user_data_layout, append_host_data)
@@ -1181,6 +1182,8 @@ class TurnSession:
     continuity_receipt: bool = False
     # Handler-owned transport observer, never a capability or persisted state.
     client_disconnect_watch: Any = field(default=None, repr=False)
+
+    responses_state: ResponsesTurnState = field(default_factory=ResponsesTurnState, repr=False)
 
 
 @dataclass
@@ -3756,12 +3759,24 @@ class GatewayApplication:
         return (route or self.default_route).completion_url
 
     @contextmanager
-    def upstream_stream(self, route: GatewayRoute, *, content, timeout=None):
+    def upstream_stream(self, route: GatewayRoute, *, content, timeout=None, responses_state=None):
+        adapter = None
+        if route.api_mode == "responses":
+            adapter = ResponsesAdapter(json.loads(content), responses_state)
+            content = json.dumps(adapter.request(), ensure_ascii=False, separators=(",", ":")).encode()
+        if route.api_mode == "responses" and route.proxy_url:
+            with httpx.Client(proxy=route.proxy_url, timeout=timeout or self.config.timeout_seconds,
+                              trust_env=False, follow_redirects=False) as proxy_client:
+                with proxy_client.stream("POST", route.completion_url, headers={
+                        "Authorization": "Bearer " + route.api_key, "Content-Type": "application/json"},
+                        content=content) as response:
+                    yield adapter.wrap(response)
+            return
         if route.managed:
             try:
                 with managed_stream(route, content=content,
                                     timeout=timeout or self.config.timeout_seconds) as response:
-                    yield response
+                    yield adapter.wrap(response) if adapter is not None else response
             except ManagementError:
                 raise GatewayError(502, "upstream_unavailable") from None
         else:
@@ -3770,7 +3785,7 @@ class GatewayApplication:
                 arguments["timeout"] = timeout
             with self.upstream.stream("POST", self.upstream_url(route), headers=self.upstream_headers(route),
                                       **arguments) as response:
-                yield response
+                yield adapter.wrap(response) if adapter is not None else response
 
     def upstream_headers(self, route: GatewayRoute | None = None) -> dict[str, str]:
         return {
@@ -4586,6 +4601,8 @@ class _StreamExchange:
     inspector: _IncrementalSSEInspector | None = None
     disconnect_watch: Any = field(default=None, repr=False)
 
+    responses_state: ResponsesTurnState | None = field(default=None, repr=False)
+
     def note_usage(self, payload: Any) -> None:
         if not isinstance(payload, Mapping):
             return
@@ -4609,7 +4626,8 @@ def _deadline_stream(app: GatewayApplication, exchange: _StreamExchange):
         raise GatewayError(502, "upstream_unavailable")
     if exchange.route is None:
         raise GatewayError(409, "tool_continuation_route_missing")
-    with app.upstream_stream(exchange.route, content=exchange.encoded, timeout=remaining) as response:
+    with app.upstream_stream(exchange.route, content=exchange.encoded, timeout=remaining,
+                             responses_state=exchange.responses_state) as response:
         remaining = exchange.deadline - time.monotonic()
         if remaining <= 0:
             raise GatewayError(502, "upstream_unavailable")
@@ -5216,7 +5234,8 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             performance.upstream_request_bytes = len(encoded_payload)
             performance.start_upstream()
         try:
-            with self.app.upstream_stream(prepared.route, content=encoded_payload) as response:
+            with self.app.upstream_stream(prepared.route, content=encoded_payload,
+                                          responses_state=prepared.session.responses_state) as response:
                 if performance is not None:
                     performance.note_upstream_headers(response.status_code)
                 raw_buffer = bytearray()
@@ -5299,6 +5318,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                                                      session=prepared.session),
             deadline=time.monotonic() + self.app.config.timeout_seconds,
             route=prepared.route,
+            responses_state=prepared.session.responses_state,
             disconnect_watch=getattr(self, "_client_disconnect_watch", None),
         )
         self._proxy_stream_attempt(prepared, exchange)

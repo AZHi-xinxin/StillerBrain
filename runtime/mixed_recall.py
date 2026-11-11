@@ -82,7 +82,8 @@ def select_mixed_recall(
 
     Callers must pass only enabled scopes and already-filtered candidates. This
     pure function has no database, tool invocation or permission-changing path.
-    It deliberately does not weaken a presentation in order to fit more prose.
+    Literal saved keywords reserve their already-authorised summary first.
+    Other candidates retain their supplied presentation and disclosure gates.
     """
     dynamic = deepcopy(dict(base))
     if estimate_tokens(dynamic) > budget:
@@ -138,6 +139,30 @@ def select_mixed_recall(
             raise ValueError("persistent_reminder_budget_unavailable")
         selected_plans = compact
 
+    # An explicit saved cue must not lose its whole memory to a lower-priority
+    # long original or unrelated high semantic scores. Reserve summaries before
+    # discretionary pins/ephemeral and ordinary ranking; never
+    # generate a summary, expose a gated original, or change persistent data.
+    keyword_originals: list[dict[str, Any]] = []
+    selected_keyword_ids: set[str] = set()
+    associated_refs = {entry["memory_ref"].rsplit("@", 1)[0]
+                       for entry in dynamic.get("emotion_layer", {}).get("memories", [])}
+    for original in emotional.get("memories", []):
+        if original.get("keyword_match") is not True:
+            continue
+        if "emotion://" + original["memory_id"] in associated_refs:
+            continue
+        item = deepcopy(original)
+        summary = item.pop("keyword_summary", None)
+        if item.get("presentation") == "original" and isinstance(summary, str) and summary:
+            item.pop("text", None)
+            item.update(presentation="summary", summary=summary, gate_decision="background_reference")
+        if accept("emotional_memory", emotion_payload("memories", item)):
+            selected_emotion["memories"].append(item)
+            selected_keyword_ids.add(original["memory_id"])
+            if item.get("presentation") != original.get("presentation"):
+                keyword_originals.append(original)
+
     # Preserve approved identity anchors and trusted same-thread short-term
     # continuity as context, not fabricated topic-relevance competitors.
     for key in ("pins", "ephemeral"):
@@ -159,6 +184,10 @@ def select_mixed_recall(
             ranked.append((-_number(item.get("semantic_score")),
                            _stable_key(item), module, item))
     for item in emotional.get("memories", []):
+        if item.get("memory_id") in selected_keyword_ids:
+            continue
+        if "keyword_summary" in item:
+            item = {key: value for key, value in item.items() if key != "keyword_summary"}
         ranked.append((-_number(item.get("score")),
                        _stable_key(item), "emotional_memory", item))
     # Modules do not expose equivalent secondary salience fields. Using a
@@ -219,6 +248,16 @@ def select_mixed_recall(
         if dynamic is not before and not primary_decorated and decorate_primary:
             dynamic = decorate_primary(dynamic)
             primary_decorated = True
+
+    # Upgrade only if the full original fits after all keyword summaries and
+    # other candidates. A rejected upgrade leaves the selected summary intact.
+    for original in keyword_originals:
+        full = {key: value for key, value in original.items() if key != "keyword_summary"}
+        upgraded = [full if item.get("memory_id") == full["memory_id"] else item
+                    for item in selected_emotion["memories"]]
+        payload = {**dynamic["emotional_memory"], "memories": upgraded}
+        if accept("emotional_memory", payload):
+            selected_emotion["memories"] = upgraded
 
     # Spend remaining space only after all ordinary candidates have competed.
     # Upgrading a reminder preserves its author text; it never adds authority.

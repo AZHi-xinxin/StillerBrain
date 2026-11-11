@@ -308,6 +308,24 @@ def _normalized(value: str) -> str:
     return re.sub(r"\s+", "", value.casefold())
 
 
+def _scene_tag_matches(tag: str, query: str) -> bool:
+    """Match an explicit cue, without joining words or matching ST inside Just.
+
+    ASCII identifiers need boundaries; adjacent Chinese prose remains usable
+    (e.g. “检查ST配置”). Whitespace in a multiword cue stays a word separator.
+    """
+    words = tag.casefold().split()
+    if not words:
+        return False
+    cue = " ".join(words)
+    pattern = r"\s+".join(re.escape(word) for word in words)
+    if re.match(r"[a-z0-9_]", cue[0]):
+        pattern = r"(?<![a-z0-9_])" + pattern
+    if re.match(r"[a-z0-9_]", cue[-1]):
+        pattern += r"(?![a-z0-9_])"
+    return re.search(pattern, query.casefold()) is not None
+
+
 def _ngrams(value: str) -> set[str]:
     normalized = _normalized(value)
     if len(normalized) < 2:
@@ -2604,7 +2622,6 @@ class LearningMemoryStore:
     ) -> tuple[float, list[str]]:
         """Return the strongest safe query match inherited from source cards."""
 
-        normalized_query = _normalized(query)
         strongest = 0.0
         refs: list[str] = []
         for source in self._integration_ancestors(learning_id, lineage, source_allowed):
@@ -2619,7 +2636,7 @@ class LearningMemoryStore:
                 if manual_search else self._query_score(snapshot, query)
             )
             if any(
-                _normalized(tag) and _normalized(tag) in normalized_query
+                _scene_tag_matches(tag, query)
                 for tag in snapshot.get("scene_tags", [])
             ):
                 score = max(score, 0.82)
@@ -3260,7 +3277,7 @@ class LearningMemoryStore:
                 subject_match = _explicit_subject_match(content, query)
                 scene_match = [
                     tag for tag in content["scene_tags"]
-                    if _normalized(tag) and _normalized(tag) in normalized_query
+                    if _scene_tag_matches(tag, query)
                 ]
                 # A complete, explicit scene tag is a strong semantic match,
                 # but a single keyword collision still cannot cross this gate.

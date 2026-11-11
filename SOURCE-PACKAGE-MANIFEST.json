@@ -1,7 +1,7 @@
 {
   "format": "stiller-source-package/1",
-  "version": "0.2.3-preview.1",
-  "distribution": "source-available-development-preview",
+  "version": "0.2.3",
+  "distribution": "source-available-stable-release",
   "files": [
     {
       "path": ".env.example",
@@ -17,7 +17,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "fdde4bbd82515e4ba918a9be7b2bbe73663c06564b1dbadc83e9f9b93f0c15b0"
+      "sha256": "3ca79d7c02b47dbd220531d15b31181f4dd626fcd0aa2a071f0ce415538f3eff"
     },
     {
       "path": "COMMERCIAL-LICENSE.md",
@@ -41,7 +41,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "7183d1c0b437e010b5847bc416d10ba229fcd75546fc40b2a6f91b6a1689af86"
+      "sha256": "a4faa1b0ca3eaebe574c9ff3ba90ab4fcc26bf4ef4d82fbd6b9967151834f7a0"
     },
     {
       "path": "RELEASE-NOTES-0.2.0-preview.1.md",
@@ -86,6 +86,10 @@
     {
       "path": "RELEASE-NOTES-0.2.3-preview.1.md",
       "sha256": "19fc4e96518afad3ba7b3fef8388bea4c0fb6a5a4f46926ead7a91210e0bc9ea"
+    },
+    {
+      "path": "RELEASE-NOTES-0.2.3.md",
+      "sha256": "7337dd4388bc7d5bc9bf7013fb51b66964a0c84722ac0f7f56d3e38a251e688f"
     },
     {
       "path": "RELEASE-NOTES-preview.3.md",
@@ -137,7 +141,7 @@
     },
     {
       "path": "docs/DYNAMIC-TOOLS.md",
-      "sha256": "677a2086f9c517d468c2f4c16917656a52c0ec38c788ee776f0965658937cd8a"
+      "sha256": "386dc0966e44f97e2631582f96d23e242e0a7bd26bc7fcb988fca6c1afefa532"
     },
     {
       "path": "docs/EMOTION-LAYER.md",
@@ -194,6 +198,10 @@
     {
       "path": "docs/NIGHTLY-20261025.txt",
       "sha256": "ebb698edc15823a17e41fc1b27b9203e98d678b86654035a54b11875e2b289d4"
+    },
+    {
+      "path": "docs/OPENAI-RESPONSES.md",
+      "sha256": "6483e7d648374caaba3f01e02912bd9c7a87b879f64fa8479e01d184b3dd0696"
     },
     {
       "path": "docs/OPERATIONS.md",
@@ -253,7 +261,7 @@
     },
     {
       "path": "docs/UPDATE-VALIDATION.md",
-      "sha256": "600933059662bffd654a1871ea47e4420f93058f6b349ae654c1b45007367361"
+      "sha256": "686e4cfafea38b8f72dac0d22e680a644015557cd5d405eb180b909cec51d758"
     },
     {
       "path": "docs/assets/stiller-cover.svg",
@@ -401,7 +409,7 @@
     },
     {
       "path": "mcp_server/service.py",
-      "sha256": "98101d68502e8aed6c1c4bcb597ea7c7b08c98a53bbd991e946aee834c9a4f4c"
+      "sha256": "140c889e4f115b9fd451fe6db01ba1da5d2b2520d7775e53c892e75db376af09"
     },
     {
       "path": "mcp_server/simple_tool_catalog.py",
@@ -617,7 +625,7 @@
     },
     {
       "path": "mcp_server/tests/test_review_pages_facade_r4h38.py",
-      "sha256": "af89ea236be3e0bb0daa412e6eec5bb69f602081ed2c3ee86e679525604f4340"
+      "sha256": "57a388238b7870e9f8400b214a30984f202e0dcfd8a60fd82a02554d2bd67aee"
     },
     {
       "path": "mcp_server/tests/test_scene_tag_authoring_help.py",
@@ -857,7 +865,7 @@
     },
     {
       "path": "release-state.json",
-      "sha256": "856522e92d3316ce92e66b409b14487cba819003fe8319528dc8b91b727228ce"
+      "sha256": "ecd4af3931fa26cd913d629aaf48215f2809a4d602bc2c2b3119c4bbbc766d73"
     },
     {
       "path": "requirements-linux-arm64-py312.lock",
@@ -928,8 +936,12 @@
       "sha256": "6b4dcdf73b99a60274077ec9537b65fd3d6e49462e47844eae2fe5ef660352e4"
     },
     {
+      "path": "rikkahub_gateway/responses_adapter.py",
+      "sha256": "83e0c3e16631eae7390e07a75e40aec9f483c21a39ef9e39f13796666ee96a64"
+    },
+    {
       "path": "rikkahub_gateway/routes.py",
-      "sha256": "333e40f72f32f13f81f404a56b0aa635d562eee572a39454bb5857467dfd2d33"
+      "sha256": "9cc3c9dc0a1914a4721f27d467e73c191bfcedcb75ac11fb8f6d5b713122fa1e"
     },
     {
       "path": "rikkahub_gateway/run_offline_checks.py",
@@ -937,7 +949,7 @@
     },
     {
       "path": "rikkahub_gateway/server.py",
-      "sha256": "e775e1b90f4831deb60921f9dfe57dec819ab53d5756e1e8146f891c89adecff"
+      "sha256": "1a35725551ee0e337b3ea35a4863481048d8f86038f31b91a22cf68fbb55787d"
     },
     {
       "path": "rikkahub_gateway/short_term.py",
@@ -1196,6 +1208,10 @@
       "sha256": "4d81a9207246d9ff03d0f0d4d3bf961cc64efe2724db3145cdf2ef09b38c88e8"
     },
     {
+      "path": "rikkahub_gateway/tests/test_responses_adapter.py",
+      "sha256": "9a648227c57f56c5e5f214a63e305398bfc71529b46bddad698e923450f6f9c3"
+    },
+    {
       "path": "rikkahub_gateway/tests/test_route_management.py",
       "sha256": "41bc4cfbd06657c31c6ec22841ff98576bfb6adedbc464bae4571311612a0d05"
     },
@@ -1265,7 +1281,7 @@
     },
     {
       "path": "runtime/emotional_memory.py",
-      "sha256": "924aedb67ab4392e98a7dd5783bdf3c20b26066a385bcbf2816e9fe9b228a160"
+      "sha256": "0609f771de8b4141b5082ac0983f610897b9c0721fe4f4b2227cc2f19bed644b"
     },
     {
       "path": "runtime/execution_binding.py",
@@ -1293,7 +1309,7 @@
     },
     {
       "path": "runtime/learning_memory.py",
-      "sha256": "e592d65c80b28a5ac5e209015176988477957338c4b7fe8c358c9c35951cfbd2"
+      "sha256": "b811cf46df45f72b5f6738ac7408481f7412ae40c3d2d4770f436599b7e65033"
     },
     {
       "path": "runtime/lexical_retrieval.py",
@@ -1321,7 +1337,7 @@
     },
     {
       "path": "runtime/mixed_recall.py",
-      "sha256": "7ca1fad3530accb5b014a8a5d2100389c12f38be1f876958258c27b79e339573"
+      "sha256": "e255bccc33136eba3b313b804bc40ac9a31a351be02898ebd239b250f9f62f85"
     },
     {
       "path": "runtime/onboarding.py",
@@ -1537,7 +1553,7 @@
     },
     {
       "path": "source-release-state.json",
-      "sha256": "4727c53e231f84cb06ede623af1728bfdfed941becf7bc1236d50201c4ca1742"
+      "sha256": "647adb7ddbfcb35cfae7366ca2c0b4655e59be702ea019be6b0539473e15578b"
     },
     {
       "path": "tests/__init__.py",
@@ -1609,7 +1625,7 @@
     },
     {
       "path": "tests/test_emotional_memory.py",
-      "sha256": "52f6729431fe1a83525b94daba89690eb461ac7f83be149f4ee598bf67faf7ad"
+      "sha256": "e2a58782ab42d3bc3199d94b446394400c07931c32ebc3119fca00e9a232eb12"
     },
     {
       "path": "tests/test_emotional_nullable_migration.py",
@@ -1644,6 +1660,10 @@
       "sha256": "d3e4d1ef130652d8714299eada12d78209a605db22056c00466785eeeff7cf16"
     },
     {
+      "path": "tests/test_keyword_recall_delivery.py",
+      "sha256": "6839d919f8db5d23d5945de8d78624e0c8317a4febd4b850b96337733b894a7b"
+    },
+    {
       "path": "tests/test_learning_author_submission.py",
       "sha256": "872b49e90cc78f565ade58235e8e09df0c75ed5c6283d4ce65a587435d0bacbb"
     },
@@ -1654,6 +1674,10 @@
     {
       "path": "tests/test_learning_natural_recall.py",
       "sha256": "63342a165c78165b819eaf51e03155ae8e120a2061a4b1b1eb1970e8eff89ff1"
+    },
+    {
+      "path": "tests/test_learning_scene_boundaries.py",
+      "sha256": "ea200b877c93931b00c2b527bbaa310f5b5692658c2d10be15e45ce8cf438369"
     },
     {
       "path": "tests/test_memory_desire_pins.py",
@@ -1740,6 +1764,10 @@
       "sha256": "257dded67872f4bc7d9e2eb162b3cf1c55ea7180a2b8b95fe0295aa2b1d45cb8"
     },
     {
+      "path": "tests/test_pro_user_data_runtime.py",
+      "sha256": "5b28a644f548c4e7da335774d4e04b0ff3824c46d8d26f0c9f92c1d200c97679"
+    },
+    {
       "path": "tests/test_readonly_ephemeral_capture.py",
       "sha256": "adf2bb6c8f5f7f1955aee7b2cbfe299dd049a89c9f27a5e2bbc8dbf88fd01ef2"
     },
@@ -1749,7 +1777,7 @@
     },
     {
       "path": "tests/test_retrieval_lexical.py",
-      "sha256": "68ae208180dd8fedb019589802cf5e658647c65b026863548f2570d4d1b0f168"
+      "sha256": "3a4827d5a66ec7b67672686d34f34640252d8a97cc2ee844ca61c60af97c90d1"
     },
     {
       "path": "tests/test_secret_colloquial_l36.py",
@@ -1821,7 +1849,7 @@
     },
     {
       "path": "tests/test_usage_consistency_r4h34.py",
-      "sha256": "7671bc91b51cf5c5d23b503f183ebc6b72c48b80b3718fa96755c33d082f1921"
+      "sha256": "39225162906da9e5f3dfb490356207dd7c6702b2ec506a1cb1b54a4baa953eb3"
     },
     {
       "path": "tests/test_work_memory.py",

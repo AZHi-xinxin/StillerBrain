@@ -43,6 +43,31 @@ def append_host_data(messages: Sequence[Mapping], frames: Sequence[tuple[str, ob
     return result
 
 
+def project_historical_host_data(messages: Sequence[Mapping]) -> list[dict]:
+    """Keep each named native history annotation on its own adjacent USER.
+
+    Native serialization adds saved send-time metadata to historical human
+    messages too. Leaving those as SYSTEM frames makes the model system prefix
+    grow on every new turn. This is a request-copy projection only: original
+    source capture and receipt validation have already used the input history.
+    Never move an ordinary SYSTEM, skip an intervening role, or fabricate a
+    human carrier. A second projection is a no-op.
+    """
+    result: list[dict] = []
+    for message in messages:
+        frames = []
+        if message.get("role") == "user":
+            while (result and set(result[-1]) == {"role", "content", "name"}
+                   and result[-1]["role"] == "system"
+                   and result[-1]["name"] == "orbis_host_data_v1"):
+                frames.append(("orbis_local_data", result.pop()["content"]))
+        if frames:
+            result.extend(append_host_data([message], list(reversed(frames))))
+        else:
+            result.append(copy.deepcopy(dict(message)))
+    return result
+
+
 def apply_user_data_layout(messages: Sequence[Mapping], stable: Mapping | None,
                            dynamic: Mapping | None) -> list[dict]:
     # Names come from the native serializer's metadata, never a text marker.

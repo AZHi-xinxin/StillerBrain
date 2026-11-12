@@ -45,7 +45,7 @@ from .reasoning_control import apply_upstream_reasoning_control
 from .responses_adapter import ResponsesAdapter, ResponsesTurnState
 from .protocol_diagnostics import normalize_protocol_diagnostic, protocol_error_detail
 from .cache_layout import (USER_DATA_CONTEXT_LAYOUT_CONTRACT, USER_DATA_RULE,
-                           apply_user_data_layout, append_host_data)
+                           apply_user_data_layout, append_host_data, project_historical_host_data)
 from .management import RouteStore, ManagementError, handle_management_request, managed_stream
 from .short_term import Scope, ShortTermMemory
 from .short_term_wire import client_source, source_message, handover_message, FinalBodyCollector
@@ -904,6 +904,19 @@ class GatewayError(RuntimeError):
         return result
 
 
+def _claude_cache_routes_from_env() -> tuple[str, ...]:
+    raw = os.environ.get("STBRAIN_CLAUDE_CACHE_ROUTES_JSON", "[]")
+    try:
+        if len(raw.encode("utf-8")) > 4096:
+            raise ValueError()
+        values = json.loads(raw)
+        if not isinstance(values, list):
+            raise ValueError()
+        return tuple(values)
+    except (ValueError, TypeError, UnicodeError, RecursionError):
+        raise ValueError("invalid_claude_cache_routes") from None
+
+
 @dataclass(frozen=True)
 class GatewayConfig:
     gateway_token: str = field(repr=False)
@@ -928,6 +941,7 @@ class GatewayConfig:
     abnormal_wait_seconds: float = 180.0
     tool_result_wait_seconds: float = 300.0
     context_layout: str = "legacy"
+    claude_cache_routes: tuple[str, ...] = field(default=(), repr=False)
     short_term_enabled: bool = False
     extra_routes: tuple[GatewayRoute, ...] = field(default=(), repr=False)
     management_enabled: bool = False
@@ -937,6 +951,13 @@ class GatewayConfig:
     max_tool_tail_bytes: int = DEFAULT_MAX_TOOL_TAIL_BYTES
 
     def __post_init__(self) -> None:
+        if (not isinstance(self.claude_cache_routes, tuple)
+                or len(self.claude_cache_routes) > MAX_EXTRA_ROUTES + 1
+                or any(not isinstance(name, str) or not 1 <= len(name) <= 128
+                       or name != name.strip() or not name.isprintable()
+                       for name in self.claude_cache_routes)
+                or len(set(self.claude_cache_routes)) != len(self.claude_cache_routes)):
+            raise ValueError("invalid_claude_cache_routes")
         if type(self.management_enabled) is not bool:
             raise ValueError("invalid_gateway_management")
         if self.management_enabled and (not self.management_state_dir or len(self.management_token) < 32):
@@ -1023,6 +1044,11 @@ class GatewayConfig:
         if any(secret in alias for secret in secrets for alias in model_labels):
             raise ValueError("gateway_model_contains_credential")
 
+    def uses_claude_user_data_layout(self, route: GatewayRoute) -> bool:
+        return (route.public_model in self.claude_cache_routes
+                and route.upstream_model.startswith("claude-")
+                and route.api_mode == "chat_completions")
+
     @classmethod
     def from_env(cls) -> "GatewayConfig":
         return cls(
@@ -1071,6 +1097,7 @@ class GatewayConfig:
             execution_epoch=os.environ.get("STBRAIN_EXECUTION_EPOCH", ""),
             tool_result_wait_seconds=float(os.environ.get("STBRAIN_GATEWAY_TOOL_RESULT_WAIT_SECONDS", "300")),
             context_layout=os.environ.get("STBRAIN_GATEWAY_CONTEXT_LAYOUT", "legacy"),
+            claude_cache_routes=_claude_cache_routes_from_env(),
             short_term_enabled=os.environ.get("STBRAIN_GATEWAY_SHORT_TERM", "1") == "1",
             extra_routes=routes_from_env(os.environ),
             management_enabled=os.environ.get("STBRAIN_GATEWAY_MANAGEMENT_ENABLED", "0") == "1",
@@ -1138,6 +1165,8 @@ class TurnSession:
     expires_at: datetime
     tool_catalog_sync_pending: bool = False
     route: GatewayRoute | None = field(default=None, repr=False)
+    # Host configuration is frozen for this turn, including tool continuations.
+    claude_cache_compat: bool = field(default=False, repr=False)
     execution_profile: str = DEFAULT_PROFILE
     input_origin: str = "human_message"
     input_event_id: str = ""
@@ -2927,7 +2956,10 @@ class GatewayApplication:
         cls._validate_context_history(session, messages, digests)
         bundle = session.context_bundle
         if bundle["contract"] == USER_DATA_CONTEXT_LAYOUT_CONTRACT:
-            return apply_user_data_layout(messages, bundle["stable_message"], bundle["dynamic_message"])
+            projected = apply_user_data_layout(messages, bundle["stable_message"], bundle["dynamic_message"])
+            if session.claude_cache_compat:
+                projected = project_historical_host_data(projected)
+            return projected
         boundary = (len(messages) if bundle["contract"] == TAIL_CONTEXT_LAYOUT_CONTRACT
                     else bundle["layout"]["human_message_index"])
         result = []
@@ -3397,7 +3429,8 @@ class GatewayApplication:
                 if self.config.context_layout == "tail-context-v2":
                     context_layout = {"contract": TAIL_CONTEXT_LAYOUT_CONTRACT,
                                       "insertion_rule": "after-client-messages"}
-                    if (selected_route.upstream_model == "deepseek-v4-pro"
+                    if ((selected_route.upstream_model == "deepseek-v4-pro"
+                         or self.config.uses_claude_user_data_layout(selected_route))
                             and input_origin == "human_message"
                             and any(m.get("role") == "user" for m in messages)
                             and isinstance(wake.get("context_layout_capabilities"), list)
@@ -3467,6 +3500,7 @@ class GatewayApplication:
                     created_at=time.time(),
                     expires_at=expires_at,
                     route=selected_route,
+                    claude_cache_compat=self.config.uses_claude_user_data_layout(selected_route),
                     execution_profile=profile,
                     input_origin=input_origin,
                     input_event_id=str(source_event_id),

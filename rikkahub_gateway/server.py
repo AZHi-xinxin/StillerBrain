@@ -2957,7 +2957,7 @@ class GatewayApplication:
         bundle = session.context_bundle
         if bundle["contract"] == USER_DATA_CONTEXT_LAYOUT_CONTRACT:
             projected = apply_user_data_layout(messages, bundle["stable_message"], bundle["dynamic_message"])
-            if session.claude_cache_compat:
+            if session.route.upstream_model == "deepseek-v4-pro" or session.claude_cache_compat:
                 projected = project_historical_host_data(projected)
             return projected
         boundary = (len(messages) if bundle["contract"] == TAIL_CONTEXT_LAYOUT_CONTRACT

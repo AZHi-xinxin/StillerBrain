@@ -94,8 +94,8 @@ class ClaudeUserDataLayoutTests(data.ProUserDataLayoutTests):
             app.finish_turn(turn, keep_for_tools=False)
             history.append({"role": "assistant", "content": f"Answer {index}."})
 
-    def test_other_v3_route_keeps_existing_historical_representation(self):
-        app, control = data.ProUserDataLayoutTests.app(self)
+    def test_flash_keeps_existing_historical_representation(self):
+        app, control = data.ProUserDataLayoutTests.app(self, model="deepseek-v4-flash")
         named = {"role": "system", "name": "orbis_host_data_v1", "content": "Historical data."}
         body = {"messages": [named, {"role": "user", "content": "Earlier human."},
                 {"role": "assistant", "content": "Earlier answer."},

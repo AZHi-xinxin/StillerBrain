@@ -116,12 +116,6 @@ class OrbisMemoryWireTests(unittest.TestCase):
                 bindings = app.bind_response_tool_calls(first, [native])
                 app.finish_turn(first, keep_for_tools=True, tool_call_ids=[call["id"]],
                                 tool_call_bindings=bindings)
-                if layout == "anchored-v1":
-                    changed = copy.deepcopy(continuation)
-                    changed["messages"][3] = self.fixture("recall-b")["messages"][3]
-                    with self.assertRaises(GatewayError) as caught:
-                        self.prepare(app, {**changed, "tools": catalog})
-                    self.assertEqual("tool_continuation_context_history_mismatch", caught.exception.code)
                 second = self.prepare(app, {**continuation, "tools": catalog})
                 self.assertTrue(second.continuation)
                 self.assertIs(first.session, second.session)

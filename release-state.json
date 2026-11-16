@@ -1,6 +1,6 @@
 {
   "format": "stiller-public-release-state/1",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "scope": "extended-general-deployment-readiness-not-product-release-channel",
   "product_release_channel": "stable",
   "source_frozen": true,
@@ -11,5 +11,5 @@
   "privacy_review_complete": false,
   "user_acceptance_complete": false,
   "publication_authorized": true,
-  "notes": "0.2.3 is an authorized stable product release after scoped human acceptance. Extended audit flags remain unchanged; see source-release-state.json and docs/UPDATE-VALIDATION.md."
+  "notes": "0.2.4 publishes explicitly authorized current runtime features. Extended deployment audit flags remain unchanged; scoped tests and acceptance are recorded in source-release-state.json and docs/UPDATE-VALIDATION.md."
 }

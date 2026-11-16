@@ -145,6 +145,25 @@ class ExecutionBindingTests(unittest.TestCase):
                 self.onboarding.issue_wake(**self.common, host_id="synthetic-host", thread_id="synthetic-thread",
                     source_kind=source, source_event_id="bad-replacement", replace_incomplete=flag)
 
+    def test_tool_continuation_rebuild_retires_old_authority_without_replaying_it(self):
+        refs = self.issue(2)
+        claim = self.claim(refs[0])
+        replacement = self.onboarding.issue_wake(**self.common, host_id="synthetic-host",
+            thread_id="synthetic-thread", source_kind="tool_continuation",
+            source_event_id="synthetic-recovered-step", replace_incomplete=True)
+        self.assertEqual("st-human-replacement/1", replacement["human_replacement"])
+        with self.store.bind(claim):
+            with self.assertRaisesRegex(ExecutionBindingError, "execution_claim_not_current"):
+                self.onboarding.open_brain_context(**self.common, present_details=False)
+        with self.assertRaises(ExecutionBindingError):
+            self.claim(refs[1])
+        self.store.finish(claim)
+        with self.store._connect() as connection:
+            self.assertEqual(["orphaned", "revoked"], [r[0] for r in connection.execute(
+                "SELECT status FROM brain_execution_calls ORDER BY call_id")])
+            self.assertEqual("tool_continuation", connection.execute(
+                "SELECT source_kind FROM brain_wake_sessions WHERE status='current'").fetchone()[0])
+
     def test_revoke_waits_for_running_and_revokes_unclaimed(self):
         refs = self.issue(2)
         claim = self.claim(refs[0])

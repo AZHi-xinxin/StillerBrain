@@ -131,7 +131,7 @@ class CacheLayoutTests(unittest.TestCase):
         self.assertEqual(1, self.control.seq)
         self.assertEqual(tools, second.payload["tools"])
 
-    def test_modified_or_truncated_history_rejected_before_receipts_consumed(self):
+    def test_changed_or_pruned_history_rebuilds_but_new_human_cannot_borrow_context(self):
         tools = legacy_gateway.GatewayTests.bound_tools()
         call = legacy_gateway.GatewayTests.native_call("synthetic-call", "echo synthetic")
         first = self.prepare(tools=tools)
@@ -139,15 +139,18 @@ class CacheLayoutTests(unittest.TestCase):
         self.app.finish_turn(first, keep_for_tools=True, tool_call_ids=[call.tool_call_id], tool_call_bindings=bindings)
         tail = [{"role": "assistant", "content": None, "tool_calls": [legacy_gateway.GatewayTests.wire_call(call)]},
                 {"role": "tool", "tool_call_id": call.tool_call_id, "content": '{"exitCode":0}'}]
-        for bad in [self.messages[1:], [{**self.messages[0], "content": "changed"}, *self.messages[1:]],
-                    [*self.messages, {"role": "user", "content": "new human hidden before tools"}]]:
-            with self.subTest(kind=len(bad)), self.assertRaises(GatewayError) as caught:
-                self.prepare([*bad, *tail], tools=tools)
-            self.assertEqual("tool_continuation_context_history_mismatch", caught.exception.code)
-            self.assertEqual({call.tool_call_id}, first.session.expected_tool_call_ids)
-            self.assertEqual([], first.session.host_receipts)
-        recovered = self.prepare([*self.messages, *tail], tools=tools)
-        self.assertTrue(recovered.continuation)
+        # New human input cannot be smuggled into the active continuation.
+        with self.assertRaisesRegex(GatewayError, "tool_continuation_context_lost"):
+            self.prepare([*self.messages, {"role":"user","content":"new human"}, *tail], tools=tools)
+        self.assertEqual({call.tool_call_id}, first.session.expected_tool_call_ids)
+        for changed in [self.messages[1:], [{**self.messages[0], "content": "changed"}, *self.messages[1:]]]:
+            prior = self.app._current_session
+            recovered = self.prepare([*changed, *tail], tools=tools)
+            self.assertTrue(recovered.continuation)
+            self.assertIsNot(prior, recovered.session)
+            self.assertEqual([], recovered.session.host_receipts)
+            context = [body for path,body in self.control.calls if path == "/v1/host/context/prepare"][-1]
+            self.assertEqual([], context["source_frame"]["capture_items"])
 
     def test_wrong_boundaries_bindings_frames_or_old_hash_rejected(self):
         cases = [
@@ -213,7 +216,7 @@ class CacheLayoutTests(unittest.TestCase):
         third = self.prepare([*messages, {"role": "assistant", "content": "done"}, {"role": "user", "content": "new"}])
         self.assertIsNone(third.session.context_bundle)
 
-    def test_volatile_frontend_system_change_does_not_relax_anchor_or_consume_tools(self):
+    def test_volatile_frontend_system_change_rebuilds_anchor_without_attestation(self):
         self.messages[0]["content"] = "Synthetic phone battery: 60%"
         first = self.prepare()
         self.app.finish_turn(first, keep_for_tools=True, tool_call_ids=["synthetic-volatile-call"])
@@ -223,11 +226,11 @@ class CacheLayoutTests(unittest.TestCase):
             {"role": "assistant", "content": None, "tool_calls": [{"id": "synthetic-volatile-call", "type": "function",
              "function": {"name": "synthetic_tool", "arguments": "{}"}}]},
             {"role": "tool", "tool_call_id": "synthetic-volatile-call", "content": "synthetic"}])
-        with self.assertRaises(GatewayError) as caught:
-            self.prepare(changed)
-        self.assertEqual("tool_continuation_context_history_mismatch", caught.exception.code)
-        self.assertEqual({"synthetic-volatile-call"}, first.session.expected_tool_call_ids)
-        self.assertIsNotNone(first.session.context_bundle)
+        resumed = self.prepare(changed)
+        self.assertTrue(resumed.continuation)
+        self.assertIsNot(first.session, resumed.session)
+        self.assertIsNotNone(resumed.session.context_bundle)
+        self.assertEqual([], resumed.session.host_receipts)
 
     def test_fresh_negotiation_failure_closes_only_its_wake_and_preserves_original_error(self):
         for stage in ("prepare", "hash", "confirm"):

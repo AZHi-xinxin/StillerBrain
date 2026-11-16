@@ -6,9 +6,9 @@ real ST wake for a new user turn and confirms either the legacy exact message
 or the versioned ordered context bundle. Exact authored role/content frames
 are injected only at their authenticated positions before provider forwarding.
 
-Tool-call continuations deliberately reuse the same wake.  Therefore an AI
-cannot turn an MCP tool result into a fake cross-wake boundary for activating a
-self-model candidate.
+Tool steps reuse a live memory wake when possible. A recovered tool step may
+prepare a fresh context, explicitly tagged tool_continuation; it neither captures
+a new human message nor grants a real-wake boundary for self-model activation.
 """
 
 from __future__ import annotations
@@ -45,7 +45,8 @@ from .reasoning_control import apply_upstream_reasoning_control
 from .responses_adapter import ResponsesAdapter, ResponsesTurnState
 from .protocol_diagnostics import normalize_protocol_diagnostic, protocol_error_detail
 from .cache_layout import (USER_DATA_CONTEXT_LAYOUT_CONTRACT, USER_DATA_RULE,
-                           apply_user_data_layout, append_host_data, project_historical_host_data)
+                           apply_user_data_layout, append_host_data,
+                           project_historical_host_data)
 from .management import RouteStore, ManagementError, handle_management_request, managed_stream
 from .short_term import Scope, ShortTermMemory
 from .short_term_wire import client_source, source_message, handover_message, FinalBodyCollector
@@ -55,11 +56,13 @@ from .tool_execution import (
     HOST_RECEIPT_CONTRACT,
     HostExecutionBoundary,
     NativeToolCall,
+    NativeTransportPolicy,
     ToolExecutionBinding,
     ToolExecutionBoundaryError,
     ToolExecutionPolicyAdapter,
     advertised_schemas,
     without_host_only_image_transport,
+    is_host_only_image_transport,
     canonical_hash,
     normalize_validation_diagnostic,
     parse_arguments,
@@ -103,7 +106,7 @@ _FAILURE_LOGGER = logging.getLogger("stiller.rikkahub.gateway")
 _PERFORMANCE_LOGGER = logging.getLogger("stiller.rikkahub.performance")
 _STREAM_FAILURE_MESSAGES = {
     "upstream_incomplete_stream": "上游连接在回复完成前结束，本轮未完成。请重试。",
-    "upstream_stream_limit_reached": "本轮流式传输已达到 64 MiB 上限或配置的更低上限。请缩小本轮任务后重试。",
+    "upstream_stream_limit_reached": "本轮流式传输已达到部署者设置的传输上限。请调整 ST 部署配置后重试。",
     "upstream_buffer_limit_reached": "本轮某个待检查片段超过了缓冲上限。请缩小本轮内容后重试。",
     "upstream_tool_buffer_limit_reached": "本批工具流超过了独立缓冲上限。本批工具未执行，已显示内容不代表工具成功。请缩小单次工具内容后重试。",
 }
@@ -457,6 +460,7 @@ class _RequestPerformance:
         """Accept only fixed public model labels, never arbitrary config text."""
         allowed = {
             "deepseek-v4-flash-vision-exp", "deepseek-v4-flash", "deepseek-v4-pro",
+            "gpt-6-astra", "gpt-5.6-sol",
         }
         self.observed_model = value if type(value) is str and value in allowed else None
 
@@ -491,6 +495,12 @@ class _RequestPerformance:
             "prompt_cache_miss_tokens",
         ):
             value = usage.get(key)
+            present = key in usage
+            if key == "prompt_cache_hit_tokens" and not present:
+                details = usage.get("prompt_tokens_details")
+                if isinstance(details, Mapping) and "cached_tokens" in details:
+                    value = details["cached_tokens"]
+                    present = True
             if (
                 isinstance(value, int)
                 and not isinstance(value, bool)
@@ -498,7 +508,7 @@ class _RequestPerformance:
             ):
                 setattr(self, key, value)
                 self.usage_snapshot[key] = value
-            elif key in usage:
+            elif present:
                 self.usage_snapshot_invalid_fields.append(key)
 
     def mark_failed(self) -> None:
@@ -658,7 +668,7 @@ def _wake_expiry(value: Any) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def _advertised_tool_catalog(payload: Mapping[str, Any]) -> dict[str, Any]:
+def _advertised_tool_catalog(payload: Mapping[str, Any], *, upstream_limits_only: bool = True) -> dict[str, Any]:
     """Derive the host-authenticated tool catalog from the forwarded request.
 
     Only names and hashes cross into the ST control plane. The original full
@@ -695,7 +705,7 @@ def _advertised_tool_catalog(payload: Mapping[str, Any]) -> dict[str, Any]:
         else:
             definitions.extend(functions)
 
-    if len(definitions) > MAX_ADVERTISED_TOOLS:
+    if not upstream_limits_only and len(definitions) > MAX_ADVERTISED_TOOLS:
         # Do not publish a truncated list that could make an omitted tool look
         # definitively unavailable.  An empty incomplete catalog means unknown.
         definitions = []
@@ -868,6 +878,10 @@ class GatewayError(RuntimeError):
     def __init__(self, status: int, code: str, detail: str = "", *,
                  validation_diagnostic: Mapping[str, Any] | None = None,
                  protocol_diagnostic: Mapping[str, Any] | None = None) -> None:
+        if code == "tool_continuation_context_lost" and not detail:
+            detail = ("[ST 网关 · tool_continuation_context_lost] 工具续轮上下文已结束。"
+                      "发一条新消息即可继续聊天，不必重装或清数据。"
+                      "请保留已收到的工具结果，不要重复执行已有成功回执的工具。")
         super().__init__(detail or code)
         self.status = status
         self.code = code
@@ -930,6 +944,8 @@ class GatewayConfig:
     host_contract_digest: str = "rikkahub-openai-gateway/2"
     bind_host: str = "127.0.0.1"
     bind_port: int = 8796
+    # Upstream owns model content limits. Optional operator caps remain available.
+    upstream_limits_only: bool = True
     timeout_seconds: float = 120.0
     max_body_bytes: int = DEFAULT_MAX_BODY_BYTES
     max_stream_bytes: int = DEFAULT_MAX_STREAM_BYTES
@@ -958,6 +974,8 @@ class GatewayConfig:
                        for name in self.claude_cache_routes)
                 or len(set(self.claude_cache_routes)) != len(self.claude_cache_routes)):
             raise ValueError("invalid_claude_cache_routes")
+        if type(self.upstream_limits_only) is not bool:
+            raise ValueError("upstream_limits_only must be boolean")
         if type(self.management_enabled) is not bool:
             raise ValueError("invalid_gateway_management")
         if self.management_enabled and (not self.management_state_dir or len(self.management_token) < 32):
@@ -996,16 +1014,12 @@ class GatewayConfig:
         if self.max_body_bytes < 1024:
             raise ValueError("max_body_bytes is too small")
         if (type(self.max_tool_tail_bytes) is not int
-                or not 1024 <= self.max_tool_tail_bytes <= MAX_TOOL_TAIL_BYTES):
-            raise ValueError("max_tool_tail_bytes must be an integer between 1 KiB and 32 MiB")
-        if not 1024 <= self.max_stream_bytes <= DEFAULT_MAX_STREAM_BYTES:
-            raise ValueError("max_stream_bytes must be between 1 KiB and 64 MiB")
+                or not 1024 <= self.max_tool_tail_bytes):
+            raise ValueError("max_tool_tail_bytes must be an integer of at least 1 KiB")
+        if type(self.max_stream_bytes) is not int or self.max_stream_bytes < 1024:
+            raise ValueError("max_stream_bytes must be an integer of at least 1 KiB")
         if self.max_request_body_bytes < 1024:
             raise ValueError("max_request_body_bytes is too small")
-        if self.max_request_body_bytes > MAX_REQUEST_BODY_BYTES:
-            raise ValueError(
-                "max_request_body_bytes exceeds the reviewed 48 MiB boundary"
-            )
         if not 1024 <= self.max_direct_grant_body_bytes <= MAX_DIRECT_GRANT_BODY_BYTES:
             raise ValueError(
                 "max_direct_grant_body_bytes must be between 1 KiB and 64 KiB"
@@ -1065,6 +1079,7 @@ class GatewayConfig:
             ),
             bind_host=os.environ.get("STBRAIN_GATEWAY_HOST", "127.0.0.1"),
             bind_port=int(os.environ.get("STBRAIN_GATEWAY_PORT", "8796")),
+            upstream_limits_only=os.environ.get("STBRAIN_GATEWAY_UPSTREAM_LIMITS_ONLY", "1") == "1",
             timeout_seconds=float(
                 os.environ.get("STBRAIN_GATEWAY_TIMEOUT_SECONDS", "120")
             ),
@@ -1141,6 +1156,9 @@ class ControlClient:
             )
         except httpx.RequestError as exc:
             raise GatewayError(502, "st_control_unavailable") from exc
+        if response.status_code == 413:
+            raise GatewayError(502, "st_control_payload_too_large",
+                "ST 内部请求超过容量限制，请更新 ST；无需删除聊天或附件。")
         if response.status_code != 200:
             raise GatewayError(502, "st_control_rejected")
         try:
@@ -1165,7 +1183,6 @@ class TurnSession:
     expires_at: datetime
     tool_catalog_sync_pending: bool = False
     route: GatewayRoute | None = field(default=None, repr=False)
-    # Host configuration is frozen for this turn, including tool continuations.
     claude_cache_compat: bool = field(default=False, repr=False)
     execution_profile: str = DEFAULT_PROFILE
     input_origin: str = "human_message"
@@ -1177,6 +1194,8 @@ class TurnSession:
     expected_tool_call_order: list[str] = field(default_factory=list)
     expected_tool_calls: dict[str, ToolExecutionBinding] = field(default_factory=dict)
     host_receipts: list[dict[str, Any]] = field(default_factory=list, repr=False)
+    host_only_tool_names: set[str] = field(default_factory=set, repr=False)
+    latest_user_digest: str | None = field(default=None, repr=False)
     settled_tool_call_order: list[str] = field(default_factory=list, repr=False)
     seen_tool_call_ids: set[str] = field(default_factory=set, repr=False)
     protected_values: set[str] = field(default_factory=set, repr=False)
@@ -1230,6 +1249,22 @@ class PreparedTurn:
         if self.session.route is None:
             raise GatewayError(409, "tool_continuation_route_missing")
         return self.session.route
+
+
+@dataclass
+class ContinuationRetry:
+    # One bounded, process-local checkpoint. Never serialize prompts or tool
+    # results to logs. The completed tool receipts remain on the original wake.
+    key: str
+    prepared: PreparedTurn
+    expires: float
+    ready: bool = False
+    completed: bool = False
+    captured: bool = False
+    detached: bool = False
+    response: Any = field(default=None, repr=False)
+    collector: Any = field(default=None, repr=False)
+    timer: Any = field(default=None, repr=False)
 
 
 class GatewayApplication:
@@ -1290,6 +1325,7 @@ class GatewayApplication:
         # the gateway transport state equally singular and bind continuations
         # to upstream-issued tool_call IDs, never to a guessed chat identity.
         self._current_session: TurnSession | None = None
+        self._continuation_retry: ContinuationRetry | None = None
         # One content-free comparison anchor in process memory, never persisted
         # or logged. Raw digests/identifiers never cross into telemetry; only
         # same-thread changed/unchanged facts do. No history text is retained.
@@ -1299,12 +1335,66 @@ class GatewayApplication:
         self._retired_tool_call_ids: set[str] = set()
         self._retired_tool_call_order: list[str] = []
         self._client_stop_receipts: dict[str, float] = {}
+        self._cancelled_tool_calls: dict[str, None] = {}
         self._lock = threading.RLock()
         self.short_term = ShortTermMemory()
         self._short_term_frames: dict[str, tuple[float, float, Any]] = {}
         self._short_term_stop = threading.Event()
         # Fixed, content-free counters only; no prompts, IDs, keys or bodies.
         self._short_term_diagnostics: Counter[str] = Counter()
+
+    def _clear_continuation_retry(self):
+        retry = self._continuation_retry
+        self._continuation_retry = None
+        if retry is not None and retry.timer is not None:
+            retry.timer.cancel()
+        if retry is not None and retry.detached and not retry.completed:
+            # A failed host invocation released the transport lane but kept this
+            # exact completed-tool context for retry. Expiry/new work closes it.
+            try:
+                self._close_execution_session(retry.prepared.session)
+            except GatewayError:
+                self._close_session(retry.prepared.session)
+
+    def _expire_continuation_retry(self, retry):
+        with self._lock:
+            if self._continuation_retry is retry and retry.ready and time.monotonic() >= retry.expires:
+                self._clear_continuation_retry()
+                if not retry.completed:
+                    self.finish_turn(retry.prepared, keep_for_tools=False)
+
+    def park_continuation_retry(self, prepared):
+        with self._lock:
+            retry = self._continuation_retry
+            if (retry is None or retry.prepared is not prepared
+                    or time.monotonic() >= retry.expires
+                    or prepared.issued_tool_calls
+                    or prepared.session.expected_tool_call_ids
+                    or prepared.session.client_stop_binding is not None
+                    or (not retry.completed and not self._request_is_current(prepared))):
+                return False
+            retry.ready = True
+            if retry.timer is not None:
+                retry.timer.cancel()
+            retry.timer = threading.Timer(max(0.01, retry.expires - time.monotonic()),
+                                          self._expire_continuation_retry, (retry,))
+            retry.timer.daemon = True
+            retry.timer.start()
+            return True
+
+    def cache_continuation_response(self, prepared, response, collector):
+        if collector.result() is None:
+            return
+        with self._lock:
+            retry = self._continuation_retry
+            if retry is not None and retry.prepared is prepared and self._request_is_current(prepared):
+                retry.response = response
+                retry.collector = collector
+
+    def replayable_continuation(self, prepared):
+        with self._lock:
+            retry = self._continuation_retry
+            return retry if retry is not None and retry.prepared is prepared and retry.response is not None else None
 
     def _atlas_protected_values(self):
         # RouteStore is authoritative even between a management commit and its
@@ -1360,6 +1450,7 @@ class GatewayApplication:
         self._short_term_stop.set()
         with self._lock:
             self._short_term_frames.clear()
+            self._clear_continuation_retry()
         self.short_term.close()
         if self.route_store is not None:
             self.route_store.close()
@@ -1416,6 +1507,8 @@ class GatewayApplication:
 
     def decorate_execution_calls(self, prepared: PreparedTurn, calls: Sequence[NativeToolCall]) -> list[NativeToolCall]:
         """Add only a reserved host reference; business arguments remain byte-identical."""
+        if any(call.tool_name in prepared.session.host_only_tool_names for call in calls):
+            raise GatewayError(502, "tool_not_advertised")
         if not self.config.require_execution_binding:
             with self._lock:
                 if not self._request_is_current(prepared):
@@ -1426,10 +1519,13 @@ class GatewayApplication:
         for call in calls:
             schema = schemas.get(call.tool_name)
             if schema is None:
-                raise GatewayError(
-                    502, "tool_not_advertised",
-                    _tool_not_advertised_message(tuple(prepared.session.protected_values)),
-                )
+                if prepared.session.execution_profile != DEFAULT_PROFILE:
+                    raise GatewayError(403, "execution_profile_tool_denied")
+                if type(self.execution_boundary.policy) is not NativeTransportPolicy:
+                    raise GatewayError(502, "tool_not_advertised", _tool_not_advertised_message(tuple(prepared.session.protected_values)))
+                # Let the client's tool dispatcher return "tool not provided".
+                # An absent schema gets no ST execution authority.
+                continue
             if (prepared.session.execution_profile != DEFAULT_PROFILE
                     and call.tool_name == REFERENCE_TOOL):
                 if not reference_read_allowed(call.tool_name, schema, parse_arguments(call.arguments_text)):
@@ -1445,7 +1541,12 @@ class GatewayApplication:
                 if call.tool_name in EXECUTION_TOOLS:
                     raise GatewayError(502, "execution_binding_required")
                 continue
-            arguments = parse_arguments(call.arguments_text)
+            try:
+                arguments = parse_arguments(call.arguments_text)
+            except ToolExecutionBoundaryError:
+                if prepared.session.execution_profile != DEFAULT_PROFILE:
+                    raise GatewayError(403, "execution_profile_tool_denied") from None
+                continue  # Executor/client returns the argument error, with no lease.
             if "execution_ref" in arguments:
                 raise GatewayError(502, "execution_reference_model_supplied")
             if canonical_tool == MANAGE_TOOL:
@@ -1533,6 +1634,12 @@ class GatewayApplication:
                           binding: Mapping[str, Any]) -> str:
         return _digest([model, thread, request_id, dict(binding)])
 
+    def _cancel_chat_step(self, session: TurnSession) -> None:
+        for call_id in session.seen_tool_call_ids | session.expected_tool_call_ids:
+            self._cancelled_tool_calls[call_id] = None
+        while len(self._cancelled_tool_calls) > MAX_RETIRED_TOOL_CALL_IDS:
+            self._cancelled_tool_calls.pop(next(iter(self._cancelled_tool_calls)))
+
     def _record_client_stop(self, session: TurnSession) -> None:
         """Record only a confirmed retirement, before changing its generation."""
         if session.client_stop_binding is None or session.route is None:
@@ -1540,6 +1647,9 @@ class GatewayApplication:
         key = self._turn_control_key(session.route.public_model, session.thread_id,
                                      session.client_request_id, session.client_stop_binding)
         self._client_stop_receipts[key] = time.monotonic() + 600.0
+        # Only explicit stop/supersession cancels a chat step. Expiry and lost
+        # memory context must remain recoverable from the client's history.
+        self._cancel_chat_step(session)
         while len(self._client_stop_receipts) > 128:
             self._client_stop_receipts.pop(next(iter(self._client_stop_receipts)))
 
@@ -1610,10 +1720,12 @@ class GatewayApplication:
                               and session.tool_wait_armed_at is not None
                               and bool(session.expected_tool_call_ids))
             turn_state = ("cleanup_pending" if session.recovery_pending else
-                          "waiting_tool_results" if delivered_wait else "generating")
+                          "waiting_tool_results" if delivered_wait or (self._continuation_retry is not None and
+                              self._continuation_retry.ready and self._continuation_retry.prepared.session is session) else "generating")
             return {**result, "state": "owned_busy", "request_id": session.client_request_id,
                     "binding": self._turn_control_binding(session), "turn_state": turn_state,
-                    "can_stop": delivered_wait}
+                    "can_stop": delivered_wait or (self._continuation_retry is not None and
+                        self._continuation_retry.ready and self._continuation_retry.prepared.session is session)}
         finally:
             self._lock.release()
 
@@ -1694,14 +1806,29 @@ class GatewayApplication:
                               and session.tool_wait_armed_at is not None
                               and bool(session.expected_tool_call_ids))
             state = ("cleanup_pending" if session.recovery_pending else
-                     "waiting_tool_results" if delivered_wait else "generating")
+                     "waiting_tool_results" if delivered_wait or (self._continuation_retry is not None and
+                              self._continuation_retry.ready and self._continuation_retry.prepared.session is session) else "generating")
             if not mutating:
                 return {**result, "state": state, "binding": current_binding,
-                        "can_stop": delivered_wait}
+                        "can_stop": delivered_wait or (self._continuation_retry is not None and
+                        self._continuation_retry.ready and self._continuation_retry.prepared.session is session)}
             if binding != current_binding:
                 raise GatewayError(409, "turn_control_binding_mismatch")
-            if not delivered_wait:
+            retry = self._continuation_retry
+            retry_wait = retry is not None and retry.ready and retry.prepared.session is session
+            if not delivered_wait and not retry_wait:
                 raise GatewayError(409, "turn_control_not_delivered")
+            if retry_wait and finish and payload["terminal_reason"] == "failed":
+                # Host workers have unwound, and all tool receipts were checked.
+                # Retire this transport generation, retaining only its retryable
+                # model step. Cancellation/explicit stop still discard it.
+                self._record_client_stop(session)
+                session.request_generation += 1
+                self._current_session = None
+                retry.detached = True
+                return {**result, "state": "retired"}
+            if retry_wait:
+                self._clear_continuation_retry()
             session.client_stop_binding = dict(binding)
             if finish:
                 session.client_terminal_reason = payload["terminal_reason"]
@@ -1898,7 +2025,7 @@ class GatewayApplication:
         session.tool_wait_armed_at = None
         self._current_session = None
 
-    def _supersede_for_human(self, session: TurnSession) -> None:
+    def _supersede_for_human(self, session: TurnSession, *, cancel_step: bool = True) -> None:
         """Detach the old transport immediately; Control fences execution authority.
 
         Human input is not a receipt for old tools. Missing results, changed
@@ -1906,8 +2033,10 @@ class GatewayApplication:
         """
         self._remember_retired_tool_calls(tuple(session.expected_tool_call_ids))
         self._cancel_recovery_timer(session)
-        if session.client_request_id and session.client_stop_binding is None:
-            session.client_stop_binding = self._turn_control_binding(session)
+        if cancel_step:
+            self._cancel_chat_step(session)
+            if session.client_request_id and session.client_stop_binding is None:
+                session.client_stop_binding = self._turn_control_binding(session)
         session.request_generation += 1
         self._short_term_frames.pop(session.wake_id, None)
         self._current_session = None
@@ -2263,11 +2392,11 @@ class GatewayApplication:
                 if not 200 <= response.status_code < 300:
                     raise GatewayError(502, "auxiliary_upstream_error")
                 raw = bytearray()
-                deadline = time.monotonic() + self.config.timeout_seconds
+                deadline = float("inf") if self.config.upstream_limits_only else time.monotonic() + self.config.timeout_seconds
                 for chunk in response.iter_bytes():
                     if time.monotonic() > deadline:
                         raise GatewayError(504, "auxiliary_upstream_timeout")
-                    if len(raw) + len(chunk) > self.config.max_body_bytes:
+                    if not self.config.upstream_limits_only and len(raw) + len(chunk) > self.config.max_body_bytes:
                         raise GatewayError(502, "auxiliary_response_too_large")
                     raw.extend(chunk)
             protected = tuple(self._server_secrets)
@@ -2957,7 +3086,7 @@ class GatewayApplication:
         bundle = session.context_bundle
         if bundle["contract"] == USER_DATA_CONTEXT_LAYOUT_CONTRACT:
             projected = apply_user_data_layout(messages, bundle["stable_message"], bundle["dynamic_message"])
-            if session.route.upstream_model == "deepseek-v4-pro" or session.claude_cache_compat:
+            if (session.route.upstream_model == "deepseek-v4-pro" or session.claude_cache_compat):
                 projected = project_historical_host_data(projected)
             return projected
         boundary = (len(messages) if bundle["contract"] == TAIL_CONTEXT_LAYOUT_CONTRACT
@@ -3108,6 +3237,13 @@ class GatewayApplication:
         input_origin = _input_origin(headers)
         if input_origin != "human_message" and profile != DEFAULT_PROFILE:
             raise GatewayError(400, "input_origin_profile_conflict")
+        host_only_tool_names = {
+            function["name"]
+            for group in (payload.get("tools"), payload.get("functions")) if isinstance(group, list)
+            for definition in group if isinstance(definition, Mapping)
+            for function in [definition.get("function", definition)]
+            if is_host_only_image_transport(function)
+        }
         payload = self._profile_payload(without_host_only_image_transport(payload), profile)
         normalized_headers = _normalize_headers(headers)
         client_request_id = normalized_headers.get("x-st-request-id", "")
@@ -3125,7 +3261,7 @@ class GatewayApplication:
         # Anchor the actual client history, before continuation normalization.
         # A later human turn must carry this exact prefix to abandon its wait.
         history_anchor_count = len(messages)
-        advertised_tools = _advertised_tool_catalog(payload)
+        advertised_tools = _advertised_tool_catalog(payload, upstream_limits_only=self.config.upstream_limits_only)
         continuation = self._is_tool_continuation(messages)
         if continuation:
             # The stop/abandon anchor binds the raw history, not the normalized
@@ -3136,169 +3272,92 @@ class GatewayApplication:
         if not continuation:
             history_anchor_digest = digests.history
         source_digest = digests.source
+        latest_user_digest = next((_digest(m) for m in reversed(messages) if m.get("role") == "user"), None)
 
+        retry_key = _digest({"payload": {k:v for k,v in payload.items() if k != "messages"},
+                             "history": history_anchor_digest, "profile": profile, "origin": input_origin,
+                             "thread": normalized_headers.get("x-st-thread-id") or normalized_headers.get("x-session-id"),
+                             "source": repr(client_source(normalized_headers)) if self.config.short_term_enabled else None,
+                             "event": normalized_headers.get("x-request-id") if input_origin != "human_message" else None})
+        if continuation:
+            supplied_thread = normalized_headers.get("x-st-thread-id") or normalized_headers.get("x-session-id")
+            if supplied_thread:
+                self._wait_for_disconnected_stream(selected_route.public_model, supplied_thread)
         with self._lock:
             if continuation:
-                current = self._current_session
-                if current is None:
-                    raise GatewayError(
-                        409,
-                        "tool_continuation_context_lost",
-                        "工具续轮的 ST 上下文已丢失，请从新的用户消息重新开始。",
-                    )
+                protected = tuple(self._current_session.protected_values) if self._current_session else tuple(self._server_secrets)
+                tail_ids = self._continuation_tool_call_ids(messages, protected_values=protected)
+                if not tail_ids:
+                    raise _lineage_error("tool_continuation_lineage_missing", "declaration_missing", protected_values=protected)
+                if tail_ids <= self._cancelled_tool_calls.keys():
+                    raise GatewayError(409, "tool_continuation_context_lost")
+            retry = self._continuation_retry
+            if retry is not None and retry.ready and time.monotonic() >= retry.expires:
+                self._expire_continuation_retry(retry)
+                retry = None
+            if (continuation and retry is not None and retry.ready and retry.key == retry_key
+                    and (self._current_session is None or self._current_session is retry.prepared.session)
+                    and retry.prepared.session.client_stop_binding is None
+                    and (retry.completed or retry.prepared.session.expires_at > datetime.now(timezone.utc))):
+                previous = retry.prepared
+                session = previous.session
+                if session.route != selected_route and not (session.route.managed and selected_route.managed
+                        and session.route.public_model == selected_route.public_model):
+                    raise GatewayError(409, "tool_continuation_model_mismatch")
+                if retry.timer is not None:
+                    retry.timer.cancel()
+                session.request_generation += 1
+                session.client_request_id = client_request_id
+                retry.ready = False
+                retry.detached = False
+                if not retry.completed:
+                    self._current_session = session
+                retry.prepared = PreparedTurn(previous.thread_id, previous.payload, session, True,
+                    request_generation=session.request_generation, cache_comparison=previous.cache_comparison)
+                return retry.prepared
+            # A continuation is client-owned chat history, not a one-use server
+            # receipt. Keep a usable memory context, otherwise prepare a new one.
+            # Only results verified against issued bindings become host receipts.
+            current = self._current_session
+            if (continuation and current is None and retry is not None and retry.ready
+                    and not retry.completed and retry.prepared.session.client_stop_binding is None):
+                current = retry.prepared.session
+                self._current_session = current
+                retry.detached = False
+            reuse_context = continuation and current is not None
+            if reuse_context:
+                if (current.latest_user_digest is not None and latest_user_digest is not None
+                        and current.latest_user_digest != latest_user_digest):
+                    raise GatewayError(409, "tool_continuation_context_lost")
                 if current.client_stop_binding is not None:
                     raise GatewayError(409, "turn_control_stop_pending")
-                if current.execution_profile != profile:
+                if current.execution_profile != profile or current.input_origin != input_origin:
                     raise GatewayError(409, "tool_continuation_profile_mismatch")
-                if current.input_origin != input_origin:
-                    raise GatewayError(409, "tool_continuation_origin_mismatch")
                 if (input_origin != "human_message" and
                         current.input_event_id != normalized_headers.get("x-request-id")):
                     raise GatewayError(409, "tool_continuation_origin_mismatch")
-                if (current.route is not None and current.route.managed and selected_route.managed
-                        and current.route.public_model == selected_route.public_model):
-                    # A later management edit cannot redirect an existing tool chain.
-                    # All subsequent lineage/tool validations still apply unchanged.
-                    selected_route = current.route
-                if current.route != selected_route:
-                    raise GatewayError(409, "tool_continuation_model_mismatch",
-                                       "本轮工具链尚未结束，不能中途切换模型。请使用原模型完成本轮。")
-                if current.recovery_pending:
-                    raise GatewayError(409, "tool_wait_recovery_in_progress")
-                if self._expired_armed_tool_wait(current):
-                    self._retire_expired_tool_wait(current)
-                    raise GatewayError(409, "tool_continuation_context_lost")
                 supplied_thread = normalized_headers.get("x-st-thread-id") or normalized_headers.get("x-session-id")
                 if supplied_thread and supplied_thread != current.thread_id:
                     raise GatewayError(409, "tool_continuation_thread_mismatch")
                 if self.config.short_term_enabled and client_source(normalized_headers) != current.short_term_source:
                     raise GatewayError(409, "tool_continuation_thread_mismatch")
-                # Check before consuming any signed tool batch or receipt. A
-                # rejected history must remain retryable with the real branch.
-                self._validate_context_history(current, messages, digests)
-                if current.expected_tool_calls:
-                    all_declared_calls, tool_messages = self._bound_continuation_tool_call_batch(
-                        messages, protected_values=tuple(current.protected_values)
-                    )
-                    continuation_call_ids = {call.tool_call_id for call in all_declared_calls}
-                else:
-                    continuation_call_ids = self._continuation_tool_call_ids(
-                        messages, protected_values=tuple(current.protected_values)
-                    )
-                if continuation_call_ids & self._retired_tool_call_ids:
-                    raise GatewayError(409, "tool_continuation_context_lost")
-                if not advertised_tools["catalog_complete"]:
-                    raise GatewayError(
-                        409,
-                        "tool_continuation_catalog_incomplete",
-                        "工具续轮目录无法完整验证，请从新的用户消息重新开始。",
-                    )
-                if current.expected_tool_calls:
-                    expected_order = list(current.expected_tool_call_order)
-                    if not expected_order:
-                        expected_order = list(current.expected_tool_calls)
-                    current_count = len(expected_order)
-                    if (
-                        current_count == 0
-                        or len(all_declared_calls) < current_count
-                        or [
-                            call.tool_call_id
-                            for call in all_declared_calls[-current_count:]
-                        ]
-                        != expected_order
-                    ):
-                        self._mark_verified_partial(current, all_declared_calls, tool_messages, payload)
-                        raise _lineage_error(
-                            "tool_continuation_lineage_mismatch", "current_batch_order_mismatch",
-                            protected_values=tuple(current.protected_values),
-                            declared_count=len(all_declared_calls),
-                            expected_count=current_count,
-                            terminal_declared_count=next(
-                                len(message["tool_calls"]) for message in reversed(messages)
-                                if message.get("role") == "assistant"
-                                and isinstance(message.get("tool_calls"), list)
-                                and message["tool_calls"]
-                            ),
-                            segment_declared_count=len(all_declared_calls),
-                            segment_result_count=len(tool_messages),
-                            mismatch_kind=(
-                                "batch_incomplete" if len(all_declared_calls) < current_count
-                                else "ids_changed" if {
-                                    call.tool_call_id for call in all_declared_calls[-current_count:]
-                                } != set(expected_order) else "order_changed"
-                            ),
-                        )
-                    settled_calls = all_declared_calls[:-current_count]
-                    declared_calls = all_declared_calls[-current_count:]
-                    settled_ids = [call.tool_call_id for call in settled_calls]
-                    if settled_ids and settled_ids != current.settled_tool_call_order[
-                        -len(settled_ids) :
-                    ]:
-                        raise _lineage_error(
-                            "tool_continuation_lineage_mismatch", "settled_prefix_order_mismatch",
-                            protected_values=tuple(current.protected_values),
-                            declared_count=len(settled_ids),
-                            expected_count=len(current.settled_tool_call_order),
-                        )
-                    call_ids = {call.tool_call_id for call in declared_calls}
-                else:
-                    settled_calls = []
-                    declared_calls = []
-                    call_ids = self._continuation_tool_call_ids(
-                        messages, protected_values=tuple(current.protected_values)
-                    )
-                    last_assistant = max(
-                        index
-                        for index, message in enumerate(messages)
-                        if message.get("role") == "assistant"
-                        and isinstance(message.get("tool_calls"), list)
-                        and message.get("tool_calls")
-                    )
-                    tool_messages = messages[last_assistant + 1 :]
-                if call_ids != current.expected_tool_call_ids:
-                    raise _lineage_error(
-                        "tool_continuation_lineage_mismatch", "expected_id_set_mismatch",
-                        protected_values=tuple(current.protected_values),
-                        declared_count=len(call_ids),
-                        expected_count=len(current.expected_tool_call_ids),
-                    )
-                # HTTP responses always arm exact bindings before bytes are
-                # released.  The empty-map branch preserves the older pure
-                # orchestration test API only; the network handler cannot reach
-                # it because ``bind_response_tool_calls`` is mandatory there.
-                if current.expected_tool_calls:
+                # A running named route keeps its credential/model snapshot.
+                # Selecting a different public model is an explicit route change.
+                if (current.route is not None and current.route.managed and selected_route.managed
+                        and current.route.public_model == selected_route.public_model):
+                    selected_route = current.route
+                reuse_context = (current.route == selected_route and not current.recovery_pending
+                    and current.expires_at > datetime.now(timezone.utc)
+                    and not self._expired_armed_tool_wait(current))
+                if reuse_context:
                     try:
-                        by_id = {
-                            str(message["tool_call_id"]): message
-                            for message in tool_messages
-                        }
-                        for call in settled_calls:
-                            self._verify_settled_tool_replay(
-                                session=current,
-                                call=call,
-                                tool_message=by_id[call.tool_call_id],
-                            )
-                        for call in declared_calls:
-                            expected = current.expected_tool_calls.get(call.tool_call_id)
-                            if expected is None:
-                                raise ToolExecutionBoundaryError(
-                                    "tool_continuation_binding_mismatch"
-                                )
-                            self.execution_boundary.verify_history_call(
-                                expected=expected,
-                                call=call,
-                            )
-                    except ToolExecutionBoundaryError as exc:
-                        raise GatewayError(
-                            409,
-                            str(exc),
-                            "工具续轮中的名称、参数或结构与本网关签发的调用不一致。",
-                        ) from exc
+                        self._validate_context_history(current, messages, digests)
+                    except GatewayError as exc:
+                        if exc.code != "tool_continuation_context_history_mismatch":
+                            raise
+                        reuse_context = False
+            if reuse_context:
                 if advertised_tools != current.advertised_tools or current.tool_catalog_sync_pending:
-                    # Refresh only the current tool view. Context/memory and the
-                    # issued call bindings keep their original identity/digests.
-                    # An acknowledgment can be lost after Control commits.
-                    # Any retry must resync, even if it returns to the old catalog.
                     current.tool_catalog_sync_pending = True
                     updated = self.control.post("/v1/host/context/tools", {
                         "wake_id": current.wake_id,
@@ -3309,46 +3368,42 @@ class GatewayApplication:
                             or updated.get("catalog_hash") != advertised_tools["catalog_hash"]):
                         raise GatewayError(502, "st_tool_catalog_update_unconfirmed")
                     current.tool_catalog_sync_pending = False
-                # Consume the batch before forwarding so concurrent replays cannot
-                # reuse the same tool result lineage.
-                if current.abnormal_wait_started is not None:
-                    self._audit_recovery(current, "disarmed", "complete_batch_received")
+                # Match by call ID, not batch order. History may contain older,
+                # cancelled or unavailable calls; those remain ordinary history.
+                if current.expected_tool_calls:
+                    declared, results = self._bound_continuation_tool_call_batch(
+                        messages, protected_values=tuple(current.protected_values))
+                else:
+                    # Legacy direct callers may provide IDs without native
+                    # function fields. There is nothing to attest in that case.
+                    self._continuation_tool_call_ids(messages)
+                    declared, results = [], [m for m in messages if m.get("role") == "tool"]
+                by_id = {str(item["tool_call_id"]): item for item in results}
+                for call in declared:
+                    expected = current.expected_tool_calls.get(call.tool_call_id)
+                    if expected is None:
+                        continue
+                    try:
+                        self.execution_boundary.verify_history_call(expected=expected, call=call)
+                        receipt = self.execution_boundary.witness_result(
+                            binding=expected, tool_message=by_id[call.tool_call_id])
+                    except (KeyError, ToolExecutionBoundaryError):
+                        # No attestation for edited/unverified history. It must
+                        # not acquire execution authority or block conversation.
+                        continue
+                    current.host_receipts.append(receipt)
+                    current.settled_tool_call_order.append(call.tool_call_id)
                 self._cancel_recovery_timer(current)
                 current.delivered_at_monotonic = None
                 current.expected_tool_call_ids.clear()
                 current.expected_tool_call_order.clear()
-                expected_bindings = dict(current.expected_tool_calls)
                 current.expected_tool_calls.clear()
                 current.tool_wait_armed_at = None
+                for message in results:
+                    current.protected_values.update(_extract_protected_tool_values(message))
+                current.advertised_tools = copy.deepcopy(advertised_tools)
                 session = current
                 thread_id = current.thread_id
-                try:
-                    by_id = {
-                        str(message["tool_call_id"]): message
-                        for message in tool_messages
-                    }
-                    if expected_bindings:
-                        for call in declared_calls:
-                            call_id = call.tool_call_id
-                            receipt = self.execution_boundary.witness_result(
-                                binding=expected_bindings[call_id],
-                                tool_message=by_id[call_id],
-                            )
-                            session.host_receipts.append(receipt)
-                            session.settled_tool_call_order.append(call_id)
-                    for message in tool_messages:
-                        session.protected_values.update(
-                            _extract_protected_tool_values(message)
-                        )
-                    session.advertised_tools = copy.deepcopy(advertised_tools)
-                except (KeyError, ToolExecutionBoundaryError, TypeError, ValueError) as exc:
-                    self._current_session = None
-                    self._close_session(current)
-                    raise GatewayError(
-                        409,
-                        "tool_result_receipt_rejected",
-                        "工具结果无法绑定为本轮宿主回执，请从新的用户消息重新开始。",
-                    ) from exc
             else:
                 # Production uses exact execution refs. A NEW human request takes
                 # ownership without waiting for the predecessor's tools/cleanup.
@@ -3356,9 +3411,10 @@ class GatewayApplication:
                 # without exact refs a late parameterless tool has no owner fence.
                 replace_incomplete = (self.config.require_execution_binding
                     and profile == DEFAULT_PROFILE and input_origin == "human_message"
-                    and next((m.get("role") for m in reversed(messages)
-                              if m.get("role") not in ("system", "developer")), None) == "user")
-                source_event_id = (normalized_headers.get("x-request-id")
+                    and (continuation or next((m.get("role") for m in reversed(messages)
+                              if m.get("role") not in ("system", "developer")), None) == "user"))
+                source_event_id = (f"gateway-continuation-{uuid.uuid4().hex}" if continuation else
+                    normalized_headers.get("x-request-id")
                     or normalized_headers.get("idempotency-key") or client_request_id
                     or f"gateway-{uuid.uuid4().hex}")
                 current = self._current_session
@@ -3366,7 +3422,11 @@ class GatewayApplication:
                 if current is not None and replace_incomplete:
                     if current.input_event_id == source_event_id:
                         raise GatewayError(409, "human_event_already_accepted")
-                    self._supersede_for_human(current)
+                    self._supersede_for_human(current, cancel_step=not continuation)
+                    current = None
+                if current is not None and continuation and not replace_incomplete:
+                    self._supersede_for_human(current, cancel_step=not continuation)
+                    self._close_session(current)
                     current = None
                 if current is not None and self._expired_armed_tool_wait(current):
                     self._retire_expired_tool_wait(current)
@@ -3388,7 +3448,7 @@ class GatewayApplication:
                     {
                         "host_id": self.config.host_id,
                         "thread_id": thread_id,
-                        "source_kind": input_origin,
+                        "source_kind": "tool_continuation" if continuation and input_origin == "human_message" else input_origin,
                         "source_event_id": str(source_event_id),
                         **({"replace_incomplete": True} if replace_incomplete else {}),
                         **({"execution_profile": profile} if profile != DEFAULT_PROFILE else {}),
@@ -3429,8 +3489,7 @@ class GatewayApplication:
                 if self.config.context_layout == "tail-context-v2":
                     context_layout = {"contract": TAIL_CONTEXT_LAYOUT_CONTRACT,
                                       "insertion_rule": "after-client-messages"}
-                    if ((selected_route.upstream_model == "deepseek-v4-pro"
-                         or self.config.uses_claude_user_data_layout(selected_route))
+                    if ((selected_route.upstream_model == "deepseek-v4-pro" or self.config.uses_claude_user_data_layout(selected_route))
                             and input_origin == "human_message"
                             and any(m.get("role") == "user" for m in messages)
                             and isinstance(wake.get("context_layout_capabilities"), list)
@@ -3454,7 +3513,9 @@ class GatewayApplication:
                             "public_model": selected_route.public_model,
                             "upstream_model": selected_route.upstream_model,
                         }
-                    if self.config.short_term_enabled:
+                    if self.config.short_term_enabled or continuation:
+                        # Rebuilding a tool step must not capture the old human
+                        # message as a new event. Only recall uses its text.
                         # L37 replaces incoming-history capture. Query text is
                         # still used for retrieval, never as short-term storage.
                         source_frame["capture_items"] = []
@@ -3491,6 +3552,7 @@ class GatewayApplication:
                         raise GatewayError(502, "st_context_not_confirmed")
                 session = TurnSession(
                     thread_id=thread_id,
+                    latest_user_digest=latest_user_digest,
                     wake_id=wake["wake_id"],
                     wake_capability=wake["wake_capability"],
                     message=exact_message,
@@ -3544,6 +3606,7 @@ class GatewayApplication:
                         self._short_term_frames.clear()
                         self._short_term_note("discard_missing_identity")
 
+            session.host_only_tool_names = host_only_tool_names
             session.request_generation += 1
             session.client_request_id = client_request_id
             session.history_anchor_count = history_anchor_count
@@ -3575,7 +3638,7 @@ class GatewayApplication:
             # Generation controls stay transparent except the exact upstream
             # OFF dialect adaptation above. Tool contracts, image input, and
             # streaming controls remain byte-for-byte-equivalent JSON values.
-            return PreparedTurn(
+            prepared_turn = PreparedTurn(
                 thread_id=thread_id,
                 payload=forwarded,
                 session=session,
@@ -3583,6 +3646,11 @@ class GatewayApplication:
                 request_generation=session.request_generation,
                 cache_comparison=self._compare_cache_segments(session, messages, payload, digests),
             )
+            self._clear_continuation_retry()
+            if (continuation and
+                    (normalized_headers.get("x-st-thread-id") or normalized_headers.get("x-session-id"))):
+                self._continuation_retry = ContinuationRetry(retry_key, prepared_turn, time.monotonic() + 300)
+            return prepared_turn
 
     @staticmethod
     def response_requires_tool_continuation(payload: Any) -> bool:
@@ -3676,6 +3744,8 @@ class GatewayApplication:
 
         if not calls:
             raise GatewayError(502, "upstream_tool_calls_missing")
+        if any(call.tool_name in prepared.session.host_only_tool_names for call in calls):
+            raise GatewayError(502, "tool_not_advertised")
         candidate_ids = {call.tool_call_id for call in calls}
         with self._lock:
             if not self._request_is_current(prepared):
@@ -3691,12 +3761,27 @@ class GatewayApplication:
             for call in calls:
                 if call.tool_call_id in bindings:
                     raise ToolExecutionBoundaryError("tool_call_id_reused")
-                bindings[call.tool_call_id] = self.execution_boundary.bind_call(
-                    wake_id=prepared.session.wake_id,
-                    catalog=prepared.session.advertised_tools,
-                    schemas=schemas,
-                    call=call,
-                )
+                try:
+                    bindings[call.tool_call_id] = self.execution_boundary.bind_call(
+                        wake_id=prepared.session.wake_id,
+                        catalog=prepared.session.advertised_tools,
+                        schemas=schemas,
+                        call=call,
+                    )
+                except ToolExecutionBoundaryError as exc:
+                    if (prepared.session.execution_profile == DEFAULT_PROFILE
+                            # A custom host authorization adapter may rely on
+                            # schema validation. Never bypass its decision/errors.
+                            and type(self.execution_boundary.policy) is NativeTransportPolicy
+                            and self._execution_tool(schemas.get(call.tool_name, {})) is None and str(exc) in {
+                        "tool_not_advertised", "tool_schema_not_available", "tool_arguments_schema_invalid",
+                        "tool_arguments_invalid_json", "tool_arguments_must_be_object",
+                        "tool_arguments_duplicate_key", "tool_arguments_non_finite_number",
+                    }):
+                        # This is an ordinary tool error for the host to return.
+                        # Do not forge a binding or abort its valid batch peers.
+                        continue
+                    raise
         except ToolExecutionBoundaryError as exc:
             code = str(exc)
             status = 409 if code.startswith("tool_execution_") else 502
@@ -3745,6 +3830,9 @@ class GatewayApplication:
             # session that happens to use the same client thread label.
             if not self._request_is_current(prepared):
                 return
+            retry = self._continuation_retry
+            if retry is not None and retry.prepared is prepared and retry.response is None:
+                self._clear_continuation_retry()
             call_ids = {
                 value.strip()
                 for value in tool_call_ids
@@ -3796,7 +3884,7 @@ class GatewayApplication:
     def upstream_stream(self, route: GatewayRoute, *, content, timeout=None, responses_state=None):
         adapter = None
         if route.api_mode == "responses":
-            adapter = ResponsesAdapter(json.loads(content), responses_state)
+            adapter = ResponsesAdapter(json.loads(content), responses_state, upstream_limits_only=self.config.upstream_limits_only)
             content = json.dumps(adapter.request(), ensure_ascii=False, separators=(",", ":")).encode()
         if route.api_mode == "responses" and route.proxy_url:
             with httpx.Client(proxy=route.proxy_url, timeout=timeout or self.config.timeout_seconds,
@@ -3938,7 +4026,7 @@ class GatewayApplication:
             ensure_ascii=False,
             separators=(",", ":"),
         ).encode("utf-8")
-        if len(encoded) > self.config.max_request_body_bytes:
+        if not self.config.upstream_limits_only and len(encoded) > self.config.max_request_body_bytes:
             raise GatewayError(413, "request_too_large")
         return encoded
 
@@ -4476,7 +4564,7 @@ class _ProtectedSSEQuarantine:
     (eight characters for real 43-character capabilities) delays delivery.
     """
 
-    def __init__(self, protected_values: Sequence[str], max_pending_bytes: int = DEFAULT_MAX_BODY_BYTES) -> None:
+    def __init__(self, protected_values: Sequence[str], max_pending_bytes: int | None = DEFAULT_MAX_BODY_BYTES) -> None:
         self._protected = tuple(value for value in protected_values if value)
         self._suffixes: dict[tuple[str | int, ...], str] = {}
         self._cross_path_suffix = ""
@@ -4525,7 +4613,7 @@ class _ProtectedSSEQuarantine:
                         raise GatewayError(502, "upstream_protected_value")
                     self._visible_suffix = self._prefix_suffix(combined)
         self._pending_bytes += len(event.raw)
-        if self._pending_bytes > self._max_pending_bytes:
+        if self._max_pending_bytes is not None and self._pending_bytes > self._max_pending_bytes:
             raise GatewayError(502, "upstream_buffer_limit_reached")
         self._pending.append(event)
         if any(
@@ -4655,6 +4743,20 @@ def _deadline_stream(app: GatewayApplication, exchange: _StreamExchange):
     an absolute wall-clock bound on slowly trickled response headers. Once a
     response exists, the timer can close it at the deadline.
     """
+    if app.config.upstream_limits_only:
+        if exchange.route is None:
+            raise GatewayError(409, "tool_continuation_route_missing")
+        with app.upstream_stream(exchange.route, content=exchange.encoded,
+                timeout=app.config.timeout_seconds,
+                responses_state=exchange.responses_state) as response:
+            if exchange.disconnect_watch is not None:
+                exchange.disconnect_watch.attach_response(response)
+            try:
+                yield response, threading.Event()
+            finally:
+                if exchange.disconnect_watch is not None:
+                    exchange.disconnect_watch.detach_response(response)
+        return
     remaining = exchange.deadline - time.monotonic()
     if remaining <= 0:
         raise GatewayError(502, "upstream_unavailable")
@@ -4942,7 +5044,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             if max_body_bytes is None
             else max_body_bytes
         )
-        if length > body_limit:
+        if (max_body_bytes is not None or not self.app.config.upstream_limits_only) and length > body_limit:
             # The rejected body is intentionally not consumed.  Close the
             # persistent connection after the error so unread bytes cannot be
             # interpreted as a second HTTP request.
@@ -5231,7 +5333,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             completed = not performance.failed
         except GatewayError as exc:
             performance.mark_failed()
-            if prepared is not None:
+            if prepared is not None and not (exc.code == "upstream_unavailable" and self.app.park_continuation_retry(prepared)):
                 self.app.finish_turn(prepared, keep_for_tools=False)
             _log_gateway_failure(
                 exc.code,
@@ -5258,7 +5360,40 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             performance.emit()
             del self._request_performance
 
+    def _replay_continuation_response(self, prepared):
+        retry = self.app.replayable_continuation(prepared)
+        if retry is None:
+            return False
+        try:
+            with self._client_write_boundary(prepared):
+                kind, response = retry.response
+                if kind == "json":
+                    self._json(200, response, prepared=prepared)
+                else:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                    self.send_header("Cache-Control", "no-cache, no-store")
+                    self.send_header("Connection", "close")
+                    self._send_turn_control_headers(prepared)
+                    self.end_headers()
+                    self.close_connection = True
+                    self.wfile.write(response)
+                    self.wfile.flush()
+                if not retry.completed:
+                    self.app.finish_turn(prepared, keep_for_tools=False)
+                    retry.completed = True
+                if not retry.captured:
+                    self.app.capture_final_body(prepared, retry.collector)
+                    retry.captured = True
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError):
+            pass
+        finally:
+            self.app.park_continuation_retry(prepared)
+        return True
+
     def _proxy_json(self, prepared: PreparedTurn) -> None:
+        if self._replay_continuation_response(prepared):
+            return
         performance = getattr(self, "_request_performance", None)
         if performance is not None:
             performance.stage = "upstream_encode"
@@ -5276,14 +5411,15 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 for chunk in response.iter_bytes():
                     if performance is not None:
                         performance.note_upstream_chunk(len(chunk))
-                    if len(raw_buffer) + len(chunk) > self.app.config.max_body_bytes:
+                    if not self.app.config.upstream_limits_only and len(raw_buffer) + len(chunk) > self.app.config.max_body_bytes:
                         raise GatewayError(502, "upstream_response_too_large")
                     raw_buffer.extend(chunk)
                 if performance is not None:
                     performance.finish_upstream()
                 response_status = response.status_code
         except httpx.RequestError as exc:
-            self.app.finish_turn(prepared, keep_for_tools=False)
+            if not self.app.park_continuation_retry(prepared):
+                self.app.finish_turn(prepared, keep_for_tools=False)
             raise GatewayError(502, "upstream_unavailable") from None
         raw = bytes(raw_buffer)
         if performance is not None:
@@ -5324,6 +5460,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
         final_body = FinalBodyCollector()
         if 200 <= response_status < 300 and not keep:
             final_body.feed(body, stream=False)
+            self.app.cache_continuation_response(prepared, ("json", copy.deepcopy(body)), final_body)
         try:
             if performance is not None:
                 performance.stage = "client_write"
@@ -5343,14 +5480,16 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             if performance is not None:
                 performance.mark_failed()
         finally:
-            if keep and not delivered:
+            if not delivered and not self.app.park_continuation_retry(prepared):
                 self.app.finish_turn(prepared, keep_for_tools=False)
 
     def _proxy_stream(self, prepared: PreparedTurn) -> None:
+        if self._replay_continuation_response(prepared):
+            return
         exchange = _StreamExchange(
             encoded=self.app.encode_upstream_payload(prepared.payload, prepared.session.execution_profile, prepared.route,
                                                      session=prepared.session),
-            deadline=time.monotonic() + self.app.config.timeout_seconds,
+            deadline=float("inf") if self.app.config.upstream_limits_only else time.monotonic() + self.app.config.timeout_seconds,
             route=prepared.route,
             responses_state=prepared.session.responses_state,
             disconnect_watch=getattr(self, "_client_disconnect_watch", None),
@@ -5365,6 +5504,10 @@ class _GatewayHandler(BaseHTTPRequestHandler):
         bindings: dict[str, ToolExecutionBinding] = {}
         performance = getattr(self, "_request_performance", None)
         final_body = FinalBodyCollector()
+        replay_prefix = bytearray()
+        replay_overflow = (self.app._continuation_retry is None or
+                           self.app._continuation_retry.prepared is not prepared)
+        transport_failed = False
 
         def send_sse_headers() -> None:
             nonlocal headers_sent
@@ -5404,6 +5547,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                     exchange.disconnect_watch.heartbeat = None
 
         def write_completion_event(event: _ParsedSSEEvent) -> None:
+            nonlocal replay_overflow
             # Reconcile only the public model identifier after the original
             # event passed protected-value checks and any tool commit barrier.
             # Nested data/arguments, usage and provider error events are kept.
@@ -5415,9 +5559,16 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                     _ParsedSSEEvent(raw=b"", payload=payload)
                 )
                 assert canonical is not None
-                write_sse(canonical.raw)
+                wire = canonical.raw
             else:
-                write_sse(event.raw)
+                wire = event.raw
+            if not replay_overflow:
+                if len(replay_prefix) + len(wire) <= min(self.app.config.max_body_bytes, 512 * 1024):
+                    replay_prefix.extend(wire)
+                else:
+                    replay_overflow = True
+                    replay_prefix.clear()
+            write_sse(wire)
 
         def fail_stream(error: GatewayError) -> None:
             # HTTP status is already committed, but a native OpenAI error event
@@ -5427,7 +5578,8 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             if performance is not None:
                 performance.mark_failed()
                 performance.stream_error_reason = (error.protocol_diagnostic or {}).get("reason")
-            self.app.finish_turn(prepared, keep_for_tools=False)
+            if not (error.code == "upstream_unavailable" and self.app.park_continuation_retry(prepared)):
+                self.app.finish_turn(prepared, keep_for_tools=False)
             protected = tuple(prepared.session.protected_values)
             _log_gateway_failure(
                 error.code, streamed_prefix=True, protected_values=protected,
@@ -5501,7 +5653,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                         if performance is not None:
                             performance.note_upstream_chunk(len(chunk))
                         exchange.transferred += len(chunk)
-                        if exchange.transferred > self.app.config.max_stream_bytes:
+                        if not self.app.config.upstream_limits_only and exchange.transferred > self.app.config.max_stream_bytes:
                             raise GatewayError(502, "upstream_stream_limit_reached")
                         # Split an already arrived network chunk locally. Do
                         # not use iter_bytes(chunk_size=...), which can wait
@@ -5543,7 +5695,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 raw_buffer = bytearray()
                 if response.status_code >= 400:
                     for chunk in upstream_chunks():
-                        if len(raw_buffer) + len(chunk) > self.app.config.max_body_bytes:
+                        if not self.app.config.upstream_limits_only and len(raw_buffer) + len(chunk) > self.app.config.max_body_bytes:
                             raise GatewayError(502, "upstream_response_too_large")
                         raw_buffer.extend(chunk)
                     if performance is not None:
@@ -5577,9 +5729,9 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                     # be repeated at any later point.  Preserve the strict
                     # all-or-nothing response boundary for those rare turns.
                     semantic_completion = _StreamCompletionState()
-                    framing = _SSEEventBuffer(self.app.config.max_body_bytes)
+                    framing = _SSEEventBuffer(None if self.app.config.upstream_limits_only else self.app.config.max_body_bytes)
                     for chunk in upstream_chunks():
-                        if len(raw_buffer) + len(chunk) > self.app.config.max_body_bytes:
+                        if not self.app.config.upstream_limits_only and len(raw_buffer) + len(chunk) > self.app.config.max_body_bytes:
                             raise GatewayError(502, "upstream_buffer_limit_reached")
                         raw_buffer.extend(chunk)
                         for raw_event in framing.feed(chunk):
@@ -5651,8 +5803,8 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 # native tool-call event starts a tail buffer.  That tail is not
                 # released until the complete call batch passes Schema, policy,
                 # argument-hash and replay binding.
-                parser = _SSEEventBuffer(self.app.config.max_body_bytes)
-                quarantine = _ProtectedSSEQuarantine(protected, self.app.config.max_body_bytes)
+                parser = _SSEEventBuffer(None if self.app.config.upstream_limits_only else self.app.config.max_body_bytes)
+                quarantine = _ProtectedSSEQuarantine(protected, None if self.app.config.upstream_limits_only else self.app.config.max_body_bytes)
                 # Track bounded protected-value prefixes across all stream chunks.
                 if exchange.inspector is None:
                     exchange.inspector = _IncrementalSSEInspector(protected)
@@ -5694,12 +5846,12 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                             # exact upstream ordering behind one commit barrier.
                             defer_started = True
                             deferred_bytes += len(event.raw)
-                            if tool_tail_started and deferred_bytes > self.app.config.max_tool_tail_bytes:
+                            if not self.app.config.upstream_limits_only and tool_tail_started and deferred_bytes > self.app.config.max_tool_tail_bytes:
                                 raise GatewayError(
                                     502, "upstream_tool_buffer_limit_reached",
                                     _STREAM_FAILURE_MESSAGES["upstream_tool_buffer_limit_reached"],
                                 )
-                            if not tool_tail_started and deferred_bytes > self.app.config.max_body_bytes:
+                            if not self.app.config.upstream_limits_only and not tool_tail_started and deferred_bytes > self.app.config.max_body_bytes:
                                 raise GatewayError(502, "upstream_buffer_limit_reached")
                             deferred_tail.append(event.raw)
                         else:
@@ -5764,6 +5916,19 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                     if performance is not None:
                         performance.stage = "tool_validation"
                     bindings = self.app.bind_response_tool_calls(prepared, decorated)
+                if not keep and not replay_overflow:
+                    tail = bytearray()
+                    collector = copy.deepcopy(final_body)
+                    for raw_event in deferred_tail:
+                        event = _parse_sse_event(raw_event)
+                        collector.feed(event.payload)
+                        if event.payload is not None and "error" not in event.payload:
+                            payload = dict(event.payload)
+                            payload["model"] = prepared.route.public_model
+                            event = _canonical_client_sse_event(_ParsedSSEEvent(raw=b"", payload=payload))
+                        tail.extend(event.raw)
+                    if len(replay_prefix) + len(tail) <= self.app.config.max_body_bytes:
+                        self.app.cache_continuation_response(prepared, ("stream", bytes(replay_prefix + tail)), collector)
                 def send_tail():
                     for raw_event in deferred_tail:
                         write_completion_event(_parse_sse_event(raw_event))
@@ -5775,6 +5940,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 if performance is not None:
                     performance.stage = "complete"
         except GatewayError as exc:
+            transport_failed = exc.code == "upstream_unavailable"
             disable_heartbeat()
             if performance is not None:
                 performance.stream_error_reason = (exc.protocol_diagnostic or {}).get("reason")
@@ -5782,8 +5948,10 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 raise
             fail_stream(exc)
         except (httpx.RequestError, httpx.StreamError) as exc:
+            transport_failed = True
             disable_heartbeat()
             if exchange.disconnect_watch is not None and exchange.disconnect_watch.disconnected.is_set():
+                transport_failed = True
                 if performance is not None:
                     performance.stage = "client_write"
                     performance.mark_failed()
@@ -5800,6 +5968,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             ConnectionAbortedError,
             TimeoutError,
         ):
+            transport_failed = True
             keep = False
             if performance is not None:
                 performance.stage = "client_write"
@@ -5811,7 +5980,7 @@ class _GatewayHandler(BaseHTTPRequestHandler):
             )
         finally:
             disable_heartbeat()
-            if not delivered:
+            if not delivered and not (transport_failed and self.app.park_continuation_retry(prepared)):
                 self.app.finish_turn(prepared, keep_for_tools=False)
 
     def _commit_final_delivery(self, prepared, collector, write_final, keep, call_ids, bindings):
@@ -5821,12 +5990,19 @@ class _GatewayHandler(BaseHTTPRequestHandler):
         with self.app._lock:
             self.app.finish_turn(prepared, keep_for_tools=keep,
                                  tool_call_ids=call_ids, tool_call_bindings=bindings)
+            retry = self.app.replayable_continuation(prepared)
+            if retry is not None and not keep:
+                retry.completed = self.app._current_session is None
             self._commit_deadline = time.monotonic() + 10.0
             try:
                 write_final()
                 self.app.mark_response_delivered(prepared)
                 if not keep:
                     self.app.capture_final_body(prepared, collector)
+                    retry = self.app.replayable_continuation(prepared)
+                    if retry is not None:
+                        retry.captured = True
+                        self.app.park_continuation_retry(prepared)
             finally:
                 self._commit_deadline = None
 

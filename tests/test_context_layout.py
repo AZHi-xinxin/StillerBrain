@@ -268,6 +268,20 @@ class ContextLayoutTests(unittest.TestCase):
         opened = self.store.open_brain_context(**self.scope)
         self.assertEqual("candidate_review", opened["continuation"]["stage"])
 
+    def test_rebuilt_tool_context_is_not_a_real_candidate_review_boundary(self):
+        self.fixture.bootstrap_to_wait()
+        wake = self.store.issue_wake(**self.scope, host_id="host:layout", thread_id="thread:layout",
+            source_kind="tool_continuation", source_event_id="synthetic-tool-rebuild", replace_incomplete=True)
+        prepared = self.prepare(wake)
+        self.confirm(wake, prepared["context_hash"])
+        opened = self.store.open_brain_context(**self.scope)
+        self.assertEqual("candidate_wait", opened["continuation"]["stage"])
+        self.assertEqual("candidate_wait", self.store.state(**self.scope)["state"]["stage"])
+        real = self.issue(event="next-real-human")
+        prepared = self.prepare(real)
+        self.confirm(real, prepared["context_hash"])
+        self.assertEqual("candidate_review", self.store.open_brain_context(**self.scope)["continuation"]["stage"])
+
     def test_split_retains_dynamic_only_and_rejects_collisions(self):
         wake = {**self.scope, "host_id": "host:layout", "thread_id": "thread:layout", "wake_id": "wake:synthetic"}
         dynamic = {"learning_memory": {"summary": "Synthetic memory, exact author's text."}}

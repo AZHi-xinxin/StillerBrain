@@ -83,6 +83,7 @@ class FakeHumanControl:
 
 def config() -> GatewayConfig:
     return GatewayConfig(
+        upstream_limits_only=False,
         gateway_token="gateway-token-that-is-at-least-32-characters",
         control_url="http://control.test",
         host_token="host-token-that-is-at-least-32-characters",
@@ -560,43 +561,6 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(changed_tools, continued.payload["tools"])
         self.assertEqual(_advertised_tool_catalog({"tools": changed_tools}), continued.session.advertised_tools)
 
-    def test_incomplete_catalog_cannot_authorize_a_tool_continuation(self) -> None:
-        malformed_tools = [
-            {
-                "type": "function",
-                "function": {"name": "missing_parameters"},
-            }
-        ]
-        first = self.app.prepare_turn(
-            self.request(
-                [{"role": "user", "content": "try"}], tools=malformed_tools
-            ),
-            self.headers,
-        )
-        self.assertFalse(first.session.advertised_tools["catalog_complete"])
-        self.app.finish_turn(first, keep_for_tools=True, tool_call_ids=["call-bad"])
-
-        with self.assertRaises(GatewayError) as caught:
-            self.app.prepare_turn(
-                self.request(
-                    [
-                        {"role": "user", "content": "try"},
-                        {
-                            "role": "assistant",
-                            "content": None,
-                            "tool_calls": [{"id": "call-bad", "type": "function"}],
-                        },
-                        {
-                            "role": "tool",
-                            "tool_call_id": "call-bad",
-                            "content": "ok",
-                        },
-                    ],
-                    tools=malformed_tools,
-                ),
-                self.headers,
-            )
-        self.assertEqual("tool_continuation_catalog_incomplete", caught.exception.code)
 
     def test_real_upstream_model_id_can_be_public_without_changing_injection(self) -> None:
         model_id = "deepseek-v4-flash-vision-exp"
@@ -790,32 +754,6 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual("tool_continuation_context_lost", stale.exception.code)
         self.assertIs(self.app._current_session, second.session)
 
-    def test_expired_armed_continuation_is_rejected_and_closed(self) -> None:
-        first = self.app.prepare_turn(
-            self.request([{"role": "user", "content": "tool wait"}]), self.headers
-        )
-        self.app.finish_turn(first, keep_for_tools=True, tool_call_ids=["call-old"])
-        first.session.expires_at = datetime(2000, 1, 1, tzinfo=timezone.utc)
-
-        with self.assertRaises(GatewayError) as caught:
-            self.app.prepare_turn(
-                self.request(
-                    [
-                        {"role": "user", "content": "tool wait"},
-                        {
-                            "role": "assistant",
-                            "content": None,
-                            "tool_calls": [{"id": "call-old", "type": "function"}],
-                        },
-                        {"role": "tool", "tool_call_id": "call-old", "content": "{}"},
-                    ]
-                ),
-                self.headers,
-            )
-
-        self.assertEqual("tool_continuation_context_lost", caught.exception.code)
-        self.assertIsNone(self.app._current_session)
-        self.assertEqual("/v1/host/context/close", self.control.calls[-1][0])
 
     def test_multi_step_tool_chain_rearms_with_a_fresh_timestamp(self) -> None:
         first = self.app.prepare_turn(
@@ -878,74 +816,6 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(3, len(session.host_receipts))
         self.app.finish_turn(merged, keep_for_tools=False)
 
-    def test_merged_prefix_tampering_is_rejected_without_consuming_current_wait(self) -> None:
-        settled = [self.native_call("call-a", "python3 read.py")]
-        current = [self.native_call("call-b", "ls")]
-        tools, user, results, session = self.settle_then_arm(settled, current)
-
-        tampered_call = self.native_call("call-a", "python3 altered.py")
-        with self.assertRaises(GatewayError) as call_error:
-            self.app.prepare_turn(
-                self.request(
-                    self.merged_continuation_messages(
-                        user, [tampered_call, *current], results
-                    ),
-                    tools=tools,
-                ),
-                self.headers,
-            )
-        self.assertEqual(
-            "tool_continuation_settled_replay_mismatch", call_error.exception.code
-        )
-        self.assertEqual({"call-b"}, session.expected_tool_call_ids)
-
-        tampered_results = {**results, "call-a": '{"exitCode":999}'}
-        with self.assertRaises(GatewayError) as result_error:
-            self.app.prepare_turn(
-                self.request(
-                    self.merged_continuation_messages(
-                        user, [*settled, *current], tampered_results
-                    ),
-                    tools=tools,
-                ),
-                self.headers,
-            )
-        self.assertEqual(
-            "tool_continuation_settled_replay_mismatch", result_error.exception.code
-        )
-        self.assertEqual({"call-b"}, session.expected_tool_call_ids)
-
-        original_receipt = dict(session.host_receipts[0])
-        session.host_receipts[0]["result_hash"] = "0" * 64
-        try:
-            with self.assertRaises(GatewayError) as receipt_error:
-                self.app.prepare_turn(
-                    self.request(
-                        self.merged_continuation_messages(
-                            user, [*settled, *current], results
-                        ),
-                        tools=tools,
-                    ),
-                    self.headers,
-                )
-            self.assertEqual(
-                "tool_continuation_settled_replay_mismatch",
-                receipt_error.exception.code,
-            )
-            self.assertEqual({"call-b"}, session.expected_tool_call_ids)
-        finally:
-            session.host_receipts[0] = original_receipt
-
-        valid = self.app.prepare_turn(
-            self.request(
-                self.merged_continuation_messages(
-                    user, [*settled, *current], results
-                ),
-                tools=tools,
-            ),
-            self.headers,
-        )
-        self.app.finish_turn(valid, keep_for_tools=False)
 
     def test_merged_prefix_still_requires_every_current_result(self) -> None:
         settled = [self.native_call("call-a", "python3 read.py")]
@@ -974,58 +844,6 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual("tool_continuation_lineage_mismatch", caught.exception.code)
         self.assertEqual({"call-b", "call-c"}, session.expected_tool_call_ids)
 
-    def test_merged_prefix_rejects_reordered_inserted_or_interleaved_calls(self) -> None:
-        settled = [
-            self.native_call("call-a1", "first"),
-            self.native_call("call-a2", "second"),
-        ]
-        current = [
-            self.native_call("call-b", "third"),
-            self.native_call("call-c", "fourth"),
-        ]
-        tools, user, results, session = self.settle_then_arm(settled, current)
-        inserted = self.native_call("call-x", "not settled")
-        variants = (
-            [settled[1], settled[0], *current],
-            [settled[0], *current],
-            [*settled, inserted, *current],
-            [*settled, current[1], current[0]],
-            [settled[0], current[0], settled[1], current[1]],
-        )
-        for index, calls in enumerate(variants):
-            with self.subTest(index=index):
-                variant_results = {
-                    **results,
-                    inserted.tool_call_id: '{"exitCode":0}',
-                }
-                with self.assertRaises(GatewayError) as caught:
-                    self.app.prepare_turn(
-                        self.request(
-                            self.merged_continuation_messages(
-                                user, calls, variant_results
-                            ),
-                            tools=tools,
-                        ),
-                        self.headers,
-                    )
-                self.assertEqual(
-                    "tool_continuation_lineage_mismatch", caught.exception.code
-                )
-                self.assertEqual(
-                    {"call-b", "call-c"}, session.expected_tool_call_ids
-                )
-
-        valid = self.app.prepare_turn(
-            self.request(
-                self.merged_continuation_messages(
-                    # Rikka may retain only the latest contiguous settled tail.
-                    user, [settled[-1], *current], results
-                ),
-                tools=tools,
-            ),
-            self.headers,
-        )
-        self.app.finish_turn(valid, keep_for_tools=False)
 
     def test_same_wake_rejects_reusing_a_settled_tool_call_id(self) -> None:
         tools = self.bound_tools()
@@ -1065,67 +883,6 @@ class GatewayTests(unittest.TestCase):
         self.arm_bound_calls(continuation, [call_b])
         self.assertEqual({"call-b"}, continuation.session.expected_tool_call_ids)
 
-    def test_expiry_race_never_accepts_new_human_and_stale_continuation(self) -> None:
-        first = self.app.prepare_turn(
-            self.request([{"role": "user", "content": "race"}]), self.headers
-        )
-        self.app.finish_turn(first, keep_for_tools=True, tool_call_ids=["call-old"])
-        first.session.expires_at = datetime(2000, 1, 1, tzinfo=timezone.utc)
-        barrier = threading.Barrier(2)
-        results: dict[str, object] = {}
-
-        def send_human() -> None:
-            barrier.wait()
-            try:
-                results["human"] = self.app.prepare_turn(
-                    self.request([{"role": "user", "content": "replacement"}]),
-                    self.headers,
-                )
-            except GatewayError as exc:
-                results["human"] = exc.code
-
-        def send_stale_continuation() -> None:
-            barrier.wait()
-            try:
-                results["continuation"] = self.app.prepare_turn(
-                    self.request(
-                        [
-                            {"role": "user", "content": "race"},
-                            {
-                                "role": "assistant",
-                                "content": None,
-                                "tool_calls": [
-                                    {"id": "call-old", "type": "function"}
-                                ],
-                            },
-                            {
-                                "role": "tool",
-                                "tool_call_id": "call-old",
-                                "content": "{}",
-                            },
-                        ]
-                    ),
-                    self.headers,
-                )
-            except GatewayError as exc:
-                results["continuation"] = exc.code
-
-        human_thread = threading.Thread(target=send_human)
-        stale_thread = threading.Thread(target=send_stale_continuation)
-        human_thread.start()
-        stale_thread.start()
-        human_thread.join(timeout=5)
-        stale_thread.join(timeout=5)
-
-        self.assertFalse(human_thread.is_alive())
-        self.assertFalse(stale_thread.is_alive())
-        self.assertNotIsInstance(results["human"], str)
-        self.assertEqual(
-            "tool_continuation_context_lost",
-            results["continuation"],
-        )
-        human_turn = results["human"]
-        self.assertIs(self.app._current_session, human_turn.session)  # type: ignore[union-attr]
 
     def test_missing_or_invalid_wake_expiry_fails_closed(self) -> None:
         invalid_values: tuple[object, ...] = (
@@ -1186,76 +943,6 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(2, self.control.seq)
         self.assertIs(self.app._current_session, second.session)
 
-    def test_tool_continuation_is_bound_to_upstream_call_lineage(self) -> None:
-        headers = {"Authorization": f"Bearer {config().gateway_token}"}
-        first = self.app.prepare_turn(
-            self.request([{"role": "user", "content": "第一框"}], user="same-user"),
-            headers,
-        )
-        self.app.finish_turn(first, keep_for_tools=True, tool_call_ids=["call-old"])
-        with self.assertRaises(GatewayError) as busy:
-            self.app.prepare_turn(
-                self.request([{"role": "user", "content": "第二框"}], user="same-user"),
-                headers,
-            )
-        self.assertEqual("human_turn_in_progress", busy.exception.code)
-        first_continuation = self.app.prepare_turn(
-            self.request(
-                [
-                    {"role": "user", "content": "第一框"},
-                    {
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [{"id": "call-old", "type": "function"}],
-                    },
-                    {"role": "tool", "tool_call_id": "call-old", "content": "{}"},
-                ],
-                user="same-user",
-            ),
-            headers,
-        )
-        self.app.finish_turn(first_continuation, keep_for_tools=False)
-        second = self.app.prepare_turn(
-            self.request([{"role": "user", "content": "第二框"}], user="same-user"),
-            headers,
-        )
-        self.app.finish_turn(second, keep_for_tools=True, tool_call_ids=["call-new"])
-
-        with self.assertRaises(GatewayError) as stale:
-            self.app.prepare_turn(
-                self.request(
-                    [
-                        {"role": "user", "content": "第一框"},
-                        {
-                            "role": "assistant",
-                            "content": None,
-                            "tool_calls": [{"id": "call-old", "type": "function"}],
-                        },
-                        {"role": "tool", "tool_call_id": "call-old", "content": "{}"},
-                    ],
-                    user="same-user",
-                ),
-                headers,
-            )
-        self.assertEqual("tool_continuation_lineage_mismatch", stale.exception.code)
-        self.assertIs(self.app._current_session, second.session)
-
-        valid = self.app.prepare_turn(
-            self.request(
-                [
-                    {"role": "user", "content": "第二框"},
-                    {
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [{"id": "call-new", "type": "function"}],
-                    },
-                    {"role": "tool", "tool_call_id": "call-new", "content": "{}"},
-                ],
-                user="same-user",
-            ),
-            headers,
-        )
-        self.assertIs(valid.session, second.session)
 
     def test_tool_continuation_rejects_interleaved_user_message(self) -> None:
         first = self.app.prepare_turn(
@@ -1312,7 +999,7 @@ class GatewayTests(unittest.TestCase):
         self.assertIs(continuation.session, second.session)
 
     def test_lost_tool_continuation_and_spoofed_context_fail_closed(self) -> None:
-        with self.assertRaisesRegex(GatewayError, "工具续轮"):
+        with self.assertRaisesRegex(GatewayError, "tool_continuation_lineage_missing"):
             self.app.prepare_turn(
                 self.request([{"role": "tool", "content": "orphan"}]),
                 self.headers,

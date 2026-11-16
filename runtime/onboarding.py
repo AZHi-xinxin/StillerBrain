@@ -14,6 +14,7 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import re
 import secrets
 import sqlite3
@@ -1567,7 +1568,7 @@ class ModuleOneOnboardingStore:
         """Idempotently issue one real wake for one stable external event key."""
         execution_profile = validate_profile(execution_profile)
         if (not isinstance(replace_incomplete, bool) or replace_incomplete and
-                (source_kind != "human_message" or execution_profile != DEFAULT_PROFILE)):
+                (source_kind not in {"human_message", "tool_continuation"} or execution_profile != DEFAULT_PROFILE)):
             raise OnboardingError("human_replacement_invalid")
         owner_id = _require_text("owner_id", owner_id)
         model_id = _require_text("model_id", model_id)
@@ -2504,7 +2505,7 @@ class ModuleOneOnboardingStore:
         if not isinstance(advertised_tools, Mapping):
             raise OnboardingError("advertised_tools_invalid")
         advertised_tools_snapshot = dict(advertised_tools)
-        if len(_canonical(advertised_tools_snapshot)) > 200_000:
+        if os.environ.get("STBRAIN_GATEWAY_UPSTREAM_LIMITS_ONLY", "1") != "1" and len(_canonical(advertised_tools_snapshot)) > 200_000:
             raise OnboardingError("advertised_tools_too_large")
         snapshot_persistence_payload = {
             "owner_id": owner_id,
@@ -3643,6 +3644,7 @@ class ModuleOneOnboardingStore:
                 if state["stage"] not in {"candidate_wait", "candidate_review"}:
                     page_reason = "candidate_review_not_available"
                 elif (state["submitted_wake_seq"] is None
+                      or wake["source_kind"] == "tool_continuation"
                       or wake["wake_seq"] <= state["submitted_wake_seq"]):
                     page_reason = "real_wake_boundary_required"
                 if page_reason:
@@ -3680,6 +3682,7 @@ class ModuleOneOnboardingStore:
                 (present_details or page_projection is not None)
                 and state["stage"] == "candidate_wait"
                 and state["submitted_wake_seq"] is not None
+                and wake["source_kind"] != "tool_continuation"
                 and wake["wake_seq"] > state["submitted_wake_seq"]
             ):
                 cursor = connection.execute(
@@ -4066,7 +4069,7 @@ class ModuleOneOnboardingStore:
         wake_capability: str, advertised_tools: Mapping[str, Any],
     ) -> dict[str, Any]:
         """Accept host-validated current tools without regenerating brain context."""
-        if not isinstance(advertised_tools, Mapping) or len(_canonical(advertised_tools)) > 200_000:
+        if not isinstance(advertised_tools, Mapping) or (os.environ.get("STBRAIN_GATEWAY_UPSTREAM_LIMITS_ONLY", "1") != "1" and len(_canonical(advertised_tools)) > 200_000):
             raise OnboardingError("advertised_tools_invalid")
         with self._connect() as connection:
             self._begin(connection)
@@ -4544,7 +4547,7 @@ class ModuleOneOnboardingStore:
             return wake, self._deny(state, "state_version_conflict")
         if action not in ACTION_ALLOWLIST[state["stage"]]:
             if action in {"accept_candidate_review", "activate_candidate"} and state["stage"] == "candidate_wait":
-                if wake["wake_seq"] <= (state["submitted_wake_seq"] or 0):
+                if wake["source_kind"] == "tool_continuation" or wake["wake_seq"] <= (state["submitted_wake_seq"] or 0):
                     return wake, self._deny(state, "same_wake_activation_forbidden")
                 return wake, self._deny(state, "brain_open_required")
             if action == "submit_candidate" and state["stage"] == "calm_prompt_draft":
@@ -5146,7 +5149,7 @@ class ModuleOneOnboardingStore:
         candidate_id = state["current_candidate_id"]
         candidate = self.self_store._candidate_row(connection, candidate_id)
         reasons: list[str] = []
-        if wake["wake_seq"] <= (state["submitted_wake_seq"] or 0):
+        if wake["source_kind"] == "tool_continuation" or wake["wake_seq"] <= (state["submitted_wake_seq"] or 0):
             reasons.append("same_wake_activation_forbidden")
         review = self._review_artifact(connection, state=state, wake=wake)
         if review is None:
@@ -5256,7 +5259,7 @@ class ModuleOneOnboardingStore:
         acceptance = self._candidate_review_acceptance(connection, state=state)
         if acceptance is None:
             reasons.append("candidate_review_acceptance_required")
-        elif wake["wake_seq"] <= int(acceptance.get("review_wake_seq") or 0):
+        elif wake["source_kind"] == "tool_continuation" or wake["wake_seq"] <= int(acceptance.get("review_wake_seq") or 0):
             reasons.append("review_activation_wake_boundary_required")
         review = self._review_artifact(connection, state=state, wake=wake)
         if review is None:
@@ -5744,7 +5747,7 @@ class ModuleOneOnboardingStore:
         reasons: list[str] = []
         if lifecycle != "draft_only":
             reasons.append("candidate_not_draft_only")
-        if wake["wake_seq"] <= (state["submitted_wake_seq"] or 0):
+        if wake["source_kind"] == "tool_continuation" or wake["wake_seq"] <= (state["submitted_wake_seq"] or 0):
             reasons.append("independent_wake_required")
         automatic = str(payload.get("automatic_state_signal", "grounded"))
         human = str(payload.get("human_state_signal", "grounded"))

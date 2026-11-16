@@ -30,11 +30,10 @@ class DataExecutionRecoveryTests(execution.GatewayExecutionRecoveryTests):
         # Preserve every original recovery/authority assertion. Only the v3
         # carrier representation differs from the inherited legacy assertion.
         partial=self.later_batch_partial();original=copy.deepcopy(partial)
-        with self.assertRaises(GatewayError):self.app.prepare_turn(partial,self.headers)
-        self.assertTrue(self.control.closed.wait(timeout=1.0))
+        resumed = self.app.prepare_turn(partial,self.headers)
+        self.assertTrue(resumed.continuation)
         human={'role':'user','content':'synthetic next human turn in the same chat'}
         body={'tools':self.tools,'messages':[*partial['messages'],human]}
-        with self.app._lock:self.assertIsNone(self.app._current_session)
         new=self.app.prepare_turn(body,self.headers)
         self.assertFalse(new.continuation)
         self.assertNotEqual(self.prepared.session.wake_id,new.session.wake_id)

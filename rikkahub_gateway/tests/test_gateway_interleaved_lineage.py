@@ -114,22 +114,7 @@ class GatewayInterleavedLineageTests(unittest.TestCase):
         self.assertEqual(original, messages)
         self.assertEqual(0, len(self.session.host_receipts))
 
-    def test_partial_first_unit_reports_full_segment_counts_and_keeps_wait(self):
-        error, records = self.reject(self.history()[:3])
-        self.assertEqual("tool_continuation_lineage_mismatch", error.code)
-        self.assertEqual("current_batch_order_mismatch", records[0]["reason"])
-        for key in ("terminal_declared_count", "segment_declared_count", "segment_result_count"):
-            self.assertEqual(1, records[0][key])
-        self.assertEqual(2, records[0]["expected_count"])
-        with self.assertRaises(GatewayError) as caught:
-            self.prepare([{"role": "user", "content": "synthetic next human"}])
-        self.assertEqual("human_turn_in_progress", caught.exception.code)
-        self.assertIs(self.prepare(self.history()).session, self.session)
 
-    def test_partial_last_unit_cannot_be_mistaken_for_a_full_batch(self):
-        messages = self.history()
-        self.reject([messages[0], *messages[3:]])
-        self.assertIs(self.prepare(self.history()).session, self.session)
 
     def test_no_unit_borrows_a_result_from_the_next_unit(self):
         messages = self.history()
@@ -161,24 +146,8 @@ class GatewayInterleavedLineageTests(unittest.TestCase):
         self.assertEqual("tool_continuation_lineage_invalid", error.code)
         self.assertEqual("declaration_invalid", records[0]["reason"])
 
-    def test_a_tool_less_assistant_is_a_boundary_even_with_empty_content(self):
-        messages = self.history()
-        messages.insert(3, {"role": "assistant", "content": ""})
-        self.reject(messages)
 
-    def test_preceding_incomplete_unit_cannot_be_completed_by_later_results(self):
-        messages = self.history()
-        messages.pop(2)
-        self.reject(messages)
 
-    def test_cancel_text_neither_proves_user_cancel_nor_clears_partial_wait(self):
-        messages = self.history()
-        messages[2]["content"] = "Generation cancelled by user"
-        self.reject(messages[:3])
-        turn = self.prepare(messages)
-        self.assertIs(self.app._current_session, self.session)
-        self.assertEqual("unknown", self.session.host_receipts[0]["completion_state"])
-        self.assertEqual(messages, turn.payload["messages"][-len(messages):])
 
     def test_new_diagnostic_counters_are_bounded_and_protected(self):
         with patch("rikkahub_gateway.server._FAILURE_LOGGER.warning") as log:

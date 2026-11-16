@@ -171,6 +171,20 @@ class LongStreamLimitTests(unittest.TestCase):
             app.finish_turn(prepared, keep_for_tools=False)
         return code, writer, peak
 
+    def test_upstream_owned_generation_can_outlast_old_total_budget_and_wire_cap(self):
+        cfg = replace(config(), upstream_limits_only=True, timeout_seconds=0.02,
+            max_body_bytes=1024, max_stream_bytes=1024, max_tool_tail_bytes=1024)
+        code, writer, _ = self.run_stream(Chunks(30, wait_seconds=0.08), cfg=cfg)
+        self.assertIsNone(code)
+        self.assertIn(b"synthetic final answer", writer.tail)
+
+    def test_upstream_owned_generation_keeps_credential_guard(self):
+        cfg = replace(config(), upstream_limits_only=True, max_stream_bytes=1024)
+        tail = event({"content": "capability-1"}, "stop") + DONE
+        code, writer, _ = self.run_stream(Chunks(30, tail=tail), cfg=cfg, protected=True)
+        self.assertEqual("upstream_protected_value", code)
+        self.assertNotIn(b"capability-1", writer.tail)
+
     def test_long_reasoning_over_three_mib_reaches_answer_with_bounded_memory(self):
         count = (3 * 1024 * 1024 // len(THINKING)) + 1
         code, writer, peak = self.run_stream(Chunks(count), measure_memory=True)
@@ -261,7 +275,7 @@ class LongStreamLimitTests(unittest.TestCase):
 
     def test_stream_limit_configuration_is_bounded(self):
         self.assertEqual(64 * 1024 * 1024, DEFAULT_MAX_STREAM_BYTES)
-        for invalid in (1023, DEFAULT_MAX_STREAM_BYTES + 1):
+        for invalid in (1023, True, float("inf")):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 replace(config(), max_stream_bytes=invalid)
 

@@ -50,8 +50,7 @@ class DynamicToolsTests(unittest.TestCase):
         turn = self.continue_with([])
         self.assertEqual([], turn.payload["tools"])
         self.assertEqual([], turn.session.advertised_tools["entries"])
-        with self.assertRaises(GatewayError):
-            self.app.bind_response_tool_calls(turn, [self.helper.native_call("removed", "x")])
+        self.assertEqual({}, self.app.bind_response_tool_calls(turn, [self.helper.native_call("removed", "x")]))
 
     def test_omitted_tools_are_an_empty_current_catalog(self):
         turn = self.app.prepare_turn(self.helper.request(self.history), self.headers)
@@ -65,8 +64,7 @@ class DynamicToolsTests(unittest.TestCase):
         renamed = NativeToolCall("renamed-call", "renamed_shell", '{"command":"new"}')
         binding = self.app.bind_response_tool_calls(turn, [renamed])[renamed.tool_call_id]
         self.assertEqual("renamed_shell", binding.tool_name)
-        with self.assertRaises(GatewayError):
-            self.app.bind_response_tool_calls(turn, [self.helper.native_call("removed", "x")])
+        self.assertEqual({}, self.app.bind_response_tool_calls(turn, [self.helper.native_call("removed", "x")]))
 
     def test_schema_changes_apply_to_new_calls_only(self):
         turn = self.continue_with(self.changed_schema())
@@ -76,8 +74,7 @@ class DynamicToolsTests(unittest.TestCase):
         valid = NativeToolCall("new-call", "workspace_shell", '{"command":7}')
         binding = self.app.bind_response_tool_calls(turn, [valid])[valid.tool_call_id]
         self.assertEqual(turn.session.advertised_tools["catalog_hash"], binding.catalog_hash)
-        with self.assertRaises(GatewayError):
-            self.app.bind_response_tool_calls(turn, [self.helper.native_call("invalid-new", "old type")])
+        self.assertEqual({}, self.app.bind_response_tool_calls(turn, [self.helper.native_call("invalid-new", "old type")]))
 
     def test_multiple_changes_and_merged_old_history_do_not_reconsume_results(self):
         turn = self.continue_with(self.changed_schema())
@@ -90,15 +87,17 @@ class DynamicToolsTests(unittest.TestCase):
         self.assertEqual(["old-call", "second-call"], continued.session.settled_tool_call_order)
         self.assertEqual(2, len(continued.session.host_receipts))
 
-    def test_mutated_settled_result_is_rejected_even_when_tools_change(self):
+    def test_mutated_settled_result_does_not_replace_old_attestation(self):
         turn = self.continue_with(self.changed_schema())
         next_call = NativeToolCall("second-call", "workspace_shell", '{"command":7}')
         self.helper.arm_bound_calls(turn, [next_call])
         merged = self.helper.merged_continuation_messages(self.user, [self.call, next_call],
             {self.call.tool_call_id: "altered old result", next_call.tool_call_id: "second result"})
-        with self.assertRaises(GatewayError):
-            self.continue_with([], merged)
-        self.assertEqual({"second-call"}, turn.session.expected_tool_call_ids)
+        old_receipt = copy.deepcopy(turn.session.host_receipts[0])
+        resumed = self.continue_with([], merged)
+        self.assertEqual(old_receipt, resumed.session.host_receipts[0])
+        self.assertEqual(2, len(resumed.session.host_receipts))
+        self.assertEqual(merged, resumed.payload["messages"][1:])
 
     def test_failed_catalog_update_can_retry_without_consuming_the_batch(self):
         original = self.helper.control.post
@@ -142,3 +141,14 @@ class DynamicToolsTests(unittest.TestCase):
         self.assertEqual(_advertised_tool_catalog({"tools": self.tools}), updates[-1]["advertised_tools"])
         self.assertFalse(turn.session.tool_catalog_sync_pending)
         self.assertEqual(1, len(turn.session.host_receipts))
+
+
+class LargeCatalogTests(unittest.TestCase):
+    def test_upstream_owned_catalog_is_complete_above_old_512_limit(self):
+        tools = [{"type":"function", "function":{"name":f"tool_{i:04d}", "parameters":{"type":"object"}}} for i in range(2048)]
+        catalog = _advertised_tool_catalog({"tools":tools})
+        self.assertTrue(catalog["catalog_complete"])
+        self.assertEqual(2048, len(catalog["entries"]))
+        bounded = _advertised_tool_catalog({"tools":tools}, upstream_limits_only=False)
+        self.assertFalse(bounded["catalog_complete"])
+        self.assertEqual([], bounded["entries"])

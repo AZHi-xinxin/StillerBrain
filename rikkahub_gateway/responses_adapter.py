@@ -54,12 +54,54 @@ def content_parts(content, *, assistant=False):
     return result
 
 
+def cacheable_history_messages(payload):
+    """Checkpoint stable history before this turn's temporary host data.
+
+    The implicit GPT breakpoint is after the latest user message. A temporary
+    SYSTEM immediately before that user disappears next turn, making that one
+    write unusable. Preserve up to three earlier boundaries, leaving the fourth
+    write for OpenAI's implicit breakpoint. Only the upstream copy is marked.
+    """
+    if payload.get("model") not in {"gpt-6-astra", "gpt-5.6-sol"}:
+        return set()
+    messages = payload.get("messages", [])
+    human = next((i for i in range(len(messages) - 1, -1, -1)
+                  if messages[i].get("role") == "user"), None)
+    if human is None:
+        return set()
+    boundary = human + 1
+    if human > 0 and messages[human - 1].get("role") == "system" and \
+            messages[human - 1].get("name") == "orbis_host_data_v1":
+        boundary = human - 1
+    candidates = []
+    for index, message in enumerate(messages[:boundary]):
+        if message.get("role") not in {"user", "system", "developer", "tool"}:
+            continue
+        # Host data is temporary even if a historical copy is present.
+        if message.get("name") == "orbis_host_data_v1":
+            continue
+        content = message.get("content")
+        if isinstance(content, str) and content:
+            candidates.append(index)
+        elif isinstance(content, list) and content and content[-1].get("type") in {"text", "image_url"}:
+            candidates.append(index)
+    return set(candidates[-3:])
+
+
+def mark_cache_boundary(content):
+    parts = ([{"type": "input_text", "text": content}] if isinstance(content, str)
+             else copy.deepcopy(content))
+    if parts:
+        parts[-1]["prompt_cache_breakpoint"] = {"mode": "explicit"}
+    return parts
+
+
 @dataclass
 class ResponsesTurnState:
     batches: list = field(default_factory=list, repr=False)
     bytes_used: int = 0
 
-    def remember(self, output):
+    def remember(self, output, *, upstream_limits_only=True):
         calls = [item for item in output if item.get("type") == "function_call"]
         if not calls:
             return
@@ -68,7 +110,7 @@ class ResponsesTurnState:
                  if item.get("type") in {"reasoning", "message", "function_call"}
                  and (item.get("type") != "reasoning" or item.get("encrypted_content"))]
         size = len(encode(items))
-        if self.bytes_used + size > MAX_WIRE_BYTES:
+        if not upstream_limits_only and self.bytes_used + size > MAX_WIRE_BYTES:
             raise ResponsesProtocolError("responses_turn_state_too_large")
         ids = [c["call_id"] for c in calls]
         if any(ids == prior[0] for prior in self.batches):
@@ -90,8 +132,9 @@ class ResponsesTurnState:
 
 
 class ResponsesAdapter:
-    def __init__(self, payload, state=None):
+    def __init__(self, payload, state=None, *, upstream_limits_only=True):
         self.payload = payload
+        self.upstream_limits_only = upstream_limits_only
         self.state = state if state is not None else ResponsesTurnState()
         self.names = {}
         self.stream = payload.get("stream") is True
@@ -119,7 +162,8 @@ class ResponsesAdapter:
             for key in ("temperature", "top_p"):
                 if key in p:
                     result[key] = p[key]
-        for message in p.get("messages", []):
+        cache_boundaries = cacheable_history_messages(p)
+        for index, message in enumerate(p.get("messages", [])):
             role = message["role"]
             calls = message.get("tool_calls") or []
             for call in calls:
@@ -129,10 +173,15 @@ class ResponsesAdapter:
                 result["input"].extend(replay)
                 continue
             if role == "tool":
+                output = content_parts(message.get("content")) or ""
+                if index in cache_boundaries:
+                    output = mark_cache_boundary(output)
                 result["input"].append({"type": "function_call_output", "call_id": message["tool_call_id"],
-                                        "output": content_parts(message.get("content")) or ""})
+                                        "output": output})
                 continue
             content = content_parts(message.get("content"), assistant=role == "assistant")
+            if index in cache_boundaries:
+                content = mark_cache_boundary(content)
             if content:
                 result["input"].append({"role": role, "content": content})
             for call in calls:
@@ -187,7 +236,7 @@ class ResponsesAdapter:
         if summaries:
             message["reasoning_content"] = "".join(summaries)
         if status == "completed":
-            self.state.remember(output)
+            self.state.remember(output, upstream_limits_only=self.upstream_limits_only)
         finish = "length" if status == "incomplete" else "tool_calls" if calls else "stop"
         result = {"id": response.get("id", ""), "object": "chat.completion", "model": self.payload["model"],
                   "created": response.get("created_at", 0),
@@ -249,7 +298,7 @@ class TranslatedResponse:
             raw = bytearray()
             for chunk in self.upstream.iter_bytes():
                 raw.extend(chunk)
-                if len(raw) > MAX_EVENT_BYTES:
+                if not self.adapter.upstream_limits_only and len(raw) > MAX_EVENT_BYTES:
                     raise ResponsesProtocolError("responses_response_too_large")
             yield encode(self.adapter.completion(json.loads(raw)))
 
@@ -272,10 +321,10 @@ class TranslatedResponse:
 
         for incoming in self.upstream.iter_bytes():
             total += len(incoming)
-            if total > MAX_WIRE_BYTES:
+            if not self.adapter.upstream_limits_only and total > MAX_WIRE_BYTES:
                 raise ResponsesProtocolError("responses_stream_too_large")
             pending.extend(incoming)
-            if len(pending) > MAX_EVENT_BYTES:
+            if not self.adapter.upstream_limits_only and len(pending) > MAX_EVENT_BYTES:
                 raise ResponsesProtocolError("responses_event_too_large")
             while b"\n" in pending:
                 raw_line, _, rest = pending.partition(b"\n")
@@ -284,7 +333,7 @@ class TranslatedResponse:
                 if line.startswith(b"data:"):
                     data.append(line[5:].lstrip(b" "))
                     data_size += len(line)
-                    if data_size > MAX_EVENT_BYTES:
+                    if not self.adapter.upstream_limits_only and data_size > MAX_EVENT_BYTES:
                         raise ResponsesProtocolError("responses_event_too_large")
                 elif not line and data:
                     raw = b"\n".join(data)

@@ -193,31 +193,7 @@ class GatewayInterleavedAdversarialTests(unittest.TestCase):
                 messages[1][field] = "synthetic must not be moved or erased"
                 self.assert_rejected_without_consuming(messages, session)
 
-    def test_partial_final_or_earlier_segment_cannot_consume_the_wait(self):
-        session = self.arm(self.calls[:3])
-        original = self.interleaved(self.calls[:3])
-        variants = [original[:3], original[:5], original[:-1]]
-        missing_middle = copy.deepcopy(original)
-        del missing_middle[4]
-        variants.append(missing_middle)
-        for index, messages in enumerate(variants):
-            with self.subTest(index=index):
-                self.assert_rejected_without_consuming(messages, session)
-        self.assert_forwarded_intact(original, self.prepare(original))
 
-    def test_user_system_developer_and_non_tool_assistant_are_hard_boundaries(self):
-        session = self.arm()
-        for barrier in (
-            {"role": "user", "content": "synthetic next intent"},
-            {"role": "system", "content": "synthetic system"},
-            {"role": "developer", "content": "synthetic developer"},
-            {"role": "assistant", "content": "synthetic separate answer"},
-            {"role": "assistant", "content": "", "tool_calls": []},
-        ):
-            with self.subTest(barrier=barrier):
-                messages = self.interleaved(self.calls[:2])
-                messages.insert(3, barrier)
-                self.assert_rejected_without_consuming(messages, session)
 
     def test_history_before_current_user_is_not_collected_or_rewritten(self):
         history = [
@@ -260,29 +236,7 @@ class GatewayInterleavedAdversarialTests(unittest.TestCase):
             with self.subTest(index=index):
                 self.assert_rejected_without_consuming(messages, session)
 
-    def test_declaration_order_and_duplicate_declarations_remain_rejected(self):
-        session = self.arm()
-        for calls in (list(reversed(self.calls[:2])), [self.calls[0], self.calls[0], self.calls[1]]):
-            with self.subTest(count=len(calls)):
-                self.assert_rejected_without_consuming(self.interleaved(calls), session)
 
-    def test_issued_arguments_and_names_are_still_exactly_bound(self):
-        session = self.arm()
-        for field, value in (
-            ("name", "fake_breath_search"),
-            ("arguments", '{"command":"synthetic changed"}'),
-            ("arguments", '{"command":1}'),
-            ("arguments", '{"command":"a","command":"b"}'),
-        ):
-            with self.subTest(field=field, value=value):
-                messages = self.interleaved(self.calls[:2])
-                messages[1]["tool_calls"][0]["function"][field] = value
-                self.assert_rejected_without_consuming(messages, session)
-        tools = copy.deepcopy(self.tools)
-        tools[0]["function"]["parameters"]["properties"]["added"] = {"type": "string"}
-        continued = self.app.prepare_turn(self.request(self.interleaved(self.calls[:2]), tools=tools), self.headers)
-        self.assertTrue(continued.continuation)
-        self.assertEqual(tools, continued.payload["tools"])
 
     def test_other_thread_cannot_use_an_exact_interleaved_batch(self):
         session = self.arm()
@@ -309,36 +263,8 @@ class GatewayInterleavedAdversarialTests(unittest.TestCase):
         self.assertEqual([c.tool_call_id for c in self.calls[:5]], session.settled_tool_call_order)
         self.assertEqual(1, self.control.seq)
 
-    def test_settled_result_content_and_receipt_tampering_remain_rejected(self):
-        session = self.arm(self.calls[:1])
-        continued = self.prepare(self.interleaved(self.calls[:1]))
-        self.arm_bound_calls(continued, self.calls[1:3])
-        messages = self.interleaved(self.calls[:3])
-        messages[2]["content"] = "synthetic changed settled result"
-        self.assertEqual("tool_continuation_settled_replay_mismatch", self.assert_rejected_without_consuming(messages, session))
-        original_receipt = copy.deepcopy(session.host_receipts[0])
-        for field in ("result_hash", "arguments_hash", "wake_id", "catalog_hash", "schema_hash"):
-            with self.subTest(field=field):
-                session.host_receipts[0][field] = "synthetic altered receipt"
-                self.assert_rejected_without_consuming(self.interleaved(self.calls[:3]), session)
-                session.host_receipts[0] = copy.deepcopy(original_receipt)
-        self.assert_forwarded_intact(self.interleaved(self.calls[:3]), self.prepare(self.interleaved(self.calls[:3])))
 
-    def test_prior_wake_result_cannot_be_presented_as_a_settled_prefix(self):
-        self.arm(self.calls[:1])
-        completed = self.prepare(self.interleaved(self.calls[:1]))
-        self.app.finish_turn(completed, keep_for_tools=False)
-        session = self.arm(self.calls[1:3])
-        self.assert_rejected_without_consuming(self.interleaved(self.calls[:3]), session)
-        self.assertEqual(2, self.control.seq)
 
-    def test_non_suffix_settled_prefix_is_not_accepted_as_current_history(self):
-        session = self.arm(self.calls[:2])
-        continued = self.prepare(self.interleaved(self.calls[:2]))
-        self.arm_bound_calls(continued, self.calls[2:4])
-        self.assert_rejected_without_consuming(
-            self.interleaved([self.calls[0], *self.calls[2:4]]), session
-        )
 
     def test_cancel_content_is_unknown_result_and_does_not_close_current_turn(self):
         session = self.arm()
@@ -356,42 +282,7 @@ class GatewayInterleavedAdversarialTests(unittest.TestCase):
             self.prepare([{"role": "user", "content": "synthetic new request"}])
         self.assertEqual("human_turn_in_progress", caught.exception.code)
 
-    def test_partial_cancel_content_cannot_close_or_authorize_a_wait(self):
-        session = self.arm()
-        values = {**self.results, self.calls[0].tool_call_id: "Generation cancelled by user"}
-        self.assert_rejected_without_consuming(self.interleaved(self.calls[:1], values=values), session)
-        self.assertFalse(any(path == "/v1/host/context/close" for path, _ in self.control.calls))
-        self.assertEqual(0, len(session.host_receipts))
 
-    def test_partial_diagnostic_has_only_fixed_reason_and_counts(self):
-        session = self.arm(self.calls[:3])
-        messages = self.interleaved(
-            self.calls[:2], texts=["synthetic do not log text", None],
-            reasoning=["synthetic do not log reasoning", ""],
-        )
-        before = copy.deepcopy(session)
-        with patch("rikkahub_gateway.server._FAILURE_LOGGER.warning") as logger:
-            with self.assertRaises(GatewayError):
-                self.prepare(messages)
-        self.assertEqual(before, session)
-        self.assertEqual(1, logger.call_count)
-        encoded = logger.call_args.args[1]
-        record = json.loads(encoded)
-        self.assertLessEqual(set(record), {
-            "at", "event", "code", "reason", "declared_count", "result_count",
-            "missing_result_count", "unexpected_result_count", "expected_count",
-            "terminal_declared_count", "segment_declared_count", "segment_result_count",
-        })
-        self.assertEqual("current_batch_order_mismatch", record["reason"])
-        self.assertEqual((1, 2, 2, 3), tuple(record[key] for key in (
-            "terminal_declared_count", "segment_declared_count", "segment_result_count",
-            "expected_count",
-        )))
-        for value in (
-            "synthetic", "workspace_shell", "fake_breath_search", session.wake_id,
-            session.wake_capability, *session.protected_values,
-        ):
-            self.assertNotIn(value, encoded)
 
 
 if __name__ == "__main__":

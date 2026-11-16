@@ -11,7 +11,7 @@ from unittest.mock import call, patch, sentinel
 
 import httpx
 
-from rikkahub_gateway.server import ControlClient, GatewayApplication
+from rikkahub_gateway.server import ControlClient, GatewayApplication, GatewayError
 from rikkahub_gateway.tests.test_gateway import config
 
 
@@ -100,6 +100,16 @@ class ControlClientProxyTests(unittest.TestCase):
             self.assertFalse(injected.is_closed)
         self.assertEqual(len(requests), 1)
         self.assertEqual(requests[0].headers["Authorization"], "Bearer synthetic-token")
+
+    def test_control_oversize_has_safe_actionable_code_without_echoing_body(self):
+        with httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(
+                413, text="synthetic-private-request-content")), trust_env=False) as client:
+            control = ControlClient("http://control.test", "synthetic-token", client=client)
+            with self.assertRaises(GatewayError) as caught:
+                control.post("/v1/host/context/prepare", {})
+            self.assertEqual("st_control_payload_too_large", caught.exception.code)
+            self.assertIn("ST", caught.exception.detail)
+            self.assertNotIn("synthetic-private", caught.exception.detail)
 
     def test_all_default_transports_ignore_environment_proxies(self):
         settings = replace(config(), human_token="synthetic-human-token-at-least-32-characters", timeout_seconds=120.0)

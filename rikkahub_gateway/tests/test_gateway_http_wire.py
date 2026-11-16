@@ -68,7 +68,7 @@ class GatewayBodyLimitTests(unittest.TestCase):
         handler = object.__new__(_GatewayHandler)
         handler.server = SimpleNamespace(
             application=SimpleNamespace(
-                config=SimpleNamespace(max_request_body_bytes=limit)
+                config=replace(config(), max_request_body_bytes=limit)
             )
         )
         handler.headers = {
@@ -88,12 +88,19 @@ class GatewayBodyLimitTests(unittest.TestCase):
             config().max_request_body_bytes,
         )
 
-    def test_configuration_cannot_exceed_reviewed_provider_boundary(self) -> None:
-        with self.assertRaisesRegex(ValueError, "reviewed 48 MiB boundary"):
-            replace(
-                config(),
-                max_request_body_bytes=MAX_REQUEST_BODY_BYTES + 1,
-            )
+    def test_operator_can_raise_legacy_transport_caps(self) -> None:
+        self.assertEqual(MAX_REQUEST_BODY_BYTES + 1,
+            replace(config(), max_request_body_bytes=MAX_REQUEST_BODY_BYTES + 1).max_request_body_bytes)
+
+    def test_upstream_owned_input_bypasses_operator_cap_but_direct_grants_do_not(self):
+        body = b'{"value":"' + b'a' * 4096 + b'"}'
+        handler = self.make_handler(body, declared_length=len(body), limit=1024)
+        handler.app.config = replace(handler.app.config, upstream_limits_only=True)
+        self.assertEqual(4096, len(handler._read_json()["value"]))
+        handler = self.make_handler(body, declared_length=len(body), limit=1024)
+        handler.app.config = replace(handler.app.config, upstream_limits_only=True)
+        with self.assertRaises(GatewayError):
+            handler._read_json(max_body_bytes=1024)
 
     def test_json_body_at_limit_is_accepted(self) -> None:
         limit = 1024
@@ -375,7 +382,7 @@ class GatewayProgressiveStreamTests(unittest.TestCase):
             app.finish_turn(prepared, keep_for_tools=False)
             app.upstream.close()
 
-    def test_multiline_data_tool_call_cannot_bypass_schema_binding(self) -> None:
+    def test_multiline_ordinary_schema_error_reaches_host_without_binding(self) -> None:
         # SSE joins consecutive data lines with a newline.  The resulting JSON
         # is valid, but the old line-oriented final scanner could not see it and
         # released the native call without binding it.
@@ -424,11 +431,10 @@ class GatewayProgressiveStreamTests(unittest.TestCase):
         handler = self.make_handler(app, writer)
 
         try:
-            with self.assertRaises(GatewayError) as caught:
-                handler._proxy_stream(prepared)
-            self.assertEqual("tool_arguments_schema_invalid", caught.exception.code)
-            self.assertEqual(b"", writer.snapshot())
-            self.assertIsNone(app._current_session)
+            handler._proxy_stream(prepared)
+            self.assertIn(b"call-multiline-invalid", writer.snapshot())
+            self.assertEqual({}, app._current_session.expected_tool_calls)
+            self.assertEqual({"call-multiline-invalid"}, app._current_session.expected_tool_call_ids)
         finally:
             app.upstream.close()
 

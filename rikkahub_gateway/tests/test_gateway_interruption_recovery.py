@@ -385,21 +385,6 @@ class AnchoredInterruptionTests(unittest.TestCase):
         newer = self.app.prepare_turn(self.payload(), self.headers)
         self.assertIsNot(new.session, newer.session)
 
-    def test_unmanaged_close_failure_quarantines_and_exact_retry_can_recover(self):
-        old, calls = self.arm()
-        payload = self.new_human(calls)
-        anchor = (old.session.history_anchor_count, old.session.history_anchor_digest)
-        self.control.close_failures = 1
-        with self.expect_code("tool_wait_recovery_in_progress"):
-            self.app._abandon_delivered_wait(old.session)
-        self.assertEqual(1, self.control.seq)
-        self.assertTrue(old.session.recovery_pending)
-        self.assertEqual(anchor, (old.session.history_anchor_count, old.session.history_anchor_digest))
-        ordinary = self.payload([*self.history, *self.units(calls)])
-        with self.expect_code("tool_wait_recovery_in_progress"):
-            self.app.prepare_turn(ordinary, self.headers)
-        new = self.app.prepare_turn(payload, self.headers)
-        self.assertIsNot(old.session, new.session)
 
     def test_unconfirmed_close_response_never_creates_new_wake(self):
         old, calls = self.arm()

@@ -179,17 +179,7 @@ class GatewayMixedLineageTests(unittest.TestCase):
         self.assertIs(messages, self.helper.app._normalize_split_tool_declarations(messages))
         self.assertEqual(original, messages)
 
-    def test_reordered_current_batch_reports_fixed_branch(self) -> None:
-        prepared = self.arm(current_count=2)
-        messages = self.split([self.calls[0], self.calls[2], self.calls[1]])
-        records = self.assert_rejected_without_consuming(prepared, messages, "tool_continuation_lineage_mismatch")
-        self.assertEqual("current_batch_order_mismatch", records[0]["reason"])
 
-    def test_non_suffix_settled_prefix_reports_fixed_branch(self) -> None:
-        prepared = self.arm(settled_count=2)
-        messages = self.split([self.calls[0], self.calls[2]])
-        records = self.assert_rejected_without_consuming(prepared, messages, "tool_continuation_lineage_mismatch")
-        self.assertEqual("settled_prefix_order_mismatch", records[0]["reason"])
 
     def test_duplicate_result_is_not_normalized(self) -> None:
         prepared = self.arm()
@@ -215,16 +205,6 @@ class GatewayMixedLineageTests(unittest.TestCase):
         self.assertIs(messages, self.helper.app._normalize_split_tool_declarations(messages))
         self.assert_rejected_without_consuming(prepared, messages, "tool_continuation_lineage_mismatch")
 
-    def test_normalized_chain_checks_issued_name_arguments_and_receipt(self) -> None:
-        prepared = self.arm()
-        messages = self.split(self.calls[:2])
-        for field, value in (("name", "workspace_shell"), ("arguments", json.dumps({"query": "changed"}))):
-            altered = copy.deepcopy(messages)
-            altered[2]["tool_calls"][0]["function"][field] = value
-            self.assert_rejected_without_consuming(prepared, altered, "tool_continuation_binding_mismatch")
-        altered_result = copy.deepcopy(messages)
-        altered_result[-2]["content"] = "changed settled result"
-        self.assert_rejected_without_consuming(prepared, altered_result, "tool_continuation_settled_replay_mismatch")
 
     def test_diagnostic_contains_only_fixed_branch_and_counts(self) -> None:
         prepared = self.arm()

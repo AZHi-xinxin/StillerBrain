@@ -42,6 +42,16 @@ from runtime.atlas_device_grants import (
 
 
 MAX_BODY_BYTES = 64 * 1024
+# Context carries model tool catalogs: accept their complete size by default.
+# Optional legacy caps never change tool execution, grant or human-control limits.
+MAX_CONTEXT_BODY_BYTES = 256 * 1024
+
+
+def request_body_limit(path: str) -> int | None:
+    if urlsplit(path).path in {"/v1/host/context/prepare", "/v1/host/context/tools", "/v1/host/tool-executions/issue"}:
+        return None if os.environ.get("STBRAIN_GATEWAY_UPSTREAM_LIMITS_ONLY", "1") == "1" else MAX_CONTEXT_BODY_BYTES
+    return MAX_BODY_BYTES
+
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -201,7 +211,7 @@ def _advertised_tools(body: Mapping[str, Any]) -> dict[str, Any]:
     entries = value.get("entries")
     if not isinstance(supplied_hash, str) or not _SHA256.fullmatch(supplied_hash):
         raise ValueError("advertised_tools.catalog_hash is invalid")
-    if not isinstance(entries, list) or len(entries) > 512:
+    if not isinstance(entries, list) or (os.environ.get("STBRAIN_GATEWAY_UPSTREAM_LIMITS_ONLY", "1") != "1" and len(entries) > 512):
         raise ValueError("advertised_tools.entries is invalid")
     cleaned: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -327,7 +337,7 @@ class ControlApplication:
 
         if method != "POST":
             return self._response(405, {"error": "method_not_allowed"})
-        if len(body) > MAX_BODY_BYTES:
+        if (limit := request_body_limit(route)) is not None and len(body) > limit:
             return self._response(413, {"error": "request_too_large"})
         content_type = headers.get("content-type") or headers.get("Content-Type") or ""
         if content_type.split(";", 1)[0].strip().lower() != "application/json":
@@ -592,7 +602,7 @@ class _ControlHandler(BaseHTTPRequestHandler):
             status, payload = 413, {"error": {"code": "request_too_large"}}
         elif length < 0:
             status, payload = 400, {"error": "invalid_content_length"}
-        elif length > MAX_BODY_BYTES:
+        elif (limit := request_body_limit(self.path)) is not None and length > limit:
             status, payload = 413, {"error": "request_too_large"}
         else:
             try:

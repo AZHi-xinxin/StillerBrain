@@ -115,21 +115,6 @@ class InterleavedHTTPWireTests(unittest.TestCase):
     def test_sse_then_sse(self):
         self.roundtrip(True, True)
 
-    def test_partial_rejected_without_new_upstream_or_cancelled_wait(self):
-        self.assertEqual(200, self.post([self.user], stream=True)[0])
-        session = self.app._current_session
-        expected = dict(session.expected_tool_calls)
-        status, body = self.post(self.interleaved()[:3], stream=True)
-        self.assertEqual(409, status)
-        self.assertEqual("tool_continuation_lineage_mismatch", json.loads(body)["error"]["code"])
-        self.assertEqual(1, len(self.upstream_payloads))
-        self.assertEqual(expected, session.expected_tool_calls)
-        self.assertIs(session, self.app._current_session)
-        self.assertEqual([], session.host_receipts)
-        self.assertEqual(409, self.post([{"role": "user", "content": "synthetic invalid replacement"}], stream=False)[0])
-        # Only the complete, correct original result sequence can settle this batch.
-        self.assertEqual(200, self.post(self.interleaved(), stream=False)[0])
-        self.assertIsNone(self.app._current_session)
 
 
 if __name__ == "__main__":

@@ -290,7 +290,7 @@ class ToolExecutionBoundaryTests(unittest.TestCase):
         forged = {**receipt, "arguments_hash": "0" * 64}
         self.assertFalse(self.boundary.verify_receipt(forged))
 
-    def test_gateway_rejects_same_call_id_with_changed_arguments_on_continuation(self) -> None:
+    def test_changed_call_arguments_continue_without_a_host_attestation(self) -> None:
         app = GatewayApplication(config(), control=FakeControl())
         try:
             prepared = app.prepare_turn(
@@ -333,15 +333,15 @@ class ToolExecutionBoundaryTests(unittest.TestCase):
                     },
                 ],
             }
-            with self.assertRaises(GatewayError) as caught:
-                app.prepare_turn(
+            resumed = app.prepare_turn(
                     tampered,
                     {
                         "Authorization": f"Bearer {config().gateway_token}",
                         "X-ST-Thread-ID": "thread:bound-tool",
                     },
                 )
-            self.assertEqual("tool_continuation_binding_mismatch", caught.exception.code)
+            self.assertEqual([], resumed.session.host_receipts)
+            self.assertEqual(tampered["messages"], resumed.payload["messages"][1:])
         finally:
             app.upstream.close()
 

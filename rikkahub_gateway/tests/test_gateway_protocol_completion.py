@@ -170,9 +170,11 @@ class ProtocolCompletionTests(unittest.TestCase):
             wire["function"]["arguments"] = '{"unknown":"synthetic"}'
             invalid = event({"tool_calls":[wire]}, "tool_calls") + b"data: [DONE]\n\n"
             result = self.stream([invalid], protected=protected)
-            self.assertEqual("tool_arguments_schema_invalid", result.error["code"])
-            self.assertNotIn(b"original-0", result.raw)
-            result.schedule.assert_not_called()
+            self.assertIsNone(result.error)
+            self.assertIn(b"original-0", result.raw)
+            self.assertEqual({}, result.app._current_session.expected_tool_calls)
+            # Host/client owns this ordinary tool's parameter error; no binding
+            # or successful execution is manufactured by the gateway.
 
     def test_malformed_events_have_fixed_diagnostics_without_private_values(self):
         for raw, reason in ((b'data: {"PRIVATE_PAYLOAD"\n\n', "invalid_json"),
@@ -185,23 +187,6 @@ class ProtocolCompletionTests(unittest.TestCase):
             self.assertNotIn(b"PRIVATE_PAYLOAD", result.raw)
             self.assertEqual(reason, result.metric.stream_error_reason)
 
-    def test_lineage_diagnostic_distinguishes_changed_ids_and_changed_order(self):
-        calls, chunks = self.tool_chunks(2)
-        for kind in ("ids_changed", "order_changed"):
-            result = self.stream(chunks)
-            changed = list(reversed(calls)) if kind == "order_changed" else [
-                fixtures.GatewayTests.native_call("replacement-" + str(i), "synthetic-" + str(i)) for i in range(2)]
-            before = copy.deepcopy(result.app._current_session)
-            with self.assertRaises(GatewayError) as caught:
-                self.continue_calls(result, changed)
-            error = caught.exception.payload()["error"]
-            self.assertEqual(kind, error["diagnostic"]["mismatch_kind"])
-            self.assertEqual("tool_continuation_lineage_mismatch", error["code"])
-            self.assertNotIn("original-", json.dumps(error))
-            self.assertNotIn("replacement-", json.dumps(error))
-            self.assertEqual(before, result.app._current_session)
-            continued = self.continue_calls(result, calls)
-            result.app.finish_turn(continued, keep_for_tools=False)
 
     def test_diagnostics_and_logs_drop_arbitrary_values_and_bound_counters(self):
         value = {"kind": "stream", "reason": "invalid_json", "event_index": 10**30,

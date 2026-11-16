@@ -92,6 +92,86 @@ class ControlServerTests(unittest.TestCase):
         self.assertEqual("injected", confirmed["decision"])
         return wake
 
+    @patch.dict(os.environ, {"STBRAIN_GATEWAY_UPSTREAM_LIMITS_ONLY": "0"})
+    def test_large_valid_catalog_and_unicode_recall_cross_real_http_boundary(self) -> None:
+        import hashlib
+        import threading
+        import httpx
+        from http.server import ThreadingHTTPServer
+        from mcp_server.control_server import _ControlHandler, MAX_BODY_BYTES, MAX_CONTEXT_BODY_BYTES
+        entries = [{"canonical_name": f"tool_{i:03d}_" + "x" * 110, "schema_hash": "a" * 64} for i in range(512)]
+        catalog = {"contract": "advertised-tools/1", "catalog_complete": True,
+            "catalog_hash": hashlib.sha256(json.dumps(entries, ensure_ascii=False, sort_keys=True,
+                separators=(",", ":")).encode()).hexdigest(), "entries": entries}
+        status, wake = self.post("/v1/host/wakes", {"host_id": "host:test", "thread_id": "thread:test",
+            "source_kind": "human_message", "source_event_id": "large-file"}, self.host_token)
+        self.assertEqual(200, status)
+        payload = {"wake_id": wake["wake_id"], "wake_capability": wake["wake_capability"],
+            "source_digest": "a" * 64, "host_contract_digest": "b" * 64, "advertised_tools": catalog,
+            "source_frame": {"query_text": "中🖼" * 2000, "capture_items": []}}
+        self.assertGreater(len(self.body(payload)), MAX_BODY_BYTES)
+        self.assertLess(len(self.body(payload)), MAX_CONTEXT_BODY_BYTES)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _ControlHandler)
+        server.application = self.app
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        try:
+            with httpx.Client(base_url=f"http://127.0.0.1:{server.server_port}", trust_env=False) as client:
+                headers = {"Authorization": f"Bearer {self.host_token}"}
+                denied = client.post("/v1/host/context/prepare", json=payload)
+                self.assertEqual(401, denied.status_code)
+                result = client.post("/v1/host/context/prepare", headers=headers, json=payload)
+                self.assertEqual(200, result.status_code, result.text)
+                self.assertIn("context_hash", result.json())
+                too_large = client.post("/v1/host/context/prepare", headers=headers,
+                    content=b" " * (MAX_CONTEXT_BODY_BYTES + 1))
+                self.assertEqual(413, too_large.status_code)
+                ordinary = client.post("/v1/host/wakes", headers=headers, content=b" " * (MAX_BODY_BYTES + 1))
+                self.assertEqual(413, ordinary.status_code)
+                payload["source_frame"]["query_text"] += "x"
+                invalid = client.post("/v1/host/context/prepare", headers=headers, json=payload)
+                self.assertEqual(400, invalid.status_code)
+        finally:
+            server.shutdown(); server.server_close(); thread.join(timeout=3)
+
+    @patch.dict(os.environ, {"STBRAIN_GATEWAY_UPSTREAM_LIMITS_ONLY": "1"})
+    def test_upstream_owned_catalog_over_512_and_256k_crosses_http_without_truncation(self) -> None:
+        import hashlib
+        import threading
+        import httpx
+        from http.server import ThreadingHTTPServer
+        from mcp_server.control_server import _ControlHandler, MAX_BODY_BYTES, MAX_CONTEXT_BODY_BYTES
+        entries = [{"canonical_name": f"tool_{i:03d}_" + "x" * 110, "schema_hash": "a" * 64} for i in range(2048)]
+        entries.sort(key=lambda item: item["canonical_name"])
+        catalog = {"contract": "advertised-tools/1", "catalog_complete": True,
+            "catalog_hash": hashlib.sha256(json.dumps(entries, ensure_ascii=False, sort_keys=True,
+                separators=(",", ":")).encode()).hexdigest(), "entries": entries}
+        status, wake = self.post("/v1/host/wakes", {"host_id": "host:test", "thread_id": "thread:test",
+            "source_kind": "human_message", "source_event_id": "large-file"}, self.host_token)
+        self.assertEqual(200, status)
+        payload = {"wake_id": wake["wake_id"], "wake_capability": wake["wake_capability"],
+            "source_digest": "a" * 64, "host_contract_digest": "b" * 64, "advertised_tools": catalog,
+            "source_frame": {"query_text": "中🖼" * 2000, "capture_items": []}}
+        self.assertGreater(len(self.body(payload)), MAX_BODY_BYTES)
+        self.assertGreater(len(self.body(payload)), MAX_CONTEXT_BODY_BYTES)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _ControlHandler)
+        server.application = self.app
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        try:
+            with httpx.Client(base_url=f"http://127.0.0.1:{server.server_port}", trust_env=False) as client:
+                headers = {"Authorization": f"Bearer {self.host_token}"}
+                denied = client.post("/v1/host/context/prepare", json=payload)
+                self.assertEqual(401, denied.status_code)
+                result = client.post("/v1/host/context/prepare", headers=headers, json=payload)
+                self.assertEqual(200, result.status_code, result.text)
+                self.assertIn("context_hash", result.json())
+                ordinary = client.post("/v1/host/wakes", headers=headers, content=b" " * (MAX_BODY_BYTES + 1))
+                self.assertEqual(413, ordinary.status_code)
+                payload["source_frame"]["query_text"] += "x"
+                invalid = client.post("/v1/host/context/prepare", headers=headers, json=payload)
+                self.assertEqual(400, invalid.status_code)
+        finally:
+            server.shutdown(); server.server_close(); thread.join(timeout=3)
+
     def test_tokens_are_role_separated_and_body_is_strict_utf8_json(self) -> None:
         status, _ = self.app.handle("POST", "/v1/host/wakes", {}, b"{}")
         self.assertEqual(415, status)

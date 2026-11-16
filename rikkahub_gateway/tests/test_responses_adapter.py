@@ -77,7 +77,8 @@ class ResponsesTests(unittest.TestCase):
         self.assertEqual("medium", sent["reasoning"]["effort"])
         self.assertEqual(2048, sent["max_output_tokens"])
         self.assertNotIn("temperature", sent)
-        self.assertEqual(["固定记忆", "本轮身体资料"], [i["content"] for i in sent["input"][:2]])
+        self.assertEqual(["固定记忆", "本轮身体资料"],
+                         [i["content"][0]["text"] for i in sent["input"][:2]])
         self.assertEqual("input_image", sent["input"][-1]["content"][-1]["type"])
         self.assertFalse(sent["tools"][0]["strict"])
 

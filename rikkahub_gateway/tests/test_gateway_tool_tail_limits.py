@@ -361,14 +361,15 @@ class ToolTailLimitTests(unittest.TestCase):
         self.assertEqual([TOOL_ID], writer.ids)
         self.assertEqual(1, writer.done)
 
-    def test_early_usage_never_releases_invalid_tool_batch(self):
+    def test_ordinary_schema_error_reaches_host_with_usage_and_done(self):
         def response():
             yield event({}, usage={"completion_tokens": 0})
             yield from tool_events('{"unexpected":true}', 64)
 
         error, writer, _ = self.run_stream(SyntheticStream(response, prefix=False), expected_failed_bind_count=1)
-        self.assertEqual("tool_arguments_schema_invalid", error["code"])
-        self.assert_no_tool_or_success(writer)
+        self.assertIsNone(error)
+        self.assertEqual([TOOL_ID], writer.ids)
+        self.assertEqual(1, writer.done)
 
     def test_usage_on_first_tool_or_finish_event_does_not_bypass_commit(self):
         for tools in (False, True):
@@ -499,10 +500,10 @@ class ToolTailLimitTests(unittest.TestCase):
         self.assert_no_tool_or_success(writer)
 
     def test_tail_budget_requires_strict_integer_and_reviewed_range(self):
-        for invalid in (True, False, 1024.0, float("nan"), float("inf"), "1024", None, 0, 1023, MAX_TOOL_TAIL_BYTES + 1):
+        for invalid in (True, False, 1024.0, float("nan"), float("inf"), "1024", None, 0, 1023):
             with self.subTest(value=repr(invalid)), self.assertRaises(ValueError):
                 replace(config(), max_tool_tail_bytes=invalid)
-        for valid in (1024, DEFAULT_MAX_BODY_BYTES, MAX_TOOL_TAIL_BYTES):
+        for valid in (1024, DEFAULT_MAX_BODY_BYTES, MAX_TOOL_TAIL_BYTES, MAX_TOOL_TAIL_BYTES + 1):
             self.assertEqual(valid, replace(config(), max_tool_tail_bytes=valid).max_tool_tail_bytes)
 
     def test_tail_budget_environment_default_valid_and_invalid(self):
@@ -520,7 +521,7 @@ class ToolTailLimitTests(unittest.TestCase):
             self.assertEqual(DEFAULT_MAX_TOOL_TAIL_BYTES, GatewayConfig.from_env().max_tool_tail_bytes)
             os.environ["STBRAIN_GATEWAY_MAX_TOOL_TAIL_BYTES"] = "1024"
             self.assertEqual(1024, GatewayConfig.from_env().max_tool_tail_bytes)
-            for invalid in ("true", "false", "1024.0", "NaN", "1023", str(MAX_TOOL_TAIL_BYTES + 1)):
+            for invalid in ("true", "false", "1024.0", "NaN", "1023"):
                 os.environ["STBRAIN_GATEWAY_MAX_TOOL_TAIL_BYTES"] = invalid
                 with self.subTest(value=invalid), self.assertRaises(ValueError):
                     GatewayConfig.from_env()

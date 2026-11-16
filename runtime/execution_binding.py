@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -255,7 +256,7 @@ class ExecutionStore:
                     batch_id: str, revision: int, calls: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         for value in (owner_id, model_id, wake_id, wake_capability, batch_id):
             _text(value)
-        if type(revision) is not int or revision < 1 or not isinstance(calls, (list, tuple)) or not 1 <= len(calls) <= 128:
+        if type(revision) is not int or revision < 1 or not isinstance(calls, (list, tuple)) or not calls or (os.environ.get("STBRAIN_GATEWAY_UPSTREAM_LIMITS_ONLY", "1") != "1" and len(calls) > 128):
             raise ExecutionBindingError("execution_request_invalid")
         validated = []
         seen = set()

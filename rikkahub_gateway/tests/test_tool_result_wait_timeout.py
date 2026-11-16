@@ -150,13 +150,13 @@ class ToolResultWaitTests(unittest.TestCase):
         self.assertIs(session, self.app._current_session)
         self.assertFalse(self.control.closed.is_set())
 
-    def test_late_result_request_enforces_deadline_even_if_watchdog_delayed(self):
+    def test_late_result_rebuilds_context_when_watchdog_is_delayed(self):
         calls = self.arm()
         self.now = self.prepared.session.tool_result_wait_deadline
-        with self.assertRaisesRegex(GatewayError, 'tool_continuation_context_lost'):
-            self.app.prepare_turn(self.results(calls), self.headers)
-        self.assertIsNone(self.app._current_session)
-        self.assertTrue(self.control.closed.is_set())
+        resumed = self.app.prepare_turn(self.results(calls), self.headers)
+        self.assertTrue(resumed.continuation)
+        self.assertIsNot(self.prepared.session, resumed.session)
+        self.assertEqual([], resumed.session.host_receipts)
 
     def test_late_callback_cannot_close_new_human_turn_or_replay_tools(self):
         calls = self.arm()
@@ -305,14 +305,14 @@ class ToolResultWaitTests(unittest.TestCase):
         self.assertEqual(before, self.control.calls)
         self.assertIs(session, self.app._current_session)
 
-    def test_original_shorter_partial_result_recovery_is_not_disabled(self):
+    def test_complete_subset_continues_without_an_absent_result_timer(self):
         mixed = self.arm(calls=[NativeToolCall('synthetic-shell', 'workspace_shell', '{"command":"synthetic only"}'),
                                NativeToolCall('synthetic-open', 'stbrain_open', '{}')])
-        deadline = self.prepared.session.tool_result_wait_deadline
-        with self.assertRaises(GatewayError):
-            self.app.prepare_turn(self.results(mixed[:1]), self.headers)
-        self.assertEqual(180.0, self.prepared.session.recovery_timer.interval)
-        self.assertEqual(deadline, self.prepared.session.tool_result_wait_deadline)
+        resumed = self.app.prepare_turn(self.results(mixed[:1]), self.headers)
+        self.assertTrue(resumed.continuation)
+        self.assertIsNone(resumed.session.recovery_timer)
+        self.assertIsNone(resumed.session.tool_result_wait_timer)
+        self.assertEqual(set(), resumed.session.expected_tool_call_ids)
 
     def test_real_watchdog_releases_without_followup_http_or_sleeping_five_minutes(self):
         with patch('rikkahub_gateway.server.threading.Timer', REAL_TIMER), \

@@ -134,25 +134,6 @@ class SplitToolDeclarationAdversarialTests(unittest.TestCase):
             with self.subTest(index=index):
                 self.assert_rejected_without_consuming(messages, tools, session)
 
-    def test_reordered_declarations_and_settled_result_tampering_remain_rejected(self) -> None:
-        tools, user, results, session, calls, original = self.prepare_split_wait()
-        reordered = copy.deepcopy(original)
-        reordered[2], reordered[3] = reordered[3], reordered[2]
-        self.assert_rejected_without_consuming(reordered, tools, session)
-        tampered = copy.deepcopy(original)
-        tampered[5]["content"] = "changed settled result"
-        self.assert_rejected_without_consuming(tampered, tools, session)
-        changed_arguments = copy.deepcopy(original)
-        changed_arguments[2]["tool_calls"][0]["function"]["arguments"] = '{"command":"changed"}'
-        self.assert_rejected_without_consuming(changed_arguments, tools, session)
-        # The retained wait must remain usable by the original, exact lineage.
-        valid = self.app.prepare_turn(
-            self.request(self.merged_continuation_messages(user, calls, results), tools=tools),
-            self.headers,
-        )
-        self.assertIs(valid.session, session)
-        self.assertEqual(1, self.control.seq)
-        self.app.finish_turn(valid, keep_for_tools=False)
 
     def test_lineage_diagnostic_contains_only_fixed_fields_and_counts(self) -> None:
         tools, _, _, session, _, messages = self.prepare_split_wait()

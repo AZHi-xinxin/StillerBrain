@@ -1,0 +1,75 @@
+{
+  "format": "stiller-source-release-state/1",
+  "version": "0.2.3",
+  "release_channel": "stable",
+  "distribution": "source-available-stable-release",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "base_public_commit": "b45cea473ca2ac801755918ed466c7f343a2b519",
+  "historical_public_state": "source-release-state-0.2.3-preview.1.json",
+  "implemented_revisions": "Dynamic tool catalogs; explicit keyword recall hints; self facet discovery; opt-in Responses upstream adapter",
+  "publication_real_model_calls": 0,
+  "publication_live_service_changes": false,
+  "production_readiness_certified": false,
+  "human_acceptance": {
+    "accepted": true,
+    "scope": "Original catalog-mismatch reporter used the testing version for multiple days without the same 409; maintainer accepted November 11",
+    "all_clients_models_and_existing_windows_certified": false,
+    "private_test_content_published": false
+  },
+  "database_upgrade": {
+    "schema_changed_since_previous_public_release": false,
+    "initialization_adds_columns": [],
+    "existing_memory_rows_rewritten": false,
+    "preserve_private_config_and_identity": true,
+    "stop_writes_and_backup_before_upgrade": true,
+    "upgrade_from_0_2_2_adds_columns": [
+      "brain_context_snapshots.current_tools_json"
+    ]
+  },
+  "automated_regressions_use_synthetic_state": true,
+  "frozen_candidate_regression": {
+    "tests": 2774,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "passed": 2773,
+    "groups": [
+      {
+        "group": "tests",
+        "tests": 1003,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      {
+        "group": "mcp_server/tests",
+        "tests": 612,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      {
+        "group": "rikkahub_gateway/tests",
+        "tests": 907,
+        "skipped": 1,
+        "failures": 0,
+        "errors": 0
+      },
+      {
+        "group": "packaging_tests",
+        "tests": 252,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      }
+    ],
+    "python": "3.12.15",
+    "platform": "Linux x86_64; isolated network namespaces"
+  },
+  "validation_details": "docs/UPDATE-VALIDATION.md",
+  "integrity_manifest": "SOURCE-PACKAGE-MANIFEST.json",
+  "core_dependencies_changed": false,
+  "github_publication_authorized": true,
+  "stable_release_authorized": true,
+  "notes": "Maintainer authorized stable publication after the original reporter observed multiple days without the catalog 409. Publication does not deploy services or include private state."
+}

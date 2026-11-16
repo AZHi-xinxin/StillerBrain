@@ -1,6 +1,6 @@
 {
   "format": "stiller-source-package/1",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "distribution": "source-available-stable-release",
   "files": [
     {
@@ -17,7 +17,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "3ca79d7c02b47dbd220531d15b31181f4dd626fcd0aa2a071f0ce415538f3eff"
+      "sha256": "403112281f532674be3fb9f5aaa5d6c9bcccbe2009390b1e3afd9976d74fb01c"
     },
     {
       "path": "COMMERCIAL-LICENSE.md",
@@ -41,7 +41,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "a4faa1b0ca3eaebe574c9ff3ba90ab4fcc26bf4ef4d82fbd6b9967151834f7a0"
+      "sha256": "8246108c128d7625b230e5a9a0ad2a77818d80830bfa7bac5ef9f0b3aa0afd64"
     },
     {
       "path": "RELEASE-NOTES-0.2.0-preview.1.md",
@@ -92,6 +92,10 @@
       "sha256": "7337dd4388bc7d5bc9bf7013fb51b66964a0c84722ac0f7f56d3e38a251e688f"
     },
     {
+      "path": "RELEASE-NOTES-0.2.4.md",
+      "sha256": "4f6b6419413cb32045caca13b780e8e6d76fdfa4e5bc01ec901e310960fbe2be"
+    },
+    {
       "path": "RELEASE-NOTES-preview.3.md",
       "sha256": "e3a19379b7dccb2a479d856c5e11901284d029c30607a61e46254bdd3e220aef"
     },
@@ -125,7 +129,7 @@
     },
     {
       "path": "docs/CACHE-TROUBLESHOOTING.md",
-      "sha256": "08856a722304c63c58851e3ee08551b416210d5d7cd8c6af4fb371f601e17b7f"
+      "sha256": "04bc1757aaae6cd240a0b058e54930359308eb41aa77fe6563938c7f947eba13"
     },
     {
       "path": "docs/CACHE.md",
@@ -141,7 +145,7 @@
     },
     {
       "path": "docs/DYNAMIC-TOOLS.md",
-      "sha256": "386dc0966e44f97e2631582f96d23e242e0a7bd26bc7fcb988fca6c1afefa532"
+      "sha256": "fc28b311d13aa4c4474bfa41daa1fa263e8cf03a9c35ca26bcf7339a0b853f03"
     },
     {
       "path": "docs/EMOTION-LAYER.md",
@@ -149,7 +153,7 @@
     },
     {
       "path": "docs/GATEWAY-RECOVERY.md",
-      "sha256": "d213735cdacecca2951329e4e55f5b770db04ce2d8a250892364e3163e0ca507"
+      "sha256": "ba690106561caf95edeb082602b5f4a19da26652e9e99417624f8ba67e26d52f"
     },
     {
       "path": "docs/GATEWAY-UPDATE-20261107.md",
@@ -201,7 +205,7 @@
     },
     {
       "path": "docs/OPENAI-RESPONSES.md",
-      "sha256": "6483e7d648374caaba3f01e02912bd9c7a87b879f64fa8479e01d184b3dd0696"
+      "sha256": "a35ad941a9f175da0474a8a57625cb293c60ca3857b302ac453d6062c03c4c25"
     },
     {
       "path": "docs/OPERATIONS.md",
@@ -261,7 +265,7 @@
     },
     {
       "path": "docs/UPDATE-VALIDATION.md",
-      "sha256": "686e4cfafea38b8f72dac0d22e680a644015557cd5d405eb180b909cec51d758"
+      "sha256": "ddc4498da32e554b9c95ecb4a738bf995e4e0773f95818e74d19a55afaffb900"
     },
     {
       "path": "docs/assets/stiller-cover.svg",
@@ -313,7 +317,7 @@
     },
     {
       "path": "mcp_server/control_server.py",
-      "sha256": "a60715ac4a280050152a579a674baf48dcda579eecaeccc06618c58e24617a65"
+      "sha256": "c07bfdfe767b0de5fac7ee9e430470795c93e4ce6342a8f5d3156afbbe1539bf"
     },
     {
       "path": "mcp_server/daily_argument_metadata.py",
@@ -445,7 +449,7 @@
     },
     {
       "path": "mcp_server/tests/test_control_server.py",
-      "sha256": "56162f297f510cee389aa464b7e9e9a116c8b94003b6a0e467154cea19fe609b"
+      "sha256": "6e0ebf907a009a4ed677bb484c03ce184df4b3ad9fe4388894cd2da738d6a746"
     },
     {
       "path": "mcp_server/tests/test_credential_guard_integration.py",
@@ -481,7 +485,7 @@
     },
     {
       "path": "mcp_server/tests/test_execution_control.py",
-      "sha256": "cc83772edad10540167e0125a6ecf356141520a9d77f058e58fa6c2d025ac22a"
+      "sha256": "cd9a3474ad3d4a751fd129d3fa1f90719bfb36d014910013ae29a2a3a008a3c4"
     },
     {
       "path": "mcp_server/tests/test_execution_guard.py",
@@ -865,7 +869,7 @@
     },
     {
       "path": "release-state.json",
-      "sha256": "ecd4af3931fa26cd913d629aaf48215f2809a4d602bc2c2b3119c4bbbc766d73"
+      "sha256": "1727e92ca304b2e0105bf61d6d5f3e05aa541dd76fecfdc72854749a0b2010cf"
     },
     {
       "path": "requirements-linux-arm64-py312.lock",
@@ -889,7 +893,7 @@
     },
     {
       "path": "rikkahub_gateway/README.md",
-      "sha256": "b2e5ad7e2a6f4d5d820476e377c138dbb36dee26490d078b0ea3fd97c05f4754"
+      "sha256": "fe66b5396c5cd8df780f09bde24bd8a1446ba6928402101274078468c78bfbab"
     },
     {
       "path": "rikkahub_gateway/ROUTE_MANAGEMENT.md",
@@ -909,7 +913,7 @@
     },
     {
       "path": "rikkahub_gateway/cache_layout.py",
-      "sha256": "7d34ae920de346c8c7c7ba8bb75b1541d465a0acbc322a5acc78c65054674934"
+      "sha256": "eab394232ea0b8054c44500f7dd1fcbf960333559a2a1204565e99ee520150dd"
     },
     {
       "path": "rikkahub_gateway/catalog_diagnostics.py",
@@ -937,7 +941,7 @@
     },
     {
       "path": "rikkahub_gateway/responses_adapter.py",
-      "sha256": "83e0c3e16631eae7390e07a75e40aec9f483c21a39ef9e39f13796666ee96a64"
+      "sha256": "8bd33fda7c064f64057f33b615f1b874627919b96c9497e0abb5ea7543bf5706"
     },
     {
       "path": "rikkahub_gateway/routes.py",
@@ -949,7 +953,7 @@
     },
     {
       "path": "rikkahub_gateway/server.py",
-      "sha256": "1a35725551ee0e337b3ea35a4863481048d8f86038f31b91a22cf68fbb55787d"
+      "sha256": "ea936cb9f043456eb3ef99d47eba7469e47440fc4eaa1d8fa36cdf7ddbdb0025"
     },
     {
       "path": "rikkahub_gateway/short_term.py",
@@ -1013,11 +1017,19 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_cache_layout.py",
-      "sha256": "ab36176cb0dfefeec5928da181cae4aaa32ce0995bf009d4d2b1650b721ccdef"
+      "sha256": "ed012b839635c63baf02121c12af2c646b23a60f4d1f0524a81604873bfc8f63"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_cache_usage_and_context_lost.py",
+      "sha256": "0c85b7fd36b4112a17f8b2f09165a455ef50739aabfebcfb71edcae7d9d4ca7f"
     },
     {
       "path": "rikkahub_gateway/tests/test_catalog_diagnostics.py",
       "sha256": "7778bc38c0c7324bccaf490d2ebae66ca6001826d9d2783026835e16d750a399"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_claude_user_data_layout.py",
+      "sha256": "0d725ed45307c1d19ced8f17015037c405d2db3c6f832571144f8a478deb86cf"
     },
     {
       "path": "rikkahub_gateway/tests/test_consultation_profiles.py",
@@ -1029,11 +1041,11 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_control_client_proxy.py",
-      "sha256": "05b5197cf64aa8a745f9a73226ecb5f4c34cd0ba9133dedcba490407448dece7"
+      "sha256": "55ddf4a60c6b8663030bdfb6a5f7823dbfc593b5995af6703941a5eb12a60748"
     },
     {
       "path": "rikkahub_gateway/tests/test_dynamic_tools.py",
-      "sha256": "0d6c5d09cb32e6a613b365ce8f80f5ade3356ccfdde51b97d31fc122a0033646"
+      "sha256": "a49dd7a6d548f70faa8b5268befe4d43f222032931d70857ae2a516db321289a"
     },
     {
       "path": "rikkahub_gateway/tests/test_dynamic_tools_http.py",
@@ -1045,7 +1057,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway.py",
-      "sha256": "29bc23056ce27bc6987640f6f70a22dd228cebe381482f15daceed7665786ae3"
+      "sha256": "6d6ea1179c4b8b99b8cb2c3a97ad10f22eaf8ae3e67d4a9370b9eb8b51268b56"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_additional_fields_feedback.py",
@@ -1062,6 +1074,10 @@
     {
       "path": "rikkahub_gateway/tests/test_gateway_client_disconnect.py",
       "sha256": "fc3859eb6375446c037c667a8a0813b8df1b0606f5fd10953e80113f3e36ae77"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_gateway_continuation_retry.py",
+      "sha256": "884fe751cfa64ee11b66c19e767a2bbca8e08be65a0cea2d0dc9ddc88a0722ef"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_control_integration.py",
@@ -1081,15 +1097,19 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_execution_recovery.py",
-      "sha256": "1ad596d16dc6d44e382a3a09f7228da01008d88d8e60c3414dab6d560abb0658"
+      "sha256": "6bace4a0389360514ada329fde92efc62bb5510f6e09fd51b348dfc953f08071"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_failure_observability.py",
       "sha256": "57165a747bb3792091ff88e8c667bb5bc53054483f908c4ef46ef2a8e783e7bc"
     },
     {
+      "path": "rikkahub_gateway/tests/test_gateway_history_continuation.py",
+      "sha256": "88bb947251c9ff0b7055b07829dc86ebea62061c0fc926a114818d189ff311df"
+    },
+    {
       "path": "rikkahub_gateway/tests/test_gateway_http_wire.py",
-      "sha256": "1e8664939427f06dfa9f55cc7154aa013d015beef8f2cac9bbbd8a0cd1d2f40f"
+      "sha256": "b45d886b0588f72710964cf3fa231f7f1a574f041f624126e12c156dd9558192"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_image_transport_projection.py",
@@ -1097,27 +1117,27 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_interleaved_adversarial.py",
-      "sha256": "b31c4d7ca47f22f10787364d0a0a131b368fb60c1ea644e572e9da49a6c564ca"
+      "sha256": "059d1da5a75d622f6327346d91b1435bba867033dd88aaaf2933827579dd1037"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_interleaved_lineage.py",
-      "sha256": "c56c3744283739b9491d67de022cb0c1853c4e899eacc95c077566139aaa78e9"
+      "sha256": "7c2c5a366edf1914e2eddedcaad8918b644a0ce6892ca513f597d992e139148f"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_interleaved_wire.py",
-      "sha256": "d6726e21011119492997cdcd8dc165bafb13a96e20afc61a223b149c3afe6459"
+      "sha256": "299955a72c3eff11d65f2d81e0ac9bb389a7edacf7c6a3a56a24edc37e538c09"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_interruption_recovery.py",
-      "sha256": "2870759aa4702c4e75ff2bdc51f7ffd8c9400c59929f013bd639695f84410a2f"
+      "sha256": "754604363b08d879c8520b948fb52e284908658d423fd03038a3fd4cfb1ea624"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_long_stream_limits.py",
-      "sha256": "74c32c56ee919b181eca7b20e7b9377c758ddcb95122cc3b829ac08bd4d578be"
+      "sha256": "b890701a12867b256ba4b05bd8f7a85d5bb84b4fe6a12fb53a0a0a7827191c75"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_mixed_lineage.py",
-      "sha256": "c8ceb6dc84ca1ca497ae5ae512de5a30634363d5166bb79fe6599671973341d3"
+      "sha256": "ab57090bbd34f8c249f90add89ca315a76e490e69b403001098c35e70b702def"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_performance_observability.py",
@@ -1125,11 +1145,11 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_protocol_completion.py",
-      "sha256": "0f251e0204f2da42721c38bb26c86067f9cf6e08e7b0d3f50161b4185fd6cb59"
+      "sha256": "5558341a5f11798276c89fdbad136a9983a7368f7d758d9c5c2bfa84e7738528"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_split_tool_adversarial.py",
-      "sha256": "709c0b53350e3bc702e46dc1fb8dbcec40df4b74c44b63083b751d79e7544c07"
+      "sha256": "099b871d4690fc740cd19a896b80be57ae194bb1d145b8eda179397fbb84f415"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_stream_completion.py",
@@ -1145,7 +1165,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_tool_tail_limits.py",
-      "sha256": "a27df66a89de9851b07dd1a948605ed45f9738068ed1a939ff57c68c08d036e4"
+      "sha256": "61435fc334880cfc231f739034b4d603a11b5ff5e57b3d1b45ba0b1754cfbcf2"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_turn_control.py",
@@ -1158,6 +1178,10 @@
     {
       "path": "rikkahub_gateway/tests/test_gateway_unadvertised_feedback.py",
       "sha256": "084e437ed5597f79b65789bbb0fed5b03e7845e5edf49fbf4941ec9f854e0136"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_gateway_upstream_limits.py",
+      "sha256": "a7c83644d0d2d7b309f6cc52f475a5eb277fe86afd3246730b25c5e2df999059"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_validation_feedback.py",
@@ -1173,7 +1197,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_manual_routes.py",
-      "sha256": "cc403e9c41fe60f5204b3e6286683488adb8766493d229498462bf75262ad717"
+      "sha256": "9aa9bee80cda066fa87a78e4b28614f253d440aa45ab3d976e4a1784e68d4ab3"
     },
     {
       "path": "rikkahub_gateway/tests/test_orbis_body_wire.py",
@@ -1181,15 +1205,19 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_orbis_memory_wire.py",
-      "sha256": "0c5883dedc5444d8e7cd602b9836518ba58753342e1559db3a47a1408bc42f77"
+      "sha256": "92b15bc2aa353493a0fd3e30199ed92b096a7cd0e61840aaea201a0df2717807"
     },
     {
       "path": "rikkahub_gateway/tests/test_person_rewrite_validation_guidance.py",
       "sha256": "931ee2ab63884ef4abdc3affcd98423d3cfcafc3e33bae50496e5f97a997904e"
     },
     {
+      "path": "rikkahub_gateway/tests/test_pro_historical_host_data.py",
+      "sha256": "f1f1bdade39dc7ef775376d6500f7cc56282beacbff2ee1d4f45cb0bb30a6b0e"
+    },
+    {
       "path": "rikkahub_gateway/tests/test_pro_user_data_boundaries.py",
-      "sha256": "7f7920af09a9f5fa12ca0805bb0ad258e4ebdf234fd72c9dd3ef34c3be9d2288"
+      "sha256": "c6fdd1f322608dd3e04ca50d47c3127fcf4d38427f978c6b9ef7176671af94ab"
     },
     {
       "path": "rikkahub_gateway/tests/test_pro_user_data_layout.py",
@@ -1209,7 +1237,15 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_responses_adapter.py",
-      "sha256": "9a648227c57f56c5e5f214a63e305398bfc71529b46bddad698e923450f6f9c3"
+      "sha256": "97dc2aeb196804999cc5f573da4f4723f0d9c699b8f5ab557d3ebb909a12915f"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_responses_cache_boundaries.py",
+      "sha256": "ba0b071e7870255bcb754196546ff3848c93fcc1637b716e5f4f772dfa993767"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_responses_upstream_limits.py",
+      "sha256": "3f13195e7e1efe847978ee87bfed48325de17d8ad28049ad0ebd602708130041"
     },
     {
       "path": "rikkahub_gateway/tests/test_route_management.py",
@@ -1233,15 +1269,15 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_tail_context_v2_gateway.py",
-      "sha256": "720dba16a81d467942ca964a7f48067e8f0604686e0fe7fe84736ac8ed8b3a8c"
+      "sha256": "0a47a3e7921e1684a4985b8db3bef26b2c28cb0e70464daa4bc409b5807ca3d1"
     },
     {
       "path": "rikkahub_gateway/tests/test_tool_execution_boundary.py",
-      "sha256": "8af622fc46cece275f6a2727468730c08d15d113114961c2306b9deef761b186"
+      "sha256": "9cfa4e2b8035429165bd8ab3d92eaaf700f941c1ab9007cc33d9d98f61f0cebc"
     },
     {
       "path": "rikkahub_gateway/tests/test_tool_result_wait_timeout.py",
-      "sha256": "44dfa2ef99242f761d8d4155afe0dea524b51588f63498ec6bce4c8c25b54dd3"
+      "sha256": "b1a4a360efa500e49997e0ae7a8c0b73aced4a754bb89dbdd7a9d6a4a2e6a3fc"
     },
     {
       "path": "rikkahub_gateway/tool_execution.py",
@@ -1285,7 +1321,7 @@
     },
     {
       "path": "runtime/execution_binding.py",
-      "sha256": "a8bf2717efb7436139ae860d522d8a6433b5b792a98c966980fa891f6974777f"
+      "sha256": "b8a8b21877ca1551e167c5e3354ae2dcee193fc9a4da665a781f184061dc2212"
     },
     {
       "path": "runtime/execution_profiles.py",
@@ -1341,7 +1377,7 @@
     },
     {
       "path": "runtime/onboarding.py",
-      "sha256": "da3b42f7ca1e2fbfb2de0e01395e9febbd8dcb578db700955baeb100e0a29891"
+      "sha256": "0a2989bda50db21efa5b6ba0f2e538332f78eda17328fc2bd036daf838ce1cb1"
     },
     {
       "path": "runtime/ordinary_access.py",
@@ -1548,12 +1584,16 @@
       "sha256": "4727c53e231f84cb06ede623af1728bfdfed941becf7bc1236d50201c4ca1742"
     },
     {
+      "path": "source-release-state-0.2.3.json",
+      "sha256": "647adb7ddbfcb35cfae7366ca2c0b4655e59be702ea019be6b0539473e15578b"
+    },
+    {
       "path": "source-release-state-preview.5.json",
       "sha256": "5f21cbf24d9d098a1ee1522268d5763e179958a48fa638eb2a162e9cb5848ab7"
     },
     {
       "path": "source-release-state.json",
-      "sha256": "647adb7ddbfcb35cfae7366ca2c0b4655e59be702ea019be6b0539473e15578b"
+      "sha256": "45d0d65def9197a19df2d55df5a5a4c3d96907799d99abadb6fc368304dbf0be"
     },
     {
       "path": "tests/__init__.py",
@@ -1589,7 +1629,7 @@
     },
     {
       "path": "tests/test_context_layout.py",
-      "sha256": "0f3af12673dfd03893a4365853aeaec1b788f3ca307ff5d292f0bb73bf0f0080"
+      "sha256": "6427c104bbe9c38be21ad42531f63e2c6988a068b7e829df96e4ed7481ed810b"
     },
     {
       "path": "tests/test_credential_guard.py",
@@ -1633,7 +1673,7 @@
     },
     {
       "path": "tests/test_execution_binding.py",
-      "sha256": "047c334330883492e9acda05048de2678da16ff369e113de9291da2630fe5e75"
+      "sha256": "23ebd21f2d3d3d196d0a08ec1b2fada1a0723df9db9df68fe0ef7bed421cb5d2"
     },
     {
       "path": "tests/test_execution_profiles.py",

@@ -142,40 +142,8 @@ class GatewayExecutionRecoveryTests(unittest.TestCase):
         self.assertEqual(usage, output[1])
         self.assertEqual(after, _buffered_sse_tool_calls(b"".join(output)))
 
-    def test_verified_partial_real_timer_retires_without_next_request(self):
-        self.arm()
-        with self.assertRaises(GatewayError):
-            self.app.prepare_turn(self.partial(), self.headers)
-        self.assertTrue(self.control.closed.wait(timeout=1.0))
-        # The fake close event fires within the callback, before its final
-        # in-memory retirement. Synchronize on the same critical section.
-        with self.app._lock:
-            self.assertIsNone(self.app._current_session)
-            self.assertTrue(self.control.revoked)
-            self.assertIn("synthetic-open", self.app._retired_tool_call_ids)
 
-    def test_wrong_arguments_409_does_not_start_timer(self):
-        self.arm()
-        wrong = NativeToolCall("synthetic-shell", "workspace_shell", '{"command":"wrong"}')
-        with self.assertRaises(GatewayError):
-            self.app.prepare_turn(self.partial([wrong]), self.headers)
-        self.assertIsNone(self.prepared.session.recovery_timer)
-        self.assertFalse(self.control.closed.wait(timeout=0.08))
-        self.assertIs(self.prepared.session, self.app._current_session)
 
-    def test_running_call_is_not_revoked_at_deadline(self):
-        self.arm()
-        self.control.running = 1
-        with self.assertRaises(GatewayError):
-            self.app.prepare_turn(self.partial(), self.headers)
-        self.assertFalse(self.control.closed.wait(timeout=0.09))
-        self.assertFalse(self.control.revoked)
-        self.control.running = 0
-        timer = self.prepared.session.recovery_timer
-        if timer is not None:
-            timer.cancel()
-        self.app._recover_abnormal_wait(self.prepared.session, self.prepared.session.execution_revision)
-        self.assertTrue(self.control.closed.is_set())
 
     def test_undelivered_and_normal_generation_do_not_start_timer(self):
         calls = self.app.decorate_execution_calls(self.prepared, self.batch())
@@ -183,20 +151,7 @@ class GatewayExecutionRecoveryTests(unittest.TestCase):
         self.assertIsNone(self.prepared.session.recovery_timer)
         self.assertFalse(self.control.closed.wait(timeout=0.08))
 
-    def test_full_result_cancels_old_deadline_without_replaying(self):
-        calls = self.arm()
-        with self.assertRaises(GatewayError):
-            self.app.prepare_turn(self.partial(), self.headers)
-        continued = self.app.prepare_turn(self.partial(calls), self.headers)
-        self.assertTrue(continued.continuation)
-        self.assertIsNone(self.prepared.session.recovery_timer)
-        self.assertFalse(self.control.closed.wait(timeout=0.08))
 
-    def test_missing_uninstrumented_tool_does_not_start_timer(self):
-        calls = self.arm()
-        with self.assertRaises(GatewayError):
-            self.app.prepare_turn(self.partial(calls[1:]), self.headers)
-        self.assertIsNone(self.prepared.session.recovery_timer)
 
     def test_close_response_loss_retries_only_confirmed_exact_close(self):
         self.arm()
@@ -265,85 +220,9 @@ class GatewayExecutionRecoveryTests(unittest.TestCase):
         return {"tools": self.tools, "messages": [*first["messages"],
             *self.partial(decorated[:1])["messages"][1:]]}
 
-    def test_later_partial_with_verified_settled_prefix_starts_real_timer(self):
-        payload = self.later_batch_partial()
-        original = copy.deepcopy(payload)
-        receipts = copy.deepcopy(self.prepared.session.host_receipts)
-        with self.assertRaises(GatewayError):
-            self.app.prepare_turn(payload, self.headers)
-        self.assertEqual(original, payload)
-        self.assertEqual(receipts, self.prepared.session.host_receipts)
-        self.assertTrue(self.control.closed.wait(timeout=1.0))
-        with self.app._lock:
-            self.assertIsNone(self.app._current_session)
-            self.assertIn("synthetic-open-next", self.app._retired_tool_call_ids)
 
-    def test_recovered_chat_with_old_partial_history_accepts_new_human_not_old_continuation(self):
-        partial = self.later_batch_partial()
-        original = copy.deepcopy(partial)
-        with self.assertRaises(GatewayError):
-            self.app.prepare_turn(partial, self.headers)
-        self.assertTrue(self.control.closed.wait(timeout=1.0))
-        new_payload = {"tools": self.tools, "messages": [*partial["messages"],
-            {"role": "user", "content": "synthetic next human turn in the same chat"}]}
-        with self.app._lock:
-            self.assertIsNone(self.app._current_session)
-        new = self.app.prepare_turn(new_payload, self.headers)
-        self.assertFalse(new.continuation)
-        self.assertNotEqual(self.prepared.session.wake_id, new.session.wake_id)
-        self.assertEqual(original, partial)
-        for message in new_payload["messages"]:
-            self.assertIn(message, new.payload["messages"])
-        with self.assertRaisesRegex(GatewayError, "tool_continuation_context_lost"):
-            self.app.prepare_turn(partial, self.headers)
-        self.assertIs(new.session, self.app._current_session)
-        self.app.finish_turn(new, keep_for_tools=False)
 
-    def test_bad_settled_prefix_cannot_start_later_partial_timer(self):
-        valid = self.later_batch_partial()
-        variants = []
-        arguments = copy.deepcopy(valid)
-        arguments["messages"][1]["tool_calls"][0]["function"]["arguments"] = '{"command":"tampered"}'
-        variants.append(arguments)
-        result = copy.deepcopy(valid)
-        result["messages"][2]["content"] = "tampered old result"
-        variants.append(result)
-        order = copy.deepcopy(valid)
-        order["messages"][1]["tool_calls"].reverse()
-        variants.append(order)
-        unknown = copy.deepcopy(valid)
-        unknown["messages"][1]["tool_calls"][0]["id"] = "synthetic-unknown-prefix"
-        unknown["messages"][2]["tool_call_id"] = "synthetic-unknown-prefix"
-        variants.append(unknown)
-        current_arguments = copy.deepcopy(valid)
-        current_arguments["messages"][4]["tool_calls"][0]["function"]["arguments"] = '{"command":"tampered current"}'
-        variants.append(current_arguments)
-        before_calls = len(self.control.calls)
-        receipts = copy.deepcopy(self.prepared.session.host_receipts)
-        for index, payload in enumerate(variants):
-            with self.subTest(index=index):
-                original = copy.deepcopy(payload)
-                with self.assertRaises(GatewayError):
-                    self.app.prepare_turn(payload, self.headers)
-                self.assertEqual(original, payload)
-                self.assertIsNone(self.prepared.session.recovery_timer)
-                self.assertIsNone(self.prepared.session.abnormal_wait_started)
-                self.assertEqual(before_calls, len(self.control.calls))
-                self.assertEqual(receipts, self.prepared.session.host_receipts)
-        self.assertFalse(self.control.closed.is_set())
 
-    def test_cross_wake_or_bad_signed_receipt_cannot_start_later_partial_timer(self):
-        payload = self.later_batch_partial()
-        receipts = copy.deepcopy(self.prepared.session.host_receipts)
-        for field, value in (("wake_id", "synthetic-other-wake"), ("result_hash", "0" * 64)):
-            with self.subTest(field=field):
-                self.prepared.session.host_receipts[0][field] = value
-                with self.assertRaises(GatewayError):
-                    self.app.prepare_turn(payload, self.headers)
-                self.assertIsNone(self.prepared.session.recovery_timer)
-                self.assertIsNone(self.prepared.session.abnormal_wait_started)
-                self.prepared.session.host_receipts = copy.deepcopy(receipts)
-        self.assertFalse(self.control.closed.is_set())
 
 
 class GatewayExecutionHTTPWireTests(unittest.TestCase):

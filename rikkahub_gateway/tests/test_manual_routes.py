@@ -288,7 +288,7 @@ class ManualRouteTests(unittest.TestCase):
                          [r.headers["Authorization"][7:] for r in self.requests])
         self.assertEqual(2, sum(path == "/v1/host/wakes" for path, _ in self.control.calls))
 
-    def test_continuation_switch_rejected_before_receipts_or_wait_are_consumed(self):
+    def test_explicit_model_switch_keeps_history_without_reusing_old_authority(self):
         payload = self.payload(tools=legacy.GatewayTests.bound_tools())
         turn = self.app.prepare_turn(payload, {})
         call = legacy.GatewayTests.native_call("route-call", "synthetic")
@@ -297,17 +297,12 @@ class ManualRouteTests(unittest.TestCase):
         follow = {**payload, "messages": [*payload["messages"],
             {"role": "assistant", "tool_calls": [legacy.GatewayTests.wire_call(call)]},
             {"role": "tool", "tool_call_id": call.tool_call_id, "content": '{"exitCode":0}'}]}
-        before = list(self.control.calls)
-        with self.assertRaises(GatewayError) as failure:
-            self.app.prepare_turn({**follow, "model": config().public_model}, {})
-        self.assertEqual("tool_continuation_model_mismatch", failure.exception.code)
-        self.assertEqual(before, self.control.calls)
-        self.assertEqual({call.tool_call_id}, turn.session.expected_tool_call_ids)
-        self.assertEqual([], turn.session.host_receipts)
-        resumed = self.app.prepare_turn(follow, {})
-        self.assertIs(turn.session, resumed.session)
-        self.assertEqual(SECOND, resumed.route)
-        self.assertEqual(SECOND.upstream_model, resumed.payload["model"])
+        resumed = self.app.prepare_turn({**follow, "model": config().public_model}, {})
+        self.assertTrue(resumed.continuation)
+        self.assertIsNot(turn.session, resumed.session)
+        self.assertEqual(config().upstream_model, resumed.payload["model"])
+        self.assertEqual([], resumed.session.host_receipts)
+        self.assertEqual(follow["messages"], resumed.payload["messages"][-len(follow["messages"]):])
         self.app.finish_turn(resumed, keep_for_tools=False)
 
     def test_parallel_normal_conversations_keep_existing_single_wake_fence(self):

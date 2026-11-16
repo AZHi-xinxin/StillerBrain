@@ -27,6 +27,19 @@ class ExecutionControlTests(unittest.TestCase):
             {"Authorization": "Bearer " + (token or self.host), "Content-Type": "application/json"},
             json.dumps(body if body is not None else self.body).encode())
 
+    def test_large_batch_keeps_every_execution_and_auth_boundary(self):
+        calls = [{**self.calls[0], "call_id": f"call-{i}"} for i in range(512)]
+        body = {**self.body, "calls": calls}
+        self.assertGreater(len(json.dumps(body)), 64 * 1024)
+        self.assertEqual(401, self.request("issue", body, token=self.human)[0])
+        status, result = self.request("issue", body)
+        self.assertEqual(200, status)
+        self.assertEqual(512, len(result["executions"]))
+        self.assertEqual(512, self.request("status")[1]["counts"]["issued"])
+        # Issuing an identical batch returns the original leases, not duplicate work.
+        self.assertEqual(result, self.request("issue", body)[1])
+        self.assertEqual(512, self.request("status")[1]["counts"]["issued"])
+
     def test_host_issue_status_revoke(self):
         status, issued = self.request("issue", {**self.body, "calls": self.calls})
         self.assertEqual(200, status)

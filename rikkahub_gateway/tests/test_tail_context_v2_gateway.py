@@ -275,22 +275,18 @@ class TailContextV2GatewayTests(unittest.TestCase):
         self.assertEqual("st_context_hash_mismatch", caught.exception.code)
         self.assertEqual(before, first.session)
 
-    def test_issued_arguments_and_result_ids_not_relaxed_by_tail(self):
+    def test_changed_arguments_are_history_but_unmatched_result_ids_are_invalid(self):
         first, tools, history = self.arm()
-        for mutation in ("arguments", "result_id"):
-            with self.subTest(mutation=mutation):
-                changed, changed_tools = copy.deepcopy(history), copy.deepcopy(tools)
-                changed[0]["content"] = "Changed client system must not bypass tool checks"
-                if mutation == "arguments":
-                    changed[-2]["tool_calls"][0]["function"]["arguments"] = '{"command":"different"}'
-                else:
-                    changed[-1]["tool_call_id"] = "unissued"
-                before = copy.deepcopy(first.session)
-                with self.assertRaises(GatewayError) as caught:
-                    self.prepare(changed, tools=changed_tools)
-                self.assertEqual(409, caught.exception.status)
-                self.assertEqual(before, first.session)
-        self.assertIs(first.session, self.prepare(history, tools=tools).session)
+        wrong = copy.deepcopy(history)
+        wrong[-1]["tool_call_id"] = "unissued"
+        before = copy.deepcopy(first.session)
+        with self.assertRaises(GatewayError): self.prepare(wrong, tools=tools)
+        self.assertEqual(before, first.session)
+        changed = copy.deepcopy(history)
+        changed[-2]["tool_calls"][0]["function"]["arguments"] = '{"command":"different"}'
+        resumed = self.prepare(changed, tools=tools)
+        self.assertEqual([], resumed.session.host_receipts)
+        self.assertEqual(changed, resumed.payload["messages"][1:-1])
 
     def test_current_catalog_can_change_without_rebuilding_tail_context(self):
         first, tools, history = self.arm()
@@ -358,10 +354,9 @@ class TailInterleavedLineageTests(interleaved.GatewayInterleavedLineageTests):
         self.assertEqual(original, turn.payload["messages"][1:-1])
         self.assertNotIn("name", turn.payload["messages"][-3])
 
-    def test_cancel_text_neither_proves_user_cancel_nor_clears_partial_wait(self):
+    def test_cancel_text_does_not_attest_success_or_prove_host_stop(self):
         messages = self.history()
         messages[2]["content"] = "Generation cancelled by user"
-        self.reject(messages[:3])
         turn = self.prepare(messages)
         self.assertIs(self.app._current_session, self.session)
         self.assertEqual("unknown", self.session.host_receipts[0]["completion_state"])

@@ -1,10 +1,10 @@
 {
   "format": "stiller-source-release-state/1",
-  "version": "0.2.5-dev.20261122",
-  "release_channel": "development",
-  "distribution": "source-available-development-preview",
+  "version": "0.2.5",
+  "release_channel": "stable",
+  "distribution": "source-available-stable-release",
   "license": "PolyForm-Noncommercial-1.0.0",
-  "base_public_commit": "14559bb7fbe743f3a88363e3ff071278296e6716",
+  "base_public_commit": "1c3bc84cfd470dc9370fa9b3f35336d17cd838ca",
   "historical_public_state": "source-release-state-0.2.4.json",
   "implemented_revisions": "AI-managed ten-item keyword force recall; compact recall with short reference reads; direct self-definition and governance authoring; invalid tool JSON recovery",
   "publication_real_model_calls": 0,
@@ -101,6 +101,6 @@
   "integrity_manifest": "SOURCE-PACKAGE-MANIFEST.json",
   "core_dependencies_changed": false,
   "github_publication_authorized": true,
-  "stable_release_authorized": false,
-  "notes": "Main source synchronization of current deployed runtime, retaining public configurable provider routing. No new GitHub Release or production changes. See docs/UPDATE-20261122.md."
+  "stable_release_authorized": true,
+  "notes": "Maintainer explicitly requested the accepted deployed runtime as stable 0.2.5. Python source matches the verified main snapshot; version metadata, public release notes and source manifest updated. No production restart or private state publication."
 }

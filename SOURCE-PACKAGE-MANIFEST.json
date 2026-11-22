@@ -1,7 +1,7 @@
 {
   "format": "stiller-source-package/1",
-  "version": "0.2.5-dev.20261122",
-  "distribution": "source-available-development-preview",
+  "version": "0.2.5",
+  "distribution": "source-available-stable-release",
   "files": [
     {
       "path": ".env.example",
@@ -17,7 +17,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "96353985e5a6fa62a83bf77f0bd9a0ee59dad3f3a973c7af6cddcecb077a1b2b"
+      "sha256": "2202a08907beba26ab4c94380898d0ec9522155d1b2df1810071c682bd36273b"
     },
     {
       "path": "COMMERCIAL-LICENSE.md",
@@ -41,7 +41,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "7c6995d583e9d3fd65d1717a32fde60a834b22c5050bf743175eff04795952fa"
+      "sha256": "65201d3b995595cebd9a879b6c9eda1155d4c7933d06142d2c2eff94455f864c"
     },
     {
       "path": "RELEASE-NOTES-0.2.0-preview.1.md",
@@ -94,6 +94,10 @@
     {
       "path": "RELEASE-NOTES-0.2.4.md",
       "sha256": "4f6b6419413cb32045caca13b780e8e6d76fdfa4e5bc01ec901e310960fbe2be"
+    },
+    {
+      "path": "RELEASE-NOTES-0.2.5.md",
+      "sha256": "c2d0b5735f4a73ef24efc64209d347bfe18fe64baa3cefaa95f38f945ff24593"
     },
     {
       "path": "RELEASE-NOTES-preview.3.md",
@@ -245,7 +249,7 @@
     },
     {
       "path": "docs/UPDATE-20261122.md",
-      "sha256": "3c185c66fc7efb729b289f12ea8ec064325ec4e5c60d69d1c49e30e7c0118845"
+      "sha256": "3b29b8fc1204afb8ca7c0a2964dd083b8696ca20c0c93244852fdd34d794c4d3"
     },
     {
       "path": "docs/UPDATE-VALIDATION-0.2.0-preview.2.md",
@@ -273,7 +277,7 @@
     },
     {
       "path": "docs/UPDATE-VALIDATION.md",
-      "sha256": "e893cb7e7d485db89bceb96d5f818bbf2d309ec89874f25d26e006ebb2fb9e3a"
+      "sha256": "b2a9d585ee0594322580cdd82734dd198cd7d475e7a3069359e597232d5a7d09"
     },
     {
       "path": "docs/assets/stiller-cover.svg",
@@ -897,7 +901,7 @@
     },
     {
       "path": "release-state.json",
-      "sha256": "3fc93309a25a489177685825dc095164fb8b10f282d64c242ff0c816c1820248"
+      "sha256": "39ebd7d2d028affce546c0d6106881ef41411b172ac661a47ddc88236422b285"
     },
     {
       "path": "requirements-linux-arm64-py312.lock",
@@ -1645,7 +1649,7 @@
     },
     {
       "path": "source-release-state.json",
-      "sha256": "b4e9ba333c40d16c81c38a40ea0602b2d45eeebfc59d6404f04bc98727cb6f00"
+      "sha256": "ca07f92b830688d15fe6ebc27d9a0b32cf336ffd4aa865e24febc7f7646975f4"
     },
     {
       "path": "tests/__init__.py",

@@ -17,7 +17,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "2202a08907beba26ab4c94380898d0ec9522155d1b2df1810071c682bd36273b"
+      "sha256": "322ee1360e65cf5d2dce5e73e62bb89327675577ae08b04d897ad93949036bdc"
     },
     {
       "path": "COMMERCIAL-LICENSE.md",
@@ -41,7 +41,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "65201d3b995595cebd9a879b6c9eda1155d4c7933d06142d2c2eff94455f864c"
+      "sha256": "b09e6570ad107213eef4a71bff29062609c5cb95fd44f813d5f0098c60d8eacf"
     },
     {
       "path": "RELEASE-NOTES-0.2.0-preview.1.md",
@@ -97,7 +97,7 @@
     },
     {
       "path": "RELEASE-NOTES-0.2.5.md",
-      "sha256": "c2d0b5735f4a73ef24efc64209d347bfe18fe64baa3cefaa95f38f945ff24593"
+      "sha256": "ca2df0effc26aaea277350fd30d292b5036350d930456a86f45676f9313d6b69"
     },
     {
       "path": "RELEASE-NOTES-preview.3.md",
@@ -249,7 +249,7 @@
     },
     {
       "path": "docs/UPDATE-20261122.md",
-      "sha256": "3b29b8fc1204afb8ca7c0a2964dd083b8696ca20c0c93244852fdd34d794c4d3"
+      "sha256": "685b80f4aad8e96970e282632f4a9c8c1c0274072c93c99cbf06a40b45f5e8cc"
     },
     {
       "path": "docs/UPDATE-VALIDATION-0.2.0-preview.2.md",
@@ -277,7 +277,7 @@
     },
     {
       "path": "docs/UPDATE-VALIDATION.md",
-      "sha256": "b2a9d585ee0594322580cdd82734dd198cd7d475e7a3069359e597232d5a7d09"
+      "sha256": "4dc04a9cad382e0ab40580e319a7c3a4378fdfdf1cd3de500850564bbeb04d38"
     },
     {
       "path": "docs/assets/stiller-cover.svg",
@@ -1649,7 +1649,7 @@
     },
     {
       "path": "source-release-state.json",
-      "sha256": "ca07f92b830688d15fe6ebc27d9a0b32cf336ffd4aa865e24febc7f7646975f4"
+      "sha256": "df84b8b1f9432dd5cd894140d37d09b438c5714748de2634add27c08e59dc947"
     },
     {
       "path": "tests/__init__.py",

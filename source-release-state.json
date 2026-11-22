@@ -6,7 +6,7 @@
   "license": "PolyForm-Noncommercial-1.0.0",
   "base_public_commit": "1c3bc84cfd470dc9370fa9b3f35336d17cd838ca",
   "historical_public_state": "source-release-state-0.2.4.json",
-  "implemented_revisions": "AI-managed ten-item keyword force recall; compact recall with short reference reads; direct self-definition and governance authoring; invalid tool JSON recovery",
+  "implemented_revisions": "AI-managed ten-item keyword force recall; compact recall with short reference reads; free-form self-definition content with retained three-wake activation; direct governance reminder authoring; invalid tool JSON recovery",
   "publication_real_model_calls": 0,
   "publication_live_service_changes": false,
   "production_readiness_certified": false,

@@ -1,6 +1,6 @@
 # Stiller Brain（ST）
 
-> 当前正式版 **0.2.5**：新增十条关键词必浮现、短编号查询，简化浮现提示并放宽 AI 自我定义写入。十条关键词绑定已获维护者实际验收。[下载正式版](https://github.com/AZHi-xinxin/StillerBrain/releases/tag/v0.2.5) · [更新与升级](RELEASE-NOTES-0.2.5.md) · [关键词必浮现](docs/FORCE-RECALL.md)。
+> 当前正式版 **0.2.5**：新增十条关键词必浮现、短编号查询，简化浮现提示并放宽自我定义内容的格式与长度限制；模块一核心自我定义仍经三次真实唤醒完成提交、复核和激活。十条关键词绑定已获维护者实际验收。[下载正式版](https://github.com/AZHi-xinxin/StillerBrain/releases/tag/v0.2.5) · [更新与升级](RELEASE-NOTES-0.2.5.md) · [关键词必浮现](docs/FORCE-RECALL.md)。
 
 昕昕 & 阿止
 

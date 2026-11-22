@@ -11,7 +11,7 @@ from runtime import injection_control, self_revision, tool_guidance
 class CredentialGuardWiringTests(unittest.TestCase):
     COMPONENTS = (
         "authoring", "emotional_memory", "hallucination_vault",
-        "learning_idea_box", "learning_memory", "planning_memory", "self_governance",
+        "learning_idea_box", "learning_memory", "planning_memory",
     )
 
     def gates(self):

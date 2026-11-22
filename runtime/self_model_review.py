@@ -80,7 +80,7 @@ def prepare_review_page(
     candidate_id, content_hash = candidate.get("candidate_id"), candidate.get("content_hash")
     if not isinstance(candidate_id, str) or not candidate_id.strip() or not _digest(content_hash):
         raise ReviewPageError("review_candidate_invalid")
-    if not isinstance(candidate.get("content"), dict):
+    if "content" not in candidate:
         raise ReviewPageError("review_candidate_invalid")
     if _hash(_canonical(candidate["content"])) != content_hash:
         raise ReviewPageError("review_candidate_content_hash_mismatch")

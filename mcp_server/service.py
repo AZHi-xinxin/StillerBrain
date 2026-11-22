@@ -7,6 +7,9 @@ state.
 """
 
 from __future__ import annotations
+from runtime.self_content import parts as self_parts, facet_map, object_view
+
+from runtime.facet_recall import DEFAULT_POLICY as FACET_DEFAULT_POLICY, RULES as FACET_RECALL_RULES, effective_policy as facet_policy
 
 import json
 from pathlib import Path
@@ -63,7 +66,7 @@ _CONTENT_SCHEMA_PATH = (
 )
 
 _BLANK_CONTENT_STRUCTURE: dict[str, Any] = {
-    "schema_version": "0.1.0",
+    "schema_version": "0.2.0",
     "boot_anchor": {"text": None},
     "active_identity_capsule": {
         "name_and_identity": None,
@@ -75,6 +78,7 @@ _BLANK_CONTENT_STRUCTURE: dict[str, Any] = {
     },
     "facets": {},
     "anchor_references": [],
+    "facet_recall": dict(FACET_DEFAULT_POLICY),
 }
 
 
@@ -157,199 +161,10 @@ def _first_invalid_anchor_summary(value: Any) -> dict[str, Any] | None:
     return None
 
 
-def _content_validation_help(
-    content: Any, reason_codes: list[str]
-) -> dict[str, Any] | None:
-    content_codes = {
-        "invalid_content_structure",
-        "invalid_boot_anchor",
-        "invalid_identity_capsule",
-        "invalid_facets",
-        "invalid_anchor_references",
-        "boot_anchor_too_long",
-        "identity_capsule_too_long",
-        "facet_too_long",
-        "total_content_too_long",
-    }
-    relevant = [code for code in reason_codes if code in content_codes]
-    if not relevant:
+def _content_validation_help(content: Any, reason_codes: list[str]) -> dict[str, Any] | None:
+    if "invalid_content_structure" not in reason_codes:
         return None
-
-    errors: list[dict[str, Any]] = []
-    content_object = content if isinstance(content, dict) else {}
-    required_top = {
-        "schema_version",
-        "boot_anchor",
-        "active_identity_capsule",
-        "facets",
-        "anchor_references",
-    }
-
-    if "invalid_content_structure" in relevant:
-        received: dict[str, Any] = {"type": _value_type(content)}
-        if isinstance(content, dict):
-            keys = set(content)
-            received.update(
-                {
-                    "keys": sorted(str(key) for key in keys),
-                    "missing_keys": sorted(required_top - keys),
-                    "unexpected_keys": sorted(keys - required_top),
-                    "schema_version_type": _value_type(content.get("schema_version")),
-                }
-            )
-        errors.append(
-            {
-                "reason_code": "invalid_content_structure",
-                "field": "content",
-                "expected": {
-                    "type": "object",
-                    "exact_keys": sorted(required_top),
-                    "schema_version": "0.1.0",
-                    "additional_properties": False,
-                },
-                "received": received,
-                "blank_structure": _BLANK_CONTENT_STRUCTURE,
-            }
-        )
-
-    if "invalid_boot_anchor" in relevant:
-        errors.append(
-            {
-                "reason_code": "invalid_boot_anchor",
-                "field": "content.boot_anchor",
-                "expected": {
-                    "type": "object",
-                    "exact_keys": ["text"],
-                    "text": "non-empty string",
-                },
-                "received": _object_summary(content_object.get("boot_anchor")),
-            }
-        )
-
-    if "invalid_identity_capsule" in relevant:
-        capsule = content_object.get("active_identity_capsule")
-        received = _object_summary(capsule)
-        if isinstance(capsule, dict):
-            required_strings = {
-                "name_and_identity",
-                "personality_foundation",
-                "expression_style",
-                "self_revision_safety_prompt",
-            }
-            required_lists = {"behavioral_principles", "core_identity_anchors"}
-            expected_keys = required_strings | required_lists
-            received.update(
-                {
-                    "missing_keys": sorted(expected_keys - set(capsule)),
-                    "unexpected_keys": sorted(set(capsule) - expected_keys),
-                    "field_types": {
-                        key: _value_type(capsule.get(key)) for key in sorted(expected_keys)
-                    },
-                }
-            )
-        errors.append(
-            {
-                "reason_code": "invalid_identity_capsule",
-                "field": "content.active_identity_capsule",
-                "expected": {
-                    "type": "object",
-                    "exact_keys": [
-                        "behavioral_principles",
-                        "core_identity_anchors",
-                        "expression_style",
-                        "name_and_identity",
-                        "personality_foundation",
-                        "self_revision_safety_prompt",
-                    ],
-                    "string_fields": [
-                        "name_and_identity",
-                        "personality_foundation",
-                        "expression_style",
-                        "self_revision_safety_prompt",
-                    ],
-                    "non_empty_string_array_fields": [
-                        "behavioral_principles",
-                        "core_identity_anchors",
-                    ],
-                },
-                "received": received,
-            }
-        )
-
-    if "invalid_facets" in relevant:
-        errors.append(
-            {
-                "reason_code": "invalid_facets",
-                "field": "content.facets",
-                "expected": {
-                    "type": "object",
-                    "max_properties": 16,
-                    "key_pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$",
-                    "values": "non-empty strings",
-                },
-                "received": _object_summary(content_object.get("facets")),
-            }
-        )
-
-    if "invalid_anchor_references" in relevant:
-        anchors = content_object.get("anchor_references")
-        received = _array_summary(anchors)
-        first_invalid = _first_invalid_anchor_summary(anchors)
-        if first_invalid is not None:
-            received["first_invalid_item"] = first_invalid
-        errors.append(
-            {
-                "reason_code": "invalid_anchor_references",
-                "field": "content.anchor_references",
-                "expected": {
-                    "type": "array",
-                    "max_items": 32,
-                    "each_item": {
-                        "type": "object",
-                        "exact_keys": ["anchor_id", "memory_ref", "meaning"],
-                        "all_values": "non-empty strings",
-                    },
-                },
-                "received": received,
-            }
-        )
-
-    length_fields = {
-        "boot_anchor_too_long": ("content.boot_anchor.text", 500),
-        "identity_capsule_too_long": (
-            "content.active_identity_capsule (canonical JSON)",
-            4000,
-        ),
-        "facet_too_long": ("content.facets.<name>", 2500),
-        "total_content_too_long": ("content (canonical JSON)", 16000),
-    }
-    for code, (field, maximum) in length_fields.items():
-        if code in relevant:
-            errors.append(
-                {
-                    "reason_code": code,
-                    "field": field,
-                    "expected": {"maximum_characters": maximum},
-                    "received": "See length_metrics in this response.",
-                }
-            )
-
-    return {
-        "candidate_persisted": False,
-        "schema_tool": "stbrain_open",
-        "schema_arguments": {"view": "manual", "module": "self_revision"},
-        "workspace_required": False,
-        "retry_hint": (
-            "Correct only the fields identified below; author the wording yourself, "
-            "with no required first word. In the same real wake, retain your current "
-            "write_context_ref and use the current row_version returned by this result. "
-            "A new wake needs its own open context. If you need the schema, call "
-            "stbrain_open(view='manual', module='self_revision') directly via MCP; "
-            "no shell, workspace file, or public idempotency key is required. "
-            "The blank structure is a shape, not text to adopt or submit unchanged."
-        ),
-        "errors": errors,
-    }
+    return {"reason": "内容须能用JSON传输；不限制字段、名称、长度或条数。"}
 
 
 def _optional_revision(value: str | None) -> str | None:
@@ -650,7 +465,14 @@ class SelfModelAccessService:
         if self.onboarding is None:
             raise SelfRevisionError("module-one onboarding gate is not configured")
         if not isinstance(write_context_ref, str) or not write_context_ref.strip():
-            return self._public_context_denial("brain_open_required", "write_context_ref_required")
+            opened = self.onboarding.open_brain_context(
+                owner_id=self.owner_id, model_id=self.model_id, present_details=False,
+                advance_candidate_review=intent in {"accept_review", "revise"})
+            if opened.get("write_context_available") is not True:
+                return self._public_context_denial(str(opened.get("reason_code") or "brain_open_required"))
+            write_context_ref = opened["write_context_ref"]
+        if expected_row_version is None:
+            expected_row_version = self._onboarding_status()["state"]["row_version"]
         binding = self.onboarding.current_open_write_context(
             owner_id=self.owner_id,
             model_id=self.model_id,
@@ -700,7 +522,7 @@ class SelfModelAccessService:
                 # has been authenticated, inside the authoritative runtime.
                 action_payload = {
                     "content": action_payload["content"],
-                    "reason": action_payload["reason"],
+                    "reason": action_payload.get("reason", ""),
                     SERVER_DERIVED_CANDIDATE_MARKER: True,
                 }
 
@@ -1401,8 +1223,8 @@ class SelfModelAccessService:
         self,
         *,
         intent: str,
-        write_context_ref: str,
-        expected_row_version: int | None,
+        write_context_ref: str | None = None,
+        expected_row_version: int | None = None,
         payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Route one semantic onboarding/write intent without exposing raw actions."""
@@ -1419,10 +1241,10 @@ class SelfModelAccessService:
         self,
         *,
         candidate_id: str,
-        write_context_ref: str,
-        expected_row_version: int | None,
         expected_active_revision: str | None,
         ai_confirmation: bool,
+        write_context_ref: str | None = None,
+        expected_row_version: int | None = None,
     ) -> dict[str, Any]:
         """Activate only after accepted review and a later real wake."""
         # Bind the opened wake first.  The authoritative runtime transaction
@@ -1460,16 +1282,17 @@ class SelfModelAccessService:
             )
             if result.get("active_available") is True and view == "active":
                 active = result.pop("active")
-                content = active["content"]
+                content = self_parts(active["content"])
+                content["facets"] = facet_map(content.get("facets"))
                 names = facet_names or []
                 result.update({
                     "boot_anchor": {
-                        **content["boot_anchor"], "model_id": self.model_id,
+                        **object_view(content.get("boot_anchor", {})), "model_id": self.model_id,
                         "active_revision_id": active["revision_id"],
                         "current_effective_version": active["revision_number"],
                     },
                     "active_identity_capsule": {
-                        **content["active_identity_capsule"],
+                        **object_view(content.get("active_identity_capsule", {})),
                         "active_revision_id": active["revision_id"],
                         "current_effective_version": active["revision_number"],
                     },
@@ -1485,7 +1308,10 @@ class SelfModelAccessService:
                             "可用名称见available_facet_names；按精确名称查询，或用view=edit_basis读取完整活动版。"
                         ),
                     },
-                    "anchor_references": content["anchor_references"] if include_anchor_references else [],
+                    "facet_recall_settings": facet_policy(content.get("facet_recall")),
+                    "facet_recall_rules": FACET_RECALL_RULES,
+                    "facet_recall_receipt": self._facet_recall_receipt(names) if names else None,
+                    "anchor_references": content.get("anchor_references", []) if include_anchor_references else [],
                     "active_revision_id": active["revision_id"],
                     "content_hash": active["content_hash"],
                     "scope": "selected_active_layers",
@@ -1494,7 +1320,7 @@ class SelfModelAccessService:
             elif result.get("active_available") is True:
                 result["scope"] = "complete_active_edit_basis"
                 result["instruction"] = (
-                    "active.content是完整且已核对哈希的活动五键正文，含原有facets和引用；"
+                    "active.content是完整且已核对哈希的活动正文，含原有facets、引用及该版本自定设置；"
                     "编辑时保留未改部分。读取不是签发写权限、候选复核或自动注入。"
                 )
         elif view == "active":
@@ -1519,6 +1345,26 @@ class SelfModelAccessService:
             "view": view,
             "result": result,
         }
+
+    def _facet_recall_receipt(self, names):
+        if self.onboarding is None:
+            return None
+        with self.onboarding._connect() as connection:
+            row = connection.execute("SELECT prepared_at,dynamic_json FROM brain_context_snapshots "
+                "WHERE owner_id=? AND model_id=? AND injected_at IS NOT NULL "
+                "ORDER BY prepared_at DESC LIMIT 1", (self.owner_id, self.model_id)).fetchone()
+        if row is None:
+            return None
+        diagnostics = json.loads(row["dynamic_json"]).get("self_facets", {}).get("diagnostics")
+        if not diagnostics:
+            return None
+        wanted = set(names)
+        return {"prepared_at": row["prepared_at"], "hard_matches": {
+            k: v for k, v in diagnostics["hard_matches"].items() if k in wanted},
+            **{k: [n for n in diagnostics[k] if n in wanted]
+               for k in ("soft_matches", "reference_expansions", "legacy_without_summary", "summary_only")},
+            "semantic_status": diagnostics["semantic_status"],
+            "mandatory_exceeds_budget": diagnostics["mandatory_exceeds_budget"]}
 
     def continue_module_one(
         self,
@@ -1550,58 +1396,22 @@ class SelfModelAccessService:
         raise SelfRevisionError("candidate not found for this self-model")
 
     def content_schema(self) -> dict[str, Any]:
-        """Return an opinion-free contract and a deliberately invalid blank shape."""
-        schema = _load_content_schema()
-        # Developer fixtures may use examples, but onboarding must never hand a
-        # blank model value-laden prose that can be copied as its own identity.
-        schema.pop("examples", None)
+        """Optional organization hints, never a whitelist for authored content."""
         return {
-            "contract": "self_model_content",
-            "schema_version": "0.1.0",
-            "json_schema": schema,
+            "contract": "self_model_content", "schema_version": "0.3.0",
+            "json_schema": _load_content_schema(),
             "blank_structure": json.loads(json.dumps(_BLANK_CONTENT_STRUCTURE)),
-            "blank_structure_is_submittable": False,
-            "field_guide": {
-                "boot_anchor.text": {
-                    "purpose": "由 AI 自己决定的简短启动提醒。",
-                    "when_visible": "模块一 live 后的正常生成。",
-                },
-                "active_identity_capsule": {
-                    "purpose": "由 AI 自己决定的稳定身份、性格、表达、原则、身份锚与自我修订边界。",
-                    "when_visible": "模块一 live 后的正常生成。",
-                },
-                "active_identity_capsule.self_revision_safety_prompt": {
-                    "purpose": "由 AI 自己给未来自我修订设置的边界；开发者不提供价值内容。",
-                    "when_visible": "作为模块一活动稳定层随 live 生成出现；修改时仍显示当前活动版，候选不会同轮替代它。",
-                },
-                "facets": {
-                    "purpose": "由 AI 自选的情境侧面；可以为空对象。",
-                    "when_visible": "模块一 live 且自我注入开启后，默认宿主按本轮用户文字与自定key/原正文做本地词句匹配，相关完整侧面进入动态预算余量，最多3项；无相关线索或放不下时本轮省略。宿主显式facet_names仍按名选，显式[]不选。",
-                },
-                "anchor_references": {
-                    "purpose": "可复核来源引用；可以为空数组，不自动注入。",
-                    "when_visible": "仅在主动查询或复核时。",
-                },
-            },
+            "blank_structure_is_submittable": True,
+            "facet_recall_defaults": dict(FACET_DEFAULT_POLICY),
+            "facet_record_shape": {"text": "可选正文", "summary": "可选自写摘要",
+                                   "keywords": [], "aliases": [], "related_facets": []},
             "important_rules": [
-                "The five top-level keys are exact; do not omit, rename, or add keys.",
-                "boot_anchor is an object with one text field, not a bare string.",
-                "active_identity_capsule contains four non-empty strings and two non-empty string arrays.",
-                "anchor_references is an array; every item has exactly anchor_id, memory_ref, and meaning.",
-                "facets may be an empty object; anchor_references may be an empty array.",
-                "blank_structure contains null or empty placeholders and is intentionally invalid until the AI authors it.",
-                "No developer-authored identity, value, relationship, or safety-boundary prose is supplied as candidate text.",
-                "The AI may stop onboarding or leave the optional brain unused instead of adopting content it does not choose.",
-                "The AI authors and reviews its own wording. No sentence prefix or grammatical person is required; the host preserves the text instead of rewriting it or supplying identity prose.",
+                "内容原样保存；字段、名称、字数、条数和版本不限制写入，也可直接写文本或其他JSON结构。",
+                "boot_anchor、active_identity_capsule、facets只是可选组织方式；自定义字段不会丢弃。",
+                "facets各条可写原文，也可附自写summary；无摘要则显示全文。检索设置可只填要改的部分。",
+                "自我定义仍由AI跨三个真实唤醒提交、复核、激活；不会代写或同轮激活。",
+                "write_context_ref与expected_row_version可省略，服务自动绑定当前会话；无需抄系统编号。",
             ],
-            "runtime_limits": {
-                "boot_anchor_text_characters": 500,
-                "active_identity_capsule_canonical_json_characters": 4000,
-                "facet_value_characters": 2500,
-                "total_content_canonical_json_characters": 16000,
-                "max_facets": 16,
-                "max_anchor_references": 32,
-            },
         }
 
     def prepare(self) -> dict[str, Any]:
@@ -1613,8 +1423,7 @@ class SelfModelAccessService:
                 "model_id": self.model_id,
                 "compatibility_notice": (
                     "checkpoint_id is retained only for old clients and has no authority; "
-                    "public clients must open the brain and use its per-wake write_context_ref "
-                    "with the current row_version; wake capabilities remain server-side."
+                    "write_context_ref and row_version may be omitted; the server binds the current wake automatically."
                 ),
             }
         active = self.store.active_revision(self.model_id)

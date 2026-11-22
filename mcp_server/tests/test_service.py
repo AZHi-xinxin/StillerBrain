@@ -52,10 +52,10 @@ class SelfModelAccessServiceTests(unittest.TestCase):
         after = self.service.prepare()["counts"]
 
         self.assertEqual(before, after)
-        self.assertEqual("0.1.0", contract["schema_version"])
+        self.assertEqual("0.3.0", contract["schema_version"])
         self.assertNotIn("content_example", contract)
         self.assertNotIn("examples", contract["json_schema"])
-        self.assertFalse(contract["blank_structure_is_submittable"])
+        self.assertTrue(contract["blank_structure_is_submittable"])
         self.assertEqual(
             {
                 "schema_version",
@@ -63,6 +63,7 @@ class SelfModelAccessServiceTests(unittest.TestCase):
                 "active_identity_capsule",
                 "facets",
                 "anchor_references",
+                "facet_recall",
             },
             set(contract["blank_structure"]),
         )
@@ -168,7 +169,7 @@ class SelfModelAccessServiceTests(unittest.TestCase):
             required_scope="self_revision",
         )
 
-    def test_content_rejection_explains_each_invalid_field_without_persisting(self) -> None:
+    def test_self_authored_structure_preserves_every_field(self) -> None:
         prepared = self.service.prepare()
         malformed = model_content()
         malformed["boot_anchor"] = "must-not-be-echoed"
@@ -187,22 +188,10 @@ class SelfModelAccessServiceTests(unittest.TestCase):
             presented_safety_prompt=prepared["safety_prompt"],
         )
 
-        self.assertEqual("reject", result["decision"])
-        self.assertEqual([], self.service.store.list_candidates(self.service.model_id))
-        help_payload = result["validation_help"]
-        self.assertFalse(help_payload["candidate_persisted"])
-        self.assertEqual("stbrain_open", help_payload["schema_tool"])
-        explained = {item["reason_code"] for item in help_payload["errors"]}
-        self.assertTrue(
-            {
-                "invalid_content_structure",
-                "invalid_boot_anchor",
-                "invalid_identity_capsule",
-                "invalid_anchor_references",
-            }.issubset(explained)
-        )
-        rendered = json.dumps(help_payload, ensure_ascii=False)
-        self.assertNotIn("must-not-be-echoed", rendered)
+        self.assertEqual("pending", result["decision"])
+        stored = self.service.store.list_candidates(self.service.model_id)[0]
+        self.assertEqual(malformed, json.loads(stored["content_json"]))
+        self.assertNotIn("validation_help", result)
 
     def test_true_store_activate_retrieve_search_closure(self) -> None:
         prepared = self.service.prepare()

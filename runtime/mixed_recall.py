@@ -77,6 +77,7 @@ def select_mixed_recall(
     budget: int = 1200,
     decorate_primary: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     diagnostics: dict[str, Any] | None = None,
+    forced: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Select only supplied, disclosure-gated entries under the exact shared cap.
 
@@ -138,6 +139,24 @@ def select_mixed_recall(
             # means the invariant/config changed; do not silently claim delivery.
             raise ValueError("persistent_reminder_budget_unavailable")
         selected_plans = compact
+
+    # Explicit literal cues share the hard budget, but are reserved before
+    # discretionary ranking. Inputs have already passed their module gates.
+    if forced:
+        from .force_recall import delivered_refs, select_forced
+        dynamic = select_forced(dynamic, forced, estimate_tokens=estimate_tokens, budget=budget)
+        forced_refs = {x["ref"].rsplit("@", 1)[0] for x in forced}
+        selected_forced = {ref.rsplit("@", 1)[0] for ref in delivered_refs(dynamic)} & forced_refs
+        if diagnostics is not None:
+            diagnostics["force_recall_matched"] = len(forced)
+            diagnostics["force_recall_selected"] = len(selected_forced)
+            diagnostics["force_recall_omitted"] = sum(x["entry"] is not None for x in forced) - len(selected_forced)
+        # Avoid injecting the same memory again through ordinary competition.
+        learning = [x for x in learning if x.get("item_ref", "").rsplit("@", 1)[0] not in forced_refs]
+        tool = [x for x in tool if x.get("item_ref", "").rsplit("@", 1)[0] not in forced_refs]
+        plan_items = [x for x in plan_items if x.get("item_ref", "").rsplit("@", 1)[0] not in forced_refs]
+        emotional = {**emotional, "memories": [x for x in emotional.get("memories", [])
+                      if "emotion://" + x["memory_id"] not in forced_refs]}
 
     # An explicit saved cue must not lose its whole memory to a lower-priority
     # long original or unrelated high semantic scores. Reserve summaries before

@@ -66,6 +66,7 @@ _DESCRIPTIONS = {
         "ST 的首选读取入口，无必填参数；新对话需要接续共同经历、身份关系或旧事时，先从这里打开或查询。"
         "view=recall 统一查询四个普通脑；query 留空分页浏览，module 留空跨脑，"
         "保持 query/module 用 next_cursor 翻页。返回摘要、精确引用及原文/历史读取线索。"
+        "自动浮现的短编号（如#E0123456789ab）可直接填query精确查询，获得原文入口和该条诊断；不要猜完整编号。"
         "此只读查询无需唤醒或密码，不含模块一、待审核或隔离内容。"
         "读原文或历史时，detail_lookup.tool 填入 stbrain_manage 的 action，"
         "detail_lookup.arguments 原样填入 arguments；不要把未列出的旧操作名直接当工具调用。"

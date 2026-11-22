@@ -58,6 +58,7 @@ from runtime.memory_images import MemoryImageStore, MAX_BASE64, MAX_MCP_REQUEST_
 from runtime.memory_image_uploads import UPLOAD_REF_PATTERN
 from .memory_image_service import MemoryImageAccessService
 from .memory_desire_service import MemoryDesireAccessService
+from .force_recall_service import ForceRecallAccessService
 from runtime.memory_desires import MemoryDesireStore
 from .execution_guard import install_execution_guard
 from .usage_guide import module_usage_guide, usage_guide
@@ -362,16 +363,14 @@ GovernanceText = Annotated[
     StrictStr,
     StringConstraints(
         min_length=1,
-        max_length=2000,
     ),
     Field(description="AI 自写轻提醒、安全阀或给自己的提示词；正文和人称由作者选择。"),
 ]
 GovernanceSceneTag = Annotated[
     StrictStr,
-    StringConstraints(min_length=1, max_length=80),
+    StringConstraints(min_length=1),
 ]
 GovernanceSceneTags = Annotated[list[GovernanceSceneTag], Field(
-    max_length=32,
     description=(
         "治理轻提醒的普通场景标签优先写本轮人类聊天自然会说的词句，如“设个闹钟”“提醒我”“回家了”“还记得”；"
         "AI 可按实际表达自行增改。当前按标签完整短语在本轮场景 query 中 casefold 子串匹配；"
@@ -391,7 +390,7 @@ GovernanceExpectedActiveRevision = Annotated[
 ]
 GovernanceReason = Annotated[
     StrictStr,
-    StringConstraints(min_length=1, max_length=2000),
+    StringConstraints(min_length=1),
     Field(
         description=(
             "候选/撤回时的审计理由；activate 时也允许作为 AI 在较晚真实唤醒中的"
@@ -485,6 +484,8 @@ memory_image_service = MemoryImageAccessService(
 
 
 memory_desire_service = MemoryDesireAccessService(MemoryDesireStore(DATABASE), onboarding=onboarding,
+    owner_id=OWNER_ID, model_id=MODEL_ID, protected_values=(MCP_TOKEN, WAKE_SECRET))
+force_recall_service = ForceRecallAccessService(onboarding.force_recall_store, onboarding=onboarding,
     owner_id=OWNER_ID, model_id=MODEL_ID, protected_values=(MCP_TOKEN, WAKE_SECRET))
 
 
@@ -676,6 +677,24 @@ async def stage_memory_image_upload(
     参数引用不变且通过原执行绑定。不要把宿主能力加入模型工具目录。
     """
     return memory_image_service.stage_upload(protocol, upload_ref, mime_type, sha256, data_base64)
+
+
+@mcp.tool()
+async def memory_force_recall(
+    action: Literal["enable", "disable", "read", "list", "guide"] = "list",
+    target_ref: StrictStr | None = None, expected_revision: StrictInt | None = None,
+    write_context_ref: StrictStr | None = None,
+) -> dict[str, Any]:
+    """四脑关键词必浮现：默认关闭，AI 自主管理，合计最多10条。
+
+    stbrain_manage(action='memory_force_recall',arguments={action,target_ref})。
+    enable/disable/read 使用最新完整 emotion/learning/plan/tool-card 引用；list 列出已开启项。
+    只匹配本轮新人类正文，英文字词边界、中文词句；优先有界摘要，不改原文，不绕过禁召和披露设置。
+    返回 force_recall、revision、hit_count、injected_count、最后命中/注入时间及未注入原因。
+    到顶拒绝新开，先 disable；不会替换旧项。expected_revision 可选用于并发检查。
+    不含模块一、黑匣子或工作随手记；人类只读，沿用 AI 作者认证与执行绑定。
+    """
+    return force_recall_service.manage(action, target_ref, expected_revision, write_context_ref)
 
 
 @mcp.tool()
@@ -1126,6 +1145,9 @@ async def stbrain_open(
     a query searches emotional, learning, planning and tool memory. module omitted
     selects all four; select one ordinary module to narrow it. Results are safe
     summaries with exact references and detail_lookup for original/history reads.
+    Automatic recall uses short references such as #E0123456789ab. Pass that
+    complete short reference as query to find the current record, detail_lookup
+    and its latest automatic-recall diagnostic receipt. It is not a version ID.
     Keep query/module and use next_cursor; changed records require a fresh search.
     Partial/errors/truncated are explicit; scores are not cross-brain probabilities.
     This view excludes core identity, isolated-vault content and pending candidates.
@@ -1173,8 +1195,8 @@ async def stbrain_open_direct(
 @mcp.tool()
 async def submit_self_model_candidate(
     intent: SubmitIntent,
-    write_context_ref: NonEmptyJsonString,
-    expected_row_version: JsonRowVersion,
+    write_context_ref: NonEmptyJsonString = None,
+    expected_row_version: JsonRowVersion = None,
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Prepare, save, revise, recover, or review a candidate through one safe facade.
@@ -1182,10 +1204,10 @@ async def submit_self_model_candidate(
     Use a server-verified gateway execution and its injected wake, or a valid
     authorized direct context. In simple-memory-v1 the gateway needs no deployment
     password; direct writes require authorize_self_model and stbrain_open_direct.
-    Copy write_context_ref and row_version from the corresponding open result.
+    Omit write_context_ref and expected_row_version; the service supplies them from this authenticated wake. Explicit values are still honored.
     For save_calm_prompt, payload is exactly {"text": <AI-authored string>}. For submit
-    and revise, payload is exactly {"content": <five-key self model>, "reason": <string>}.
-    The reason key is never named ai_reason. For confirm_edit, payload must contain
+    and revise, payload contains {"content": <AI-authored JSON>, "reason": <optional string>}.
+    The optional reason also accepts ai_reason as an alias. For confirm_edit, payload must contain
     challenge_id and ai_confirmation=true; it must never contain a challenge response or
     wake capability. Unknown payload keys are invalid.
     Candidate review acceptance is recorded but never activates in the same real wake.
@@ -1201,10 +1223,10 @@ async def submit_self_model_candidate(
 @mcp.tool()
 async def activate_self_model_candidate(
     candidate_id: NonEmptyJsonString,
-    write_context_ref: NonEmptyJsonString,
-    expected_row_version: JsonRowVersion,
     expected_active_revision: NonEmptyJsonString | None,
     ai_confirmation: JsonTrue,
+    write_context_ref: NonEmptyJsonString = None,
+    expected_row_version: JsonRowVersion = None,
 ) -> dict[str, Any]:
     """Activate an accepted candidate only in a later independently verified real wake.
 
@@ -1240,7 +1262,7 @@ async def query_self_model(
     Active is the existing approved version, also readable while considering an
     edit; it is never a pending candidate and reading it is not automatic-injection
     or candidate-review evidence. For composing an edit, view='edit_basis' returns
-    the complete five-key active.content, including existing facets and references;
+    the complete active.content, including existing facets, references and authored recall settings;
     preserve fields you did not change. Use stbrain_open(view='review') for pending full
     review pages without a workspace. Archive content is omitted unless
     include_content is explicitly true. For personal memories use recall_* instead.
@@ -1515,7 +1537,8 @@ async def recall_emotional_memory(
     read the whole brain or open a write context; zero matches do not mean an empty
     brain. Learning, plans and tool experience have their own recall_* tools.
 
-    Supply either a non-empty query or memory_id. Intimate/restricted originals
+    Supply either a non-empty query or memory_id; either accepts an exact #E short
+    reference from automatic recall. Intimate/restricted originals
     remain withheld unless explicit_request, include_sensitive_originals, and
     ai_confirmation are all the JSON boolean true and the memory policy permits
     disclosure; such reads are audited. safety_emergency never grants extra
@@ -1935,7 +1958,8 @@ async def recall_learning_memory(
     result is deliberately non-exhaustive and must not be reported as the whole
     inventory.
 
-    When an automatic learning envelope supplies a versioned ``item_ref``, copy
+    An exact #L short reference is accepted in query or target_ref and resolves
+    the current version. When a result supplies a versioned ``item_ref``, copy
     it unchanged into ``target_ref`` and leave ``query`` empty.  A semantic
     query returning zero results does not prove that the referenced card is
     absent.
@@ -2350,6 +2374,8 @@ async def recall_tool_guidance(
     unverified regardless of confidence. Use flat arguments at this direct tool;
     through stbrain_manage, put them inside arguments with action=recall_tool_guidance.
     Reading advice grants no permission to execute the referenced tool.
+    An exact #T short reference in query or card_id reads its current card;
+    explicit history/experiences/failures views retain their normal behavior.
     """
     return tool_guidance_service.recall(
         query=query,
@@ -2762,6 +2788,7 @@ async def recall_planning_memory(
     simple-memory-v1 permits this read before module-one activation. Ordinary
     writes open after activation. Use plan_ref from a result for exact details,
     and include_history when earlier versions/events are needed.
+    An exact #P short reference in query or plan_ref resolves the current plan.
     """
     return planning_service.recall(
         query=query,

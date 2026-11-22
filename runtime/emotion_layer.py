@@ -304,7 +304,7 @@ class EmotionLayerStore:
                         hits.append((score, ref))
         return sorted(hits, key=lambda item: (-item[0], item[1]))
 
-    def append_recall(self, connection, *, owner_id, model_id, wake_id, query, dynamic, enabled, estimate_tokens, budget=1200, tool_candidates=()):
+    def append_recall(self, connection, *, owner_id, model_id, wake_id, query, dynamic, enabled, estimate_tokens, budget=1200, tool_candidates=(), excluded_refs=()):
         identity = (owner_id, model_id)
         self._seed(connection, identity)
         previous = connection.execute("SELECT payload_json FROM emotion_layer_wakes WHERE owner_id=? AND model_id=? AND wake_id=?", (*identity, wake_id)).fetchone()
@@ -341,7 +341,7 @@ class EmotionLayerStore:
                     rows = connection.execute("SELECT t.module,t.memory_id,s.last_round FROM emotion_layer_tags t LEFT JOIN emotion_layer_seen s ON s.owner_id=t.owner_id AND s.model_id=t.model_id AND s.module=t.module AND s.memory_id=t.memory_id WHERE t.owner_id=? AND t.model_id=? AND t.emotion_id=? ORDER BY coalesce(s.last_round,-1),t.module,t.memory_id LIMIT 1024", (*identity, term["emotion_id"])).fetchall()
                     for row in rows:
                         key = (row["module"], row["memory_id"])
-                        if key in existing or key[0] == "work" or not enabled(SCOPES[key[0]]):
+                        if key in existing or key in excluded_refs or key[0] == "work" or not enabled(SCOPES[key[0]]):
                             continue
                         if row["last_round"] is not None and settings["round_no"] - row["last_round"] <= settings["cooldown_rounds"]:
                             cooldown_skipped.add(key)

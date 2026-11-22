@@ -25,7 +25,7 @@ async def probe():
         fixture.bootstrap_live()
         common = {"owner_id": server.OWNER_ID, "model_id": server.MODEL_ID}
         tools = server.mcp._tool_manager.list_tools()
-        assert len(tools) == 61  # Includes guarded desires and host-only image transport.
+        assert len(tools) == 62  # Includes guarded desires and host-only image transport.
         assert 'memory_desires' in {t.name for t in tools}
         tool = server.mcp._tool_manager.get_tool("remember_memory")
         assert tool.parameters["required"] == ["content"]

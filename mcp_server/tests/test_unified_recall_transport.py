@@ -18,7 +18,7 @@ from unittest.mock import patch
 from urllib.parse import unquote, urlsplit
 
 
-MODES = ('directory', 'search', 'cursor', 'privacy', 'binding', 'multiple_databases', 'semantic')
+MODES = ('directory', 'search', 'cursor', 'privacy', 'binding', 'multiple_databases', 'semantic', 'short', 'short_legacy')
 
 
 class UnifiedRecallTransportTests(unittest.TestCase):
@@ -48,6 +48,12 @@ class UnifiedRecallTransportTests(unittest.TestCase):
         self.assertEqual('PASS', proof['decision'])
         self.assertEqual(0, proof['network_attempts'])
         self.assertFalse(proof['real_brain_used'])
+
+    def test_short_references_through_original_and_daily_module_reads(self):
+        self.probe('short_legacy')
+
+    def test_short_reference_all_brains_diagnostics_and_privacy(self):
+        self.probe('short')
 
     def test_complete_four_module_directory_beyond_old_reader_caps(self):
         self.probe('directory')
@@ -137,7 +143,7 @@ async def probe(mode):
             assert result['state_changed'] is False
             return result
 
-        assert len(server.mcp._tool_manager.list_tools()) == 61  # Includes feeling tools and the host-only transport.
+        assert len(server.mcp._tool_manager.list_tools()) == 62  # Includes feeling tools and the host-only transport.
         empty = await recall()
         assert empty['items'] == [] and empty['exhaustive'] and not empty['partial'], empty
         # Reading before first activation does not grant ordinary writes or open core review.
@@ -207,6 +213,81 @@ async def probe(mode):
                     assert detail.get('decision') not in {'reject', 'no_candidate'}, detail
                 absent = await recall(query='玄黓魑魅')
                 assert absent['items'] == [] and absent['exhaustive']
+
+        elif mode == 'short_legacy':
+            def comparable(value):
+                return {k:v for k,v in value.items() if k != 'event_id'}
+            def reason(value):
+                return value.get('reason_code') or next(iter(value.get('reason_codes', [])), None)
+            def originals():
+                return {table: sql('SELECT * FROM '+table+' ORDER BY 1') for table in
+                    ('emotion_memories','learning_items','planning_items','tool_cards')}
+            entries = (await recall())['items']
+            keys = {'emotional_memory':'memory_id', 'learning_memory':'target_ref',
+                    'planning_memory':'plan_ref', 'tool_guidance':'card_id'}
+            for entry in entries:
+                action = entry['detail_lookup']['tool']
+                args = entry['detail_lookup']['arguments']
+                baseline = await call(action, args)
+                key = keys[entry['module']]
+                short_args = {**args, key:entry['short_ref']}
+                before = originals()
+                actual = await call(action, short_args)
+                assert comparable(actual) == comparable(baseline), (entry['module'], actual, baseline)
+                assert originals() == before, 'short_reference_read_changed_database'
+                assert comparable(await call('stbrain_manage', {'action':action,'arguments':short_args})) == comparable(baseline)
+                query_args = {k:v for k,v in args.items() if k != key}
+                query_args['query'] = entry['short_ref']
+                assert comparable(await call('stbrain_manage', {'action':action,'arguments':query_args})) == comparable(baseline)
+                wrong = '#T000000000000' if key != 'card_id' else '#E000000000000'
+                rejected = await call(action, {**args, key:wrong})
+                assert reason(rejected) == 'short_reference_module_mismatch', rejected
+                absent = await call(action, {**args,key:entry['short_ref'][:2]+'000000000000'})
+                assert reason(absent) == 'short_reference_not_found', absent
+            emotion = next(x for x in entries if x['module']=='emotional_memory')
+            changed = await call('revise_memory', {'target_ref':emotion['ref'],'changes':{'sensitivity':'restricted'}})
+            assert changed['decision']=='revised'
+            args = emotion['detail_lookup']['arguments']
+            protected = await call('recall_emotional_memory', args)
+            assert comparable(await call('recall_emotional_memory',{**args,'memory_id':emotion['short_ref']})) == comparable(protected)
+            assert 'BODY_ONLY_PRIVATE_' not in json.dumps(protected)
+            with patch('mcp_server.short_reference_reads.short_ref', return_value=emotion['short_ref']):
+                rejected = await call('recall_emotional_memory',{'memory_id':emotion['short_ref']})
+                assert reason(rejected)=='short_reference_ambiguous_use_full_reference', rejected
+
+        elif mode == 'short':
+            from runtime.recall_projection import short_ref
+            entries = (await recall())['items']
+            wake = server.onboarding.issue_wake(owner_id=server.OWNER_ID, model_id=server.MODEL_ID,
+                host_id='host:synthetic', thread_id='thread:synthetic', source_kind='human_message',
+                source_event_id='synthetic-short-recall')
+            prepared = server.onboarding.build_pre_generation_context(owner_id=server.OWNER_ID,
+                model_id=server.MODEL_ID, wake_id=wake['wake_id'], wake_capability=wake['wake_capability'],
+                source_digest='synthetic-source', host_contract_digest='synthetic-host',
+                source_frame={'query_text':'orchard', 'prior_assistant_present':True})
+            server.onboarding.confirm_context_injected(owner_id=server.OWNER_ID, model_id=server.MODEL_ID,
+                wake_id=wake['wake_id'], wake_capability=wake['wake_capability'], context_hash=prepared['context_hash'])
+            for entry in entries:
+                found = await recall(query=entry['short_ref'])
+                assert not found['partial'] and found['matched_count'] == 1, found
+                assert found['items'][0]['ref'] == entry['ref']
+                assert found['items'][0]['detail_lookup'] == entry['detail_lookup']
+            emotion = next(x for x in entries if x['module']=='emotional_memory')
+            found = await recall(query=emotion['short_ref'])
+            receipt = found['items'][0]['automatic_recall_receipt']
+            assert 'score' in receipt['fields'] and 'summary' not in receipt['fields'], receipt
+            assert 'BODY_ONLY_PRIVATE_' not in json.dumps(found)
+            changed = await call('revise_memory', {'target_ref':emotion['ref'], 'changes':{'summary':'New authored summary.'}})
+            assert changed['decision']=='revised'
+            current = (await recall(query=emotion['short_ref']))['items'][0]
+            assert current['summary']=='New authored summary.' and current['ref']!=emotion['ref']
+            changed = await call('revise_memory', {'target_ref':current['ref'], 'changes':{'sensitivity':'restricted'}})
+            assert changed['decision']=='revised'
+            restricted = (await recall(query=emotion['short_ref']))['items'][0]
+            assert restricted['content_stub'] and 'automatic_recall_receipt' not in restricted
+            assert 'New authored summary.' not in json.dumps(restricted)
+            with patch('mcp_server.unified_recall_service.short_ref', return_value=emotion['short_ref']):
+                assert (await recall(query=emotion['short_ref']))['reason_code']=='short_reference_ambiguous_use_full_reference'
 
         elif mode == 'semantic':
             from runtime.semantic_retrieval import Result

@@ -1,0 +1,82 @@
+{
+  "format": "stiller-source-release-state/1",
+  "version": "0.2.4",
+  "release_channel": "stable",
+  "distribution": "source-available-stable-release",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "base_public_commit": "5c8f206f2f885ad98e43e88862a500f75b0b5df6",
+  "historical_public_state": "source-release-state-0.2.3.json",
+  "implemented_revisions": "Pro historical host-data cache compatibility; opt-in Claude routes; history-based tool continuation; bounded model-step retry; Responses stable history boundaries; upstream-owned model transport limits",
+  "publication_real_model_calls": 0,
+  "publication_live_service_changes": false,
+  "production_readiness_certified": false,
+  "human_acceptance": {
+    "scope": "Previously accepted catalog fix and maintainer current deployment usage; this publication is explicitly authorized",
+    "prior_catalog_fix_accepted": true,
+    "current_deployment_in_use": true,
+    "all_new_paths_human_certified": false,
+    "all_clients_models_and_existing_windows_certified": false,
+    "private_test_content_published": false
+  },
+  "database_upgrade": {
+    "schema_changed_since_previous_public_release": false,
+    "initialization_adds_columns": [],
+    "existing_memory_rows_rewritten": false,
+    "preserve_private_config_and_identity": true,
+    "stop_writes_and_backup_before_upgrade": true,
+    "upgrade_from_0_2_2_adds_columns": [
+      "brain_context_snapshots.current_tools_json"
+    ]
+  },
+  "automated_regressions_use_synthetic_state": true,
+  "frozen_candidate_regression": {
+    "tests": 2794,
+    "passed": 2793,
+    "skipped": 1,
+    "failures": 0,
+    "errors": 0,
+    "groups": [
+      {
+        "suite": "runtime",
+        "total": 1005,
+        "passed": 1005,
+        "skipped": 0,
+        "failed": 0,
+        "errors": 0
+      },
+      {
+        "suite": "mcp",
+        "total": 615,
+        "passed": 615,
+        "skipped": 0,
+        "failed": 0,
+        "errors": 0
+      },
+      {
+        "suite": "gateway",
+        "total": 922,
+        "passed": 921,
+        "skipped": 1,
+        "failed": 0,
+        "errors": 0
+      },
+      {
+        "suite": "packaging",
+        "total": 252,
+        "passed": 252,
+        "skipped": 0,
+        "failed": 0,
+        "errors": 0
+      }
+    ],
+    "python": "3.12.15",
+    "platform": "Linux x86_64; isolated network namespaces",
+    "explicit_opt_in": "35-second stream plus two owned local child-process smoke tests; deduplicated totals"
+  },
+  "validation_details": "docs/UPDATE-VALIDATION.md",
+  "integrity_manifest": "SOURCE-PACKAGE-MANIFEST.json",
+  "core_dependencies_changed": false,
+  "github_publication_authorized": true,
+  "stable_release_authorized": true,
+  "notes": "Maintainer explicitly authorized publication of currently running ST changes. Source is reconciled against the running deployment; private provider selection uses the existing public configuration mechanism. Publication does not restart production or include private state."
+}

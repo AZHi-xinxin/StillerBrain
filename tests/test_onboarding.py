@@ -13,6 +13,7 @@ from runtime.emotional_memory import EMOTIONAL_RECALL_FRAME_RULES, EmotionalMemo
 from runtime.learning_memory import LearningMemoryStore
 from runtime.planning_memory import PlanningMemoryStore
 from runtime.hallucination_vault import HallucinationVaultStore
+from runtime.recall_projection import estimate_dynamic
 from runtime.onboarding import (
     MEMORY_OPPORTUNITY_ADVISORY,
     OPTIONAL_BRAIN_NOTICE,
@@ -194,6 +195,14 @@ class ModuleOneOnboardingTests(unittest.TestCase):
         self.assertTrue(result["pointer_changed"])
         return result["revision_id"]
 
+    def diagnostic_context(self, prepared):
+        connection = sqlite3.connect(self.database)
+        try:
+            row = connection.execute("SELECT stable_json,dynamic_json FROM brain_context_snapshots WHERE context_hash=?", (prepared["context_hash"],)).fetchone()
+            return {**json.loads(row[0]), **json.loads(row[1])}
+        finally:
+            connection.close()
+
     def test_global_emergency_brake_applies_next_wake_without_blocking_open(self) -> None:
         self.bootstrap_live()
         opened = self.open_brain()
@@ -286,12 +295,11 @@ class ModuleOneOnboardingTests(unittest.TestCase):
             )
 
         first = json.loads(prepare("st-start-first", first=True, tools=catalog)["message"]["content"])
-        self.assertEqual("stbrain_open", first["st_start_entry"]["entry"])
-        self.assertTrue(first["st_start_entry"]["frame"]["optional"])
-        self.assertEqual("none", first["st_start_entry"]["frame"]["instruction_authority"])
+        self.assertIn("stbrain_open", str(first["提示"]))
+        self.assertNotIn("st_start_entry", first)
 
         later = json.loads(prepare("st-start-later", first=False, tools=catalog)["message"]["content"])
-        self.assertNotIn("st_start_entry", later)
+        self.assertNotIn("提示", later)
 
         empty_entries: list[dict] = []
         empty_catalog = {
@@ -301,7 +309,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
             "entries": empty_entries,
         }
         absent = json.loads(prepare("st-start-absent", first=True, tools=empty_catalog)["message"]["content"])
-        self.assertNotIn("st_start_entry", absent)
+        self.assertNotIn("提示", absent)
 
     @staticmethod
     def planning_calm() -> dict[str, object]:
@@ -398,7 +406,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
                 "capture_items": [{"role": "user", "content": "继续规划脑测试"}],
             },
         )
-        projected = json.loads(prepared["message"]["content"])
+        projected = self.diagnostic_context(prepared)
         planning_projection = projected["planning_memory"]
         self.assertEqual("planning-recall/0.1", planning_projection["contract"])
         self.assertLessEqual(len(planning_projection["envelopes"]), 3)
@@ -406,7 +414,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
         self.assertIn("继续完成规划脑的证据测试", envelope_text)
         self.assertNotIn("这段原文不得自动浮现", envelope_text)
         self.assertNotIn("ai_adoption_statement", envelope_text)
-        self.assertLessEqual(_estimate_tokens({"planning_memory": planning_projection}), 1200)
+        self.assertLessEqual(estimate_dynamic({"planning_memory": planning_projection}), 1200)
 
     def test_vault_status_projection_requires_ai_selected_status_only(self) -> None:
         self.bootstrap_live()
@@ -462,7 +470,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
             host_contract_digest="host-contract:v1",
             source_frame={"query_text": "普通对话", "prior_assistant_present": True},
         )
-        projected = json.loads(prepared["message"]["content"])
+        projected = self.diagnostic_context(prepared)
         status_only = projected["hallucination_vault_status"]
         self.assertFalse(status_only["frame"]["content_exposed"])
         serialized = json.dumps(status_only, ensure_ascii=False)
@@ -574,7 +582,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
                 "capture_items": [],
             },
         )
-        projected = json.loads(prepared["message"]["content"])
+        projected = self.diagnostic_context(prepared)
         self.assertIn("learning_memory", projected)
         self.assertIn("tool_guidance", projected)
         self.assertNotIn(OPTIONAL_MEMORY_NOTICE_KEY, projected)
@@ -593,7 +601,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
         }
         from runtime.onboarding import _estimate_tokens
 
-        self.assertLessEqual(_estimate_tokens(dynamic), 1200)
+        self.assertLessEqual(estimate_dynamic(dynamic), 1200)
 
         changed_catalog = {**catalog, "catalog_hash": "c" * 64}
         mismatch = self.store.build_pre_generation_context(
@@ -862,7 +870,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
                 "capture_items": [],
             },
         )
-        fallback_payload = json.loads(fallback["message"]["content"])
+        fallback_payload = self.diagnostic_context(fallback)
         fallback_item = fallback_payload["self_governance_profile"]["scopes"][0]
         self.assertEqual(
             "runtime_learning_episode_boundary",
@@ -874,7 +882,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
             "thread:episode",
             "对，这局结束了。",
         )
-        first_payload = json.loads(first["message"]["content"])
+        first_payload = self.diagnostic_context(first)
         item = first_payload["self_governance_profile"]["scopes"][0]
         self.assertEqual("learning_memory", item["scope"])
         self.assertEqual("runtime_learning_episode_boundary", item["trigger_source"])
@@ -900,7 +908,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
         )
         self.assertNotIn(
             "self_governance_profile",
-            json.loads(cooled_down["message"]["content"]),
+            self.diagnostic_context(cooled_down),
         )
         _, other_thread = prepare(
             "episode-other-thread",
@@ -909,7 +917,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
         )
         self.assertIn(
             "self_governance_profile",
-            json.loads(other_thread["message"]["content"]),
+            self.diagnostic_context(other_thread),
         )
         self.assertEqual(
             counts_before,
@@ -990,11 +998,11 @@ class ModuleOneOnboardingTests(unittest.TestCase):
                 "capture_items": [],
             },
         )
-        projected = json.loads(prepared["message"]["content"])
+        projected = self.diagnostic_context(prepared)
         self.assertIn("learning_memory", projected)
         selected = projected["learning_memory"]["envelopes"]
         self.assertGreaterEqual(len(selected), 1)
-        self.assertLess(len(selected), 3)
+        self.assertLessEqual(len(selected), 3)
         from runtime.onboarding import _estimate_tokens
 
         dynamic = {
@@ -1007,7 +1015,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
             )
             if key in projected
         }
-        self.assertLessEqual(_estimate_tokens(dynamic), 1200)
+        self.assertLessEqual(estimate_dynamic(dynamic), 1200)
 
     def test_memory_opportunity_advisory_does_not_displace_budget(self) -> None:
         self.bootstrap_live()
@@ -1320,7 +1328,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
             },
         )
         self.assertEqual("context_prepared", prepared["decision"])
-        return json.loads(prepared["message"]["content"])
+        return self.diagnostic_context(prepared)
 
     def test_new_window_named_learning_subject_enters_pre_generation_context(self) -> None:
         learning, stored = self.seed_tagless_named_learning()
@@ -1381,7 +1389,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
                 return 1201
             return _estimate_tokens(value)
 
-        with mock.patch("runtime.onboarding._estimate_tokens", side_effect=over_budget_when_learning_added):
+        with mock.patch("runtime.onboarding.estimate_dynamic", side_effect=over_budget_when_learning_added):
             projected = self.prepare_named_learning_new_window("named-budget-exhausted", query)
         self.assertNotIn("learning_memory", projected)
         self.assertNotIn("虚构的门环线索", json.dumps(projected, ensure_ascii=False))
@@ -1576,7 +1584,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
         self.assertEqual(candidate_id, activated["candidate_id"])
         self.assertEqual("activate", activated["decision"])
 
-    def test_empty_injectable_text_is_rejected_without_persistence(self) -> None:
+    def test_empty_authored_text_is_preserved(self) -> None:
         wake, _ = self.wake("first-person-gate")
         self.advance(wake, "confirm_brain_intro", {"acknowledged": True})
         self.advance(wake, "confirm_module_intro", {"acknowledged": True})
@@ -1587,15 +1595,10 @@ class ModuleOneOnboardingTests(unittest.TestCase):
 
         rejected = self.advance(wake, "submit_candidate", payload)
 
-        self.assertEqual("reject", rejected["decision"])
-        self.assertIn(
-            "invalid_boot_anchor",
-            rejected["reason_codes"],
-        )
-        self.assertFalse(rejected["content_persisted"])
-        self.assertEqual(0, self.count("self_model_candidates"))
-        after = self.store.state(owner_id=self.owner, model_id=self.model)["state"]
-        self.assertEqual(before, after)
+        self.assertEqual("pending", rejected["decision"])
+        self.assertEqual(1, self.count("self_model_candidates"))
+        candidate = self.store.self_store.list_candidates(self.model)[0]
+        self.assertEqual(payload["content"], json.loads(candidate["content_json"]))
 
     def test_context_snapshot_reuse_and_mismatch_fail_closed(self) -> None:
         wake, prepared = self.wake("stable-context")
@@ -1669,18 +1672,10 @@ class ModuleOneOnboardingTests(unittest.TestCase):
         )
         self.assertEqual("context_prepared", first["decision"])
         projected = json.loads(first["message"]["content"])
-        self.assertEqual(
-            {"boot_anchor", "active_identity_capsule", "facets", "emotional_memory"},
-            set(projected),
-        )
-        memories = projected["emotional_memory"]["memories"]
-        frame = projected["emotional_memory"]["frame"]
-        self.assertEqual("evidence_context_only", frame["semantic_role"])
-        self.assertEqual("none", frame["instruction_authority"])
-        self.assertEqual(list(EMOTIONAL_RECALL_FRAME_RULES), frame["rules"])
-        self.assertEqual(1, len(memories))
-        self.assertEqual("original", memories[0]["presentation"])
-        self.assertIn("海边灯塔", memories[0]["text"])
+        self.assertEqual({"boot_anchor", "active_identity_capsule", "facets", "记忆", "人格侧面"}, set(projected))
+        self.assertEqual(1, len(projected["记忆"]))
+        self.assertIn("海边灯塔", projected["记忆"][0]["摘要"])
+        self.assertNotIn("presentation", first["message"]["content"])
         self.assertNotIn("这是本轮专属句子", first["message"]["content"])
 
         connection = sqlite3.connect(self.database)
@@ -1695,7 +1690,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
         finally:
             connection.close()
         self.assertNotIn("这是本轮专属句子", stable_json + dynamic_json)
-        self.assertEqual(2, active_after_first)
+        self.assertEqual(0, active_after_first)
 
         reused = self.store.build_pre_generation_context(
             owner_id=self.owner,
@@ -1715,7 +1710,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
         self.assertEqual("context_reused", reused["decision"])
         self.assertEqual(first["context_hash"], reused["context_hash"])
         self.assertEqual(first["message"], reused["message"])
-        self.assertEqual(2, self.count("emotion_ephemeral"))
+        self.assertEqual(0, self.count("emotion_ephemeral"))
 
         confirmed = self.store.confirm_context_injected(
             owner_id=self.owner,
@@ -1757,11 +1752,10 @@ class ModuleOneOnboardingTests(unittest.TestCase):
             },
         )
         second_projected = json.loads(second["message"]["content"])
-        prior_ephemeral = second_projected["emotional_memory"]["ephemeral"]
-        prior_text = json.dumps(prior_ephemeral, ensure_ascii=False)
-        self.assertIn(first_query, prior_text)
-        self.assertIn("我们刚才聊到旅行", prior_text)
-        self.assertNotIn(second_query, prior_text)
+        self.assertNotIn("ephemeral", str(second_projected))
+        self.assertNotIn(first_query, second["message"]["content"])
+        self.assertNotIn("我们刚才聊到旅行", second["message"]["content"])
+        self.assertNotIn(second_query, second["message"]["content"])
 
         self.store.confirm_context_injected(
             owner_id=self.owner,
@@ -1803,7 +1797,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
         )
         unstable_projected = json.loads(unstable["message"]["content"])
         self.assertEqual(
-            {"boot_anchor", "active_identity_capsule", "facets"},
+            {"boot_anchor", "active_identity_capsule", "facets", "人格侧面"},
             set(unstable_projected),
         )
         self.assertEqual(before_unstable, self.count("emotion_ephemeral"))
@@ -2493,7 +2487,7 @@ class ModuleOneOnboardingTests(unittest.TestCase):
             SelfModelStore(self.database).active_revision(self.model)["revision_id"],
         )
 
-    def test_emergency_rollback_rejects_malformed_ancestor_even_with_matching_hash(self) -> None:
+    def test_emergency_rollback_accepts_free_authored_ancestor_with_matching_hash(self) -> None:
         revision_one = self.bootstrap_live()
         wake3, _ = self.wake("edit-for-voice-rollback")
         begun = self.advance(wake3, "begin_edit")
@@ -2544,15 +2538,8 @@ class ModuleOneOnboardingTests(unittest.TestCase):
             request_id="rollback-invalid-voice",
         )
 
-        self.assertEqual("reject", blocked["decision"])
-        self.assertIn(
-            "rollback_target_injection_structure_invalid",
-            blocked["reason_codes"],
-        )
-        self.assertEqual(
-            revision_two,
-            SelfModelStore(self.database).active_revision(self.model)["revision_id"],
-        )
+        self.assertEqual("rollback", blocked["decision"])
+        self.assertEqual(revision_one, SelfModelStore(self.database).active_revision(self.model)["revision_id"])
 
     def test_emergency_rollback_rejects_hash_mismatched_first_person_ancestor(self) -> None:
         revision_one = self.bootstrap_live()

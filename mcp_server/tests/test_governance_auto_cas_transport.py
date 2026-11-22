@@ -48,6 +48,9 @@ class GovernanceAutoCasTransportTests(unittest.TestCase):
         if mode == 'gateway':
             self.assertGreater(proof['host_bindings'], 0)
 
+    def test_free_authored_text_and_minimal_fields_work_through_registered_mcp(self):
+        self.run_probe('free_authoring')
+
     def test_direct_repeated_set_tags_clear_rollback_same_and_next_wake(self):
         self.run_probe('direct')
 
@@ -216,6 +219,17 @@ async def probe(mode):
             if mode == 'gateway':
                 result = await gateway(name, {**initial, 'text': 'Synthetic replay protected reminder.'}, replay=True)
                 assert result['decision'] == 'committed'
+        elif mode == 'free_authoring':
+            text = '  token=synthetic-example-not-a-real-key\n' + '自定义正文。' * 600 + '\n  '
+            saved = await direct(name, {'action': 'set', 'scope': 'tool_use', 'text': text})
+            assert saved['decision'] == 'committed', saved
+            queried = await direct('query_self_governance_profile',
+                {'view': 'status', 'scope': 'tool_use', 'include_content': True})
+            assert queried['result']['scopes']['tool_use']['active']['content']['text'] == text
+            saved = await direct(name, {'action': 'set', 'scope': 'tool_use', 'text': text,
+                'scene_tags': ['词' + str(i) for i in range(40)], 'trigger_mode': 'scene_relevant',
+                'reason': 'password=synthetic-only ' + '理由' * 1200})
+            assert saved['decision'] == 'committed', saved
         elif mode == 'negative':
             first = await direct(name, initial)
             before = revisions()

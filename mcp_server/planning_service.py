@@ -8,6 +8,9 @@ plan or an external tool.
 
 from __future__ import annotations
 
+from .short_reference_reads import ShortReferenceError, resolve_short_read_fields
+
+
 from typing import Any
 
 from runtime import ModuleOneOnboardingStore
@@ -463,12 +466,14 @@ class PlanningMemoryAccessService:
         if self._permission().get("decision") != "allowed":
             return self._reject("module_one_required", status=self.status())
         try:
+            fields = resolve_short_read_fields(database=self.store.database,
+                owner_id=self.owner_id, model_id=self.model_id, module='plan', fields=fields)
             result = self.store.recall(
                 owner_id=self.owner_id,
                 model_id=self.model_id,
                 **fields,
             )
-        except PlanningMemoryError as exc:
+        except (PlanningMemoryError, ShortReferenceError) as exc:
             return self._reject(str(exc), status=self.status())
         return {
             "module": PLANNING_MODULE,

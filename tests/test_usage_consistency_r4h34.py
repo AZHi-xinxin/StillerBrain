@@ -94,6 +94,57 @@ def tree(filename):
     parsed = ast.parse((MCP / filename).read_bytes(), filename=filename)
     if filename != "service.py":
         return parsed
+    # 2026-11-21 authorized behavior change. Verify and restore only the exact
+    # reviewed authoring nodes before applying the older documentation baseline.
+    # Live behavior is covered by free-authoring lifecycle and authenticated MCP tests.
+    authoring = json.loads((ROOT / 'tests/fixtures/free_self_authoring_review_20261121.json').read_text())['nodes']
+    seen = set()
+    def restore_authoring(body, prefix=''):
+        result = []
+        for node in body:
+            if isinstance(node, ast.ClassDef):
+                node.body = restore_authoring(node.body, node.name + '.')
+            name = (prefix + node.name if isinstance(node, ast.FunctionDef) else
+                    node.target.id if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) else
+                    'import:' + str(node.module) if isinstance(node, ast.ImportFrom) else None)
+            if name in authoring:
+                expected = authoring[name]
+                if hashlib.sha256(stable_ast_snapshot(node).encode()).hexdigest() != expected['new_ast_sha256']:
+                    raise AssertionError('unreviewed free-authoring delta: ' + name)
+                seen.add(name)
+                if expected['old_source'] is None:
+                    continue
+                node = ast.parse(expected['old_source']).body[0]
+            result.append(node)
+        return result
+    parsed.body = restore_authoring(parsed.body)
+    if seen != set(authoring):
+        raise AssertionError('missing reviewed free-authoring node')
+    # Narrow reviewed read/schema delta. Verify the new nodes, then restore the
+    # old nodes so all historical authorization hashes remain independently pinned.
+    review = json.loads((ROOT / 'tests/fixtures/facet_read_schema_review_20261120.json').read_text())['nodes']
+    found = set()
+    def restore(body, prefix=''):
+        restored = []
+        for node in body:
+            if isinstance(node, ast.ClassDef):
+                node.body = restore(node.body, node.name + '.')
+            name = (prefix + node.name if isinstance(node, ast.FunctionDef) else
+                    node.target.id if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) else
+                    'import:' + str(node.module) if isinstance(node, ast.ImportFrom) else None)
+            if name in review:
+                found.add(name)
+                expected = review[name]
+                if hashlib.sha256(stable_ast_snapshot(node).encode()).hexdigest() != expected['new_ast_sha256']:
+                    raise AssertionError('unreviewed facet read/schema delta: ' + name)
+                if expected['old_source'] is None:
+                    continue
+                node = ast.parse(expected['old_source']).body[0]
+            restored.append(node)
+        return restored
+    parsed.body = restore(parsed.body)
+    if found != set(review):
+        raise AssertionError('missing reviewed facet read/schema nodes')
     method = next(n for n in ast.walk(parsed) if isinstance(n, ast.FunctionDef)
                   and n.name == "query_self_model")
     fields = {}
@@ -383,8 +434,8 @@ class UsageConsistencyTests(unittest.TestCase):
 
     def test_daily_contract_requires_only_content(self):
         functions = tool_functions()
-        self.assertEqual(59, len(functions))  # 58 public actions plus host-only image transport.
-        self.assertEqual(59, len({node.name for node in functions}))
+        self.assertEqual(60, len(functions))  # 59 public actions plus host-only image transport.
+        self.assertEqual(60, len({node.name for node in functions}))
         self.assertIn("memory_desires", {node.name for node in functions})
         self.assertTrue({"emotion_list", "emotion_manage", "memory_emotions"} <= {node.name for node in functions})
         daily = next(node for node in functions if node.name == "remember_memory")

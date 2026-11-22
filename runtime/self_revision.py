@@ -8,6 +8,9 @@ of the active pointer described by the module-one contract.
 
 from __future__ import annotations
 
+from .facet_recall import facet_body
+from .self_content import parts, facet_map, object_view, text
+
 import hashlib
 import json
 import re
@@ -132,71 +135,12 @@ def _all_strings(value: Any) -> Iterable[str]:
 
 
 def active_injection_structure_violations(content: Any) -> list[str]:
-    """Check the injectable structure, never the AI's choice of words or voice.
-
-    The function accepts either the full five-key candidate or the three-key
-    active projection. Full candidate scope/privacy/length gates remain in
-    ``_content_findings``. Authorship and approval come from the authenticated
-    lifecycle, not from a pronoun prefix. Returned paths never include values.
-    """
-
-    if not isinstance(content, Mapping):
-        return ["content"]
-    required = {"boot_anchor", "active_identity_capsule", "facets"}
-    if set(content) not in (required, required | {"schema_version", "anchor_references"}):
-        return ["content"]
-    violations: list[str] = []
-
-    def nonempty(value: Any) -> bool:
-        return isinstance(value, str) and bool(value.strip())
-
-    if "schema_version" in content:
-        if content["schema_version"] != "0.1.0":
-            violations.append("schema_version")
-        anchors = content["anchor_references"]
-        if not isinstance(anchors, list):
-            violations.append("anchor_references")
-        else:
-            violations.extend(
-                f"anchor_references[{index}]" for index, anchor in enumerate(anchors)
-                if not isinstance(anchor, Mapping)
-                or set(anchor) != {"anchor_id", "memory_ref", "meaning"}
-                or not all(nonempty(value) for value in anchor.values())
-            )
-    boot = content.get("boot_anchor")
-    if not isinstance(boot, Mapping) or set(boot) != {"text"}:
-        violations.append("boot_anchor")
-    elif not nonempty(boot["text"]):
-        violations.append("boot_anchor.text")
-    capsule = content.get("active_identity_capsule")
-    string_fields = (
-        "name_and_identity", "personality_foundation", "expression_style",
-        "self_revision_safety_prompt",
-    )
-    list_fields = ("behavioral_principles", "core_identity_anchors")
-    if not isinstance(capsule, Mapping) or set(capsule) != set(string_fields + list_fields):
-        violations.append("active_identity_capsule")
-    else:
-        for field in string_fields:
-            if not nonempty(capsule.get(field)):
-                violations.append(f"active_identity_capsule.{field}")
-        for field in list_fields:
-            items = capsule.get(field)
-            if not isinstance(items, list) or not items:
-                violations.append(f"active_identity_capsule.{field}")
-            else:
-                violations.extend(f"active_identity_capsule.{field}[{index}]"
-                                  for index, item in enumerate(items) if not nonempty(item))
-    facets = content.get("facets")
-    if not isinstance(facets, Mapping):
-        violations.append("facets")
-    else:
-        # Arbitrary facet keys are not repeated in diagnostics.
-        violations.extend(f"facets[{index}]" for index, (name, value) in enumerate(facets.items())
-                          if not isinstance(name, str)
-                          or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", name) is None
-                          or not nonempty(value))
-    return violations
+    """Authored content is free-form JSON; no lexical or field whitelist gate."""
+    try:
+        json.dumps(content, ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError):
+        return ["content_not_json"]
+    return []
 
 
 def first_person_injection_violations(content: Any) -> list[str]:
@@ -470,104 +414,15 @@ class SelfModelStore:
         return reasons
 
     def _content_findings(self, content: Any) -> tuple[list[str], dict[str, Any]]:
-        reasons: list[str] = []
-        metrics: dict[str, Any] = {
-            "boot_anchor_chars": 0,
-            "identity_capsule_chars": 0,
-            "facet_chars": {},
-            "total_content_chars": 0,
+        source = parts(content)
+        metrics = {
+            "boot_anchor_chars": len(text(source.get("boot_anchor", ""))),
+            "identity_capsule_chars": len(text(source.get("active_identity_capsule", ""))),
+            "facet_chars": {k: len(facet_body(v)) for k, v in facet_map(source.get("facets")).items()},
+            "total_content_chars": len(_canonical(content)),
         }
-        if not isinstance(content, dict):
-            return ["invalid_content_structure"], metrics
+        return active_injection_structure_violations(content), metrics
 
-        allowed_top = {
-            "schema_version",
-            "boot_anchor",
-            "active_identity_capsule",
-            "facets",
-            "anchor_references",
-        }
-        required_top = set(allowed_top)
-        if set(content) != required_top or content.get("schema_version") != "0.1.0":
-            reasons.append("invalid_content_structure")
-        for key in self._walk_keys(content):
-            if key.lower() in _FORBIDDEN_KEYS:
-                reasons.append("scope_boundary_violation")
-                break
-
-        boot = content.get("boot_anchor")
-        capsule = content.get("active_identity_capsule")
-        facets = content.get("facets")
-        anchors = content.get("anchor_references")
-
-        if not isinstance(boot, dict) or set(boot) != {"text"} or not self._nonempty(boot.get("text")):
-            reasons.append("invalid_boot_anchor")
-        else:
-            metrics["boot_anchor_chars"] = len(boot["text"])
-
-        capsule_keys = {
-            "name_and_identity",
-            "personality_foundation",
-            "expression_style",
-            "behavioral_principles",
-            "core_identity_anchors",
-            "self_revision_safety_prompt",
-        }
-        if not isinstance(capsule, dict) or set(capsule) != capsule_keys:
-            reasons.append("invalid_identity_capsule")
-        elif not all(
-            self._nonempty(capsule.get(field))
-            for field in (
-                "name_and_identity",
-                "personality_foundation",
-                "expression_style",
-                "self_revision_safety_prompt",
-            )
-        ) or not self._nonempty_string_list(capsule.get("behavioral_principles")) \
-                or not self._nonempty_string_list(capsule.get("core_identity_anchors")):
-            reasons.append("invalid_identity_capsule")
-        else:
-            metrics["identity_capsule_chars"] = len(_canonical(capsule))
-
-        if not isinstance(facets, dict) or len(facets) > self.limits.max_facets:
-            reasons.append("invalid_facets")
-        else:
-            for key, value in facets.items():
-                if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", str(key)) \
-                        or not self._nonempty(value):
-                    reasons.append("invalid_facets")
-                    break
-                metrics["facet_chars"][key] = len(value)
-
-        if not isinstance(anchors, list) or len(anchors) > self.limits.max_anchor_references:
-            reasons.append("invalid_anchor_references")
-        else:
-            for anchor in anchors:
-                if not isinstance(anchor, dict) or set(anchor) != {"anchor_id", "memory_ref", "meaning"} \
-                        or not all(self._nonempty(anchor.get(k)) for k in anchor):
-                    reasons.append("invalid_anchor_references")
-                    break
-
-        try:
-            canonical = _canonical(content)
-            metrics["total_content_chars"] = len(canonical)
-        except (TypeError, ValueError):
-            reasons.append("invalid_content_structure")
-            canonical = ""
-
-        reasons.extend(self._text_findings(content))
-
-        if metrics["boot_anchor_chars"] > self.limits.boot_anchor_chars:
-            reasons.append("boot_anchor_too_long")
-        if metrics["identity_capsule_chars"] > self.limits.identity_capsule_chars:
-            reasons.append("identity_capsule_too_long")
-        if any(length > self.limits.facet_chars for length in metrics["facet_chars"].values()):
-            reasons.append("facet_too_long")
-        if len(canonical) > self.limits.total_content_chars:
-            reasons.append("total_content_too_long")
-        return list(dict.fromkeys(reasons)), metrics
-
-    @staticmethod
     def _walk_keys(value: Any) -> Iterable[str]:
         if isinstance(value, Mapping):
             for key, child in value.items():
@@ -607,7 +462,8 @@ class SelfModelStore:
         if revision is None:
             raise SelfRevisionError("active revision pointer is broken")
         content = json.loads(revision["content_json"])
-        return content["active_identity_capsule"]["self_revision_safety_prompt"]
+        capsule = parts(content).get("active_identity_capsule", {})
+        return text(capsule.get("self_revision_safety_prompt", "")) if isinstance(capsule, Mapping) else ""
 
     def current_safety_prompt(self, model_id: str) -> str:
         with self._connect() as connection:
@@ -1414,7 +1270,9 @@ class SelfModelStore:
             content = json.loads(revision["content_json"])
             if _sha256(content) != revision["content_hash"]:
                 raise SelfRevisionError("active revision hash mismatch")
-            capsule = dict(content["active_identity_capsule"])
+            content = parts(content)
+            content["facets"] = facet_map(content.get("facets"))
+            capsule = object_view(content.get("active_identity_capsule", {}))
             capsule["current_effective_version"] = revision["revision_number"]
             capsule["active_revision_id"] = revision["revision_id"]
             selected_facets = {
@@ -1424,7 +1282,7 @@ class SelfModelStore:
             }
             missing_facets = [name for name in facet_names if name not in content["facets"]]
             boot_anchor = {
-                "text": content["boot_anchor"]["text"],
+                "text": text(object_view(content.get("boot_anchor", {})).get("text", "")),
                 "model_id": model_id,
                 "active_revision_id": revision["revision_id"],
                 "current_effective_version": revision["revision_number"],
@@ -1468,7 +1326,7 @@ class SelfModelStore:
                 "active_identity_capsule": capsule,
                 "facets": selected_facets,
                 "anchor_references": (
-                    content["anchor_references"] if include_anchor_references else []
+                    content.get("anchor_references", []) if include_anchor_references else []
                 ),
                 "missing_facets": missing_facets,
                 "pending_review": pending_ids,

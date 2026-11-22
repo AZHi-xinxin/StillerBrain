@@ -275,11 +275,11 @@ class GovernanceServiceTests(unittest.TestCase):
 
         _, prepared = self.wake("governance-3", query_text="请进行一次工具调用")
         payload = json.loads(prepared["message"]["content"])
-        recalled = payload["self_governance_profile"]
+        recalled = payload["自定准则"]
         self.assertEqual(
-            self.governance_content()["text"], recalled["scopes"][0]["text"]
+            self.governance_content()["text"], recalled[0]
         )
-        self.assertEqual("none", recalled["frame"]["external_permission_authority"])
+        self.assertNotIn("external_permission_authority", str(recalled))
         self.assertNotIn("pending_candidates", json.dumps(recalled, ensure_ascii=False))
 
         health = self.service.health()

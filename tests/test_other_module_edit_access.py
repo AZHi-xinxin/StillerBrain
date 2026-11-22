@@ -53,7 +53,7 @@ class OtherModuleEditAccessTests(unittest.TestCase):
         })
         self.assertEqual("edit_body_draft", result["state"]["stage"])
 
-    def test_existing_permissions_survive_consent_draft_and_scope_rejection(self) -> None:
+    def test_existing_permissions_survive_free_authored_candidate(self) -> None:
         revision, wake, begun = self.edit()
         self.assert_allowed_without_mutation()
         self.confirm(wake, begun)
@@ -61,9 +61,8 @@ class OtherModuleEditAccessTests(unittest.TestCase):
         payload = copy.deepcopy(self.fixture.candidate_payload("v2", revision))
         payload["reason"] = "Synthetic MCP boundary rejection"
         rejected = self.fixture.advance(wake, "submit_candidate", payload)
-        self.assertIn("scope_boundary_violation", rejected["reason_codes"])
-        self.assertFalse(rejected["content_persisted"])
-        self.assertEqual("edit_body_draft", self.store.state(
+        self.assertEqual("pending", rejected["decision"])
+        self.assertEqual("candidate_wait", self.store.state(
             owner_id=self.owner, model_id=self.model
         )["state"]["stage"])
         self.assert_allowed_without_mutation()

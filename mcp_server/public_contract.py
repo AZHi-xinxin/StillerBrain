@@ -40,6 +40,7 @@ BRAIN_MANUAL_MODULES = (
 )
 
 PUBLIC_TOOL_NAMES: tuple[str, ...] = (
+    "memory_force_recall",
     "memory_desires",
     "emotion_list", "emotion_manage", "memory_emotions",
     "store_memory_image",
@@ -259,7 +260,6 @@ _CALM_PROMPT_PAYLOAD_SCHEMA: dict[str, Any] = {
         "text": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 2000,
             "pattern": r"\S",
             "description": "AI 自己撰写的非空冷静词。",
         }
@@ -269,22 +269,14 @@ _CALM_PROMPT_PAYLOAD_SCHEMA: dict[str, Any] = {
 _CANDIDATE_PAYLOAD_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["content", "reason"],
+    "required": ["content"],
     "properties": {
         "content": copy.deepcopy(_SELF_MODEL_CONTENT_SCHEMA),
-        "reason": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2000,
-            "pattern": r"\S",
-            "description": (
-                "AI 自己给出的非空候选理由；公开键名精确为 reason，绝不是 ai_reason。"
-            ),
-        },
+        "reason": {"description": "可选的自写修订理由。"},
+        "ai_reason": {"description": "reason的兼容别名；由服务处理，无需改正文。"},
     },
     "description": (
-        "public-tools/16 的模块一候选载荷只有 content 与 reason。diff、evidence_refs "
-        "和版本绑定由服务端从当前受控上下文派生，客户端不得提交。"
+        "content为任意AI自写JSON；reason可省略，也接受ai_reason。diff、evidence_refs和版本绑定由服务派生。"
     ),
 }
 
@@ -303,7 +295,6 @@ _OBJECTION_PAYLOAD_SCHEMA: dict[str, Any] = {
         "response": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 4000,
             "pattern": r"\S",
         },
         "resolution": {
@@ -321,9 +312,6 @@ _WITHDRAW_PAYLOAD_SCHEMA: dict[str, Any] = {
     "properties": {
         "reason": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 2000,
-            "pattern": r"\S",
         }
     },
 }
@@ -453,14 +441,14 @@ def _build_submit_input_schema() -> dict[str, Any]:
         "title": "public-tools/16 submit_self_model_candidate arguments",
         "type": "object",
         "additionalProperties": False,
-        "required": ["intent", "write_context_ref", "expected_row_version"],
+        "required": ["intent"],
         "properties": {
             "intent": {
                 "type": "string",
                 "enum": list(PUBLIC_INTENT_PAYLOAD_SCHEMAS),
             },
-            "write_context_ref": {"type": "string", "minLength": 1},
-            "expected_row_version": {"type": "integer", "minimum": 0},
+            "write_context_ref": {"type": ["string", "null"]},
+            "expected_row_version": {"type": ["integer", "null"], "minimum": 0},
             "payload": {"type": ["object", "null"]},
         },
         "allOf": [{"oneOf": branches}],
@@ -477,15 +465,13 @@ PUBLIC_ACTIVATE_INPUT_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
     "required": [
         "candidate_id",
-        "write_context_ref",
-        "expected_row_version",
         "expected_active_revision",
         "ai_confirmation",
     ],
     "properties": {
         "candidate_id": {"type": "string", "minLength": 1},
-        "write_context_ref": {"type": "string", "minLength": 1},
-        "expected_row_version": {"type": "integer", "minimum": 0},
+        "write_context_ref": {"type": ["string", "null"]},
+        "expected_row_version": {"type": ["integer", "null"], "minimum": 0},
         "expected_active_revision": {
             "anyOf": [{"type": "string", "minLength": 1}, {"type": "null"}],
             "description": (
@@ -618,7 +604,7 @@ _LEARNING_CALM_CHECK_INPUT_SCHEMA: dict[str, Any] = {
             "then": {
                 "properties": {
                     "notes": {
-                        "pattern": r"([Ss][Cc][Oo][Pp][Ee]|范围)",
+            "pattern": r"([Ss][Cc][Oo][Pp][Ee]|范围)",
                     }
                 }
             },
@@ -650,7 +636,7 @@ _LEARNING_LINKS_INPUT_SCHEMA: dict[str, Any] = {
                             "relation_type": {"const": "contrast"},
                             "target_ref": {
                                 "type": "string",
-                                "pattern": r"^learning://[^@]+@[1-9][0-9]*$",
+                    "pattern": r"^learning://[^@]+@[1-9][0-9]*$",
                                 "description": "第一张现存卡返回的完整 item_ref。",
                             },
                             "weight": {
@@ -676,7 +662,7 @@ _LEARNING_LINKS_INPUT_SCHEMA: dict[str, Any] = {
                             },
                             "target_ref": {
                                 "type": "string",
-                                "pattern": r"^learning://[^@]+@[1-9][0-9]*$",
+                    "pattern": r"^learning://[^@]+@[1-9][0-9]*$",
                             },
                             "weight": {
                                 "type": "integer",
@@ -1061,25 +1047,19 @@ def validate_public_payload(
         )
 
     if intent == "save_calm_prompt" and "text" in body:
-        issue = _string_issue(body["text"], path="payload.text", maximum=2000)
+        issue = _string_issue(body["text"], path="payload.text", maximum=None)
         if issue:
             issues.append(issue)
     if intent in {"submit", "revise"}:
-        if "content" in body and not isinstance(body["content"], Mapping):
-            issues.append(
-                {"path": "payload.content", "code": "invalid_type", "expected": "object"}
-            )
-        if "reason" in body:
-            issue = _string_issue(body["reason"], path="payload.reason", maximum=2000)
-            if issue:
-                issues.append(issue)
+        # Content is an opaque authored JSON value; reason is optional commentary.
+        pass
     if intent == "accept_review" and body.get("ai_confirmation") is not True:
         issues.append(
             {"path": "payload.ai_confirmation", "code": "required_true", "expected": True}
         )
     if intent == "respond_to_objection":
         if "response" in body:
-            issue = _string_issue(body["response"], path="payload.response", maximum=4000)
+            issue = _string_issue(body["response"], path="payload.response", maximum=None)
             if issue:
                 issues.append(issue)
         if "resolution" in body and body["resolution"] not in {"continue", "withdraw"}:
@@ -1091,7 +1071,7 @@ def validate_public_payload(
                 }
             )
     if intent == "withdraw" and "reason" in body:
-        issue = _string_issue(body["reason"], path="payload.reason", maximum=2000)
+        issue = _string_issue(body["reason"], path="payload.reason", maximum=None)
         if issue:
             issues.append(issue)
     if intent == "confirm_edit":
@@ -1116,6 +1096,8 @@ def validate_public_payload(
 
     if issues:
         raise PublicPayloadValidationError(issues)
+    if intent in {"submit", "revise"} and "reason" not in body and "ai_reason" in body:
+        body["reason"] = body.pop("ai_reason")
     return body
 
 

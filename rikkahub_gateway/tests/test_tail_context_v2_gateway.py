@@ -438,7 +438,7 @@ class TailRealControlWireTests(v1.CacheLayoutRealControlWireTests):
         stable = json.loads(session.context_bundle["stable_message"]["content"])
         dynamic = json.loads(session.context_bundle["dynamic_message"]["content"])
         self.assertEqual(json.loads(session.message["content"]), {**stable, **dynamic})
-        self.assertIn("learning_memory", dynamic)
+        self.assertIn("记忆", dynamic)
         self.assertEqual(session.context_bundle["dynamic_message"], self.upstream_payloads[0]["messages"][-1])
         messages[0]["content"] = "Synthetic battery: 59%"
         messages.extend([first["choices"][0]["message"],

@@ -66,6 +66,15 @@ _CURRENT = ContextVar('st_authenticated_ordinary_operation', default=None)
 _SEQUENCE = itertools.count(time.time_ns() // 1000000)
 
 def tool_scope(name, arguments):
+    if name == 'memory_force_recall':
+        from .force_recall import SCOPES, _parse
+        from .emotion_layer import EmotionLayerError
+        if arguments.get('action', 'list') in {'list', 'guide'}:
+            return 'emotional_memory'
+        try:
+            return SCOPES[_parse(arguments.get('target_ref'))[0]]
+        except EmotionLayerError:
+            return None
     if name == 'memory_emotions':
         from .emotion_layer import SCOPES, parse_ref, EmotionLayerError
         try:
@@ -106,6 +115,8 @@ def ordinary_write_scope(name, arguments):
     Governance/injection advanced actions bypass the convenience context, not
     the initial module-one prerequisite. The vault keeps its separate policy.
     """
+    if name == 'memory_force_recall' and arguments.get('action', 'list') in {'list', 'read', 'guide'}:
+        return None
     if name in ORDINARY_READ_TOOLS:
         return None
     if name == 'manage_injection_control' and arguments.get('scope') == 'hallucination_vault':

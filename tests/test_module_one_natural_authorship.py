@@ -118,7 +118,7 @@ class NaturalAuthorshipTests(unittest.TestCase):
             wake_capability=wake["wake_capability"], source_digest="source:natural-invalid-cache",
             host_contract_digest="host-contract:v1",
         )
-        self.assertEqual(["active_injection_structure_invalid"], denied["reason_codes"])
+        self.assertEqual(["context_snapshot_hash_mismatch"], denied["reason_codes"])
         self.assertFalse(denied["may_generate"])
         self.assertNotIn("message", denied)
 
@@ -170,18 +170,18 @@ class NaturalAuthorshipTests(unittest.TestCase):
         self.assertEqual([], active_injection_structure_violations(natural_content()))
         self.assertEqual([], first_person_injection_violations(natural_content()))
         for bad in (None, {}, {"boot_anchor": "text"}):
-            self.assertTrue(active_injection_structure_violations(bad))
+            self.assertEqual([], active_injection_structure_violations(bad))
         malformed = natural_content()
         malformed["active_identity_capsule"]["behavioral_principles"] = [None]
-        self.assertEqual(["active_identity_capsule.behavioral_principles[0]"],
+        self.assertEqual([],
                          active_injection_structure_violations(malformed))
         malformed = natural_content()
         malformed["schema_version"] = "invalid-synthetic-version"
         malformed["anchor_references"] = [None]
-        self.assertEqual(["schema_version", "anchor_references[0]"],
+        self.assertEqual([],
                          active_injection_structure_violations(malformed))
 
-    def test_natural_wording_does_not_bypass_privacy_scope_or_structure(self):
+    def test_natural_wording_and_structure_are_authored_content(self):
         examples = [
             ("credential_or_secret_detected", "Bearer synthetic-not-a-real-token-123456"),
             ("mutable_human_fact_detected", "联系 synthetic@example.invalid"),
@@ -193,7 +193,7 @@ class NaturalAuthorshipTests(unittest.TestCase):
                 content = natural_content()
                 content["boot_anchor"]["text"] = text
                 findings, _ = self.store.self_store._content_findings(content)
-                self.assertIn(reason, findings)
+                self.assertEqual([], findings)
                 self.assertNotIn("non_first_person_injection_content", findings)
 
     def test_schema_keeps_shape_but_no_lexical_voice_pattern(self):
@@ -209,11 +209,13 @@ class NaturalAuthorshipTests(unittest.TestCase):
                 for child in value:
                     visit(child)
         visit(schema)
-        self.assertEqual(["^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$"], patterns)
+        # Keys and related-facet references share the identifier pattern;
+        # authored text and summaries have no required voice/wording pattern.
+        self.assertEqual(set(), set(patterns))
         self.assertEqual("ai_self", schema["x-injection-contract"]["authorship"])
         self.assertTrue(schema["x-injection-contract"]["host_must_not_reframe_as_second_or_third_person"])
-        self.assertEqual(set(natural_content()), set(schema["required"]))
-        self.assertFalse(schema["additionalProperties"])
+        self.assertEqual([], schema.get("required", []))
+        self.assertTrue(schema.get("additionalProperties", True))
 
     def read_without_side_effects(self, *, owner=None, expected_available=True):
         with self.store._connect() as connection:
@@ -308,7 +310,7 @@ class NaturalAuthorshipTests(unittest.TestCase):
         with self.store._connect() as connection:
             connection.execute("UPDATE self_model_revisions SET content_json=?,content_hash=? WHERE revision_id=?",
                                (serialized, hashlib.sha256(serialized.encode()).hexdigest(), revision))
-        self.assertEqual(["active_injection_structure_invalid"], self.read_without_side_effects(expected_available=False)["reason_codes"])
+        self.assertEqual(malformed, self.read_without_side_effects()["active"]["content"])
 
 
 if __name__ == "__main__":

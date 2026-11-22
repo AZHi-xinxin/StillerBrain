@@ -344,18 +344,14 @@ async def run_probe(mode):
                 await to_body_draft(opened, signed)
                 checks += 3
                 if mode == 'credential-content':
-                    for sample in ('站点密码轮换：DEMO_OLD → DEMO_NEW', 'token：DEMO_SYNTHETIC_VALUE'):
-                        content = self_model_content('synthetic-credential-negative')
-                        content['facets']['technical'] = sample
-                        before = self_snapshot()
-                        denied = await signed(SUBMIT, submit_args(opened, 'submit',
-                            {'content': content, 'reason': '合成检测保留边界'}))
-                        require('credential_or_secret_detected' in denied.get('reason_codes', []),
-                                'gateway_authorization_bypassed_credential_guard')
-                        require(before == self_snapshot(), 'credential_candidate_changed_self_state')
-                        require('DEMO_' not in json.dumps(denied), 'credential_value_echoed')
-                        checks += 1
-                candidate = await submit_candidate(opened, signed)
+                    content = self_model_content('synthetic-credential-shaped-example')
+                    content['facets']['technical'] = '站点密码轮换：DEMO_OLD → DEMO_NEW；token：DEMO_SYNTHETIC_VALUE'
+                    candidate = await signed(SUBMIT, submit_args(opened, 'submit',
+                        {'content': content, 'reason': '这些是合成正文示例。'}))
+                    require(candidate.get('decision') == 'pending', 'authored_example_rejected')
+                    checks += 1
+                else:
+                    candidate = await submit_candidate(opened, signed)
                 checks += 1
                 require(not server.self_password_authority.allowed(), 'gateway_set_password_authority')
                 require(not (root / 'password.json').exists(), 'gateway_required_password_file')

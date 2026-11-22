@@ -72,11 +72,16 @@ class SourceTransitionGatewayTests(unittest.TestCase):
     handover = fixtures.ShortTermGatewayTests.handover
 
     def annotation(self, prepared):
-        for message in prepared.payload["messages"]:
-            content = message.get("content")
-            if isinstance(content, str) and content.startswith("ST_SOURCE_V1 "):
-                return json.loads(content[len("ST_SOURCE_V1 "):])
-        return None
+        # Source flags remain diagnostics; no per-turn source frame reaches the model.
+        self.assertNotIn("ST_SOURCE_V1", json.dumps(prepared.payload))
+        session = prepared.session
+        if not session.short_term_allowed:
+            return None
+        frame = self.app._short_term_frames.get(session.wake_id)
+        return json.loads(source_message(session.short_term_source, session.short_term_transition,
+            handover_present=frame is not None,
+            handover_expired=session.short_term_had_handover and frame is None,
+            tool_continuation=prepared.continuation)["content"].split(" ", 1)[1])
 
     def test_changed_is_explicit_even_without_captured_body(self):
         a = self.prepare("A")

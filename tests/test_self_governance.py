@@ -265,36 +265,25 @@ class SelfGovernanceStoreTests(unittest.TestCase):
                 expected_active_revision=None,
                 actor="human",
             )
-        with self.assertRaisesRegex(SelfGovernanceError, "credential_or_secret_detected"):
-            self.store.propose_candidate(
-                owner_id=self.owner,
-                model_id=self.model,
-                scope="global",
-                operation="set",
-                content=profile("我保留 token=abc12345678901234567890"),
-                reason="我想保存。",
-                wake_id="wake-1",
-                wake_seq=1,
-                expected_row_version=0,
-                expected_active_revision=None,
-            )
-        with self.assertRaisesRegex(SelfGovernanceError, "invalid_governance_content_structure"):
-            self.store.propose_candidate(
-                owner_id=self.owner,
-                model_id=self.model,
-                scope="global",
-                operation="set",
-                content={**profile("第三人称也可由 AI 自主选择。"), "author": "human"},
-                reason="我想保存。",
-                wake_id="wake-1",
-                wake_seq=1,
-                expected_row_version=0,
-                expected_active_revision=None,
-            )
         self.assertEqual(
             0,
             self.store.status(owner_id=self.owner, model_id=self.model)["scopes"]["global"]["row_version"],
         )
+
+    def test_author_text_is_preserved_without_keyword_length_or_extra_field_rejection(self):
+        text = "  token=synthetic-example-only\n" + "作者自行写的治理说明。" * 600 + "\n  "
+        content = {**profile(text), "自定备注": {"author": "human", "source": "fictional example"},
+                   "scene_tags": ["tag" + str(i) for i in range(40)] + ["tag0"]}
+        saved = self.store.commit_revision(
+            owner_id=self.owner, model_id=self.model, scope="global", operation="set",
+            content=content, reason="token=also-a-synthetic-example " + "说明" * 1200,
+            wake_id="wake-1", wake_seq=1, expected_row_version=0, expected_active_revision=None,
+        )
+        self.assertEqual("committed", saved["decision"])
+        active = self.store.status(owner_id=self.owner, model_id=self.model, include_content=True)["scopes"]["global"]
+        self.assertEqual(text, active["active"]["content"]["text"])
+        self.assertEqual(content["自定备注"], active["active"]["content"]["自定备注"])
+        self.assertEqual(40, len(active["active"]["content"]["scene_tags"]))
 
     def test_withdraw_clear_and_rollback_are_ai_controlled_append_only_events(self) -> None:
         first = self.store.propose_candidate(

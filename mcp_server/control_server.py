@@ -121,6 +121,7 @@ def _source_frame(body: Mapping[str, Any]) -> dict[str, Any] | None:
         raise ValueError("source_frame must be an object")
     allowed = {
         "query_text",
+        "keyword_query_text",
         "thread_id",
         "lineage_stable",
         "prior_assistant_present",
@@ -134,6 +135,10 @@ def _source_frame(body: Mapping[str, Any]) -> dict[str, Any] | None:
     query_text = value.get("query_text", "")
     if not isinstance(query_text, str) or len(query_text) > 4000:
         raise ValueError("source_frame.query_text must be a string of at most 4000 characters")
+    keyword_query_text = value.get("keyword_query_text")
+    if keyword_query_text is not None and (not isinstance(keyword_query_text, str)
+            or keyword_query_text[:4000] != query_text or len(keyword_query_text) <= 4000):
+        raise ValueError("source_frame.keyword_query_text must extend the same newest user text")
     lineage_stable = value.get("lineage_stable", False)
     if not isinstance(lineage_stable, bool):
         raise ValueError("source_frame.lineage_stable must be boolean")
@@ -174,6 +179,7 @@ def _source_frame(body: Mapping[str, Any]) -> dict[str, Any] | None:
     continuity = validate_frame(value.get("continuity"))
     return {
         "query_text": query_text,
+        **({"keyword_query_text": keyword_query_text} if keyword_query_text is not None else {}),
         "thread_id": thread_id,
         "lineage_stable": lineage_stable,
         "prior_assistant_present": prior_assistant_present,

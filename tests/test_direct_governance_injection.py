@@ -106,9 +106,8 @@ class DirectGovernanceInjectionTests(unittest.TestCase):
                                                     (pending["candidate_id"],)))
         self.assertEqual([(1,)], self.query("SELECT COUNT(*) FROM self_governance_revisions"))
 
-    def test_direct_authorship_secrets_invalid_payload_do_not_write(self) -> None:
+    def test_direct_authorship_invalid_payload_and_free_governance_text(self) -> None:
         for override, error in (({"actor": "human"}, "ai_authorship_required"),
-                                ({"reason": "token=synthetic-test-only-value"}, "credential_or_secret_detected"),
                                 ({"wake_seq": 0}, "invalid_wake_seq")):
             with self.subTest(override=override), self.assertRaisesRegex((SelfGovernanceError, InjectionControlError), error):
                 self.gov_commit(**override)
@@ -120,6 +119,10 @@ class DirectGovernanceInjectionTests(unittest.TestCase):
             self.inj_commit(target_revision_id="foreign")
         self.assertEqual([(0,)], self.query("SELECT COUNT(*) FROM self_governance_revisions"))
         self.assertEqual([(0,)], self.query("SELECT COUNT(*) FROM injection_control_revisions"))
+        with self.assertRaisesRegex(InjectionControlError, "credential_or_secret_detected"):
+            self.inj_commit(reason="token=synthetic-test-only-value")
+        result = self.gov_commit(reason="token=synthetic-test-only-value")
+        self.assertEqual("committed", result["decision"])
 
     def test_injection_direct_set_clear_rollback_same_wake_truthful_audit(self) -> None:
         first = self.inj_commit()

@@ -55,9 +55,9 @@ class PublicContractV9Tests(unittest.TestCase):
         for intent in ("submit", "revise"):
             schema = PUBLIC_INTENT_PAYLOAD_SCHEMAS[intent]
             self.assertFalse(schema["additionalProperties"])
-            self.assertEqual(["content", "reason"], schema["required"])
-            self.assertEqual({"content", "reason"}, set(schema["properties"]))
-            self.assertNotIn("ai_reason", schema["properties"])
+            self.assertEqual(["content"], schema["required"])
+            self.assertEqual({"content", "reason", "ai_reason"}, set(schema["properties"]))
+            self.assertIn("ai_reason", schema["properties"])
             self.assertNotIn("diff", schema["properties"])
             self.assertNotIn("evidence_refs", schema["properties"])
 
@@ -65,7 +65,7 @@ class PublicContractV9Tests(unittest.TestCase):
         schema = PUBLIC_SUBMIT_INPUT_SCHEMA
         self.assertFalse(schema["additionalProperties"])
         self.assertEqual(
-            {"intent", "write_context_ref", "expected_row_version"},
+            {"intent"},
             set(schema["required"]),
         )
         self.assertEqual(
@@ -84,8 +84,6 @@ class PublicContractV9Tests(unittest.TestCase):
         self.assertEqual(
             {
                 "candidate_id",
-                "write_context_ref",
-                "expected_row_version",
                 "expected_active_revision",
                 "ai_confirmation",
             },
@@ -97,15 +95,11 @@ class PublicContractV9Tests(unittest.TestCase):
         )
         self.assertIs(True, schema["properties"]["ai_confirmation"]["const"])
 
-    def test_ai_reason_error_names_the_exact_required_key(self) -> None:
-        with self.assertRaises(PublicPayloadValidationError) as caught:
-            validate_public_payload(
-                "submit",
-                {"content": self_model_content(), "ai_reason": "我写的理由"},
-            )
-        issues = {(item["path"], item["code"]) for item in caught.exception.issues}
-        self.assertIn(("payload.ai_reason", "unexpected_property"), issues)
-        self.assertIn(("payload.reason", "missing_reason"), issues)
+    def test_ai_reason_alias_is_accepted_without_rewriting_content(self):
+        content = self_model_content()
+        result = validate_public_payload("submit", {"content": content, "ai_reason": "我写的理由"})
+        self.assertEqual(content, result["content"])
+        self.assertEqual("我写的理由", result["reason"])
 
 
 class PublicFacadeV9Tests(unittest.TestCase):
@@ -200,7 +194,7 @@ class PublicFacadeV9Tests(unittest.TestCase):
         opened = self.advance_to_body()
         call = opened["current_action_contract"]["allowed_calls"][0]
         self.assertEqual("submit", call["intent"])
-        self.assertEqual({"content", "reason"}, set(call["payload_schema"]["properties"]))
+        self.assertEqual({"content", "reason", "ai_reason"}, set(call["payload_schema"]["properties"]))
         self.assertEqual(
             ["diff", "evidence_refs", "expected_active_revision"],
             call["server_derived_fields"],
@@ -239,7 +233,6 @@ class PublicFacadeV9Tests(unittest.TestCase):
 
         attempts = [
             {"candidate": {"content": self_model_content(), "reason": "我说明理由。"}},
-            {"content": self_model_content(), "ai_reason": "我说明理由。"},
             {
                 "content": self_model_content(),
                 "reason": "我说明理由。",
@@ -264,11 +257,9 @@ class PublicFacadeV9Tests(unittest.TestCase):
         ai_reason_result = self.submit(
             opened,
             "submit",
-            {"content": self_model_content(), "ai_reason": "我说明理由。"},
         )
         paths = {(issue["path"], issue["code"]) for issue in ai_reason_result["validation_issues"]}
-        self.assertIn(("payload.ai_reason", "unexpected_property"), paths)
-        self.assertIn(("payload.reason", "missing_reason"), paths)
+        self.assertIn(("payload.content", "required"), paths)
 
     def test_evidence_is_derived_trimmed_and_deduplicated(self) -> None:
         self.wake("derived-evidence")

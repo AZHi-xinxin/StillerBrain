@@ -1,5 +1,6 @@
 import base64
 from contextlib import closing
+from runtime.recall_projection import short_ref
 import json
 import sqlite3
 import unittest
@@ -100,7 +101,7 @@ class DesireAndImageIntegrationTests(unittest.TestCase):
             source_frame={'query_text':'你还记得海边灯塔吗？','thread_id':'thread:desire','lineage_stable':True,'source_event_id':'desire-event-1','capture_items':[]})
         actual=self.fixture.store.build_pre_generation_context(**kwargs)
         payload=json.loads(actual['message']['content'])
-        self.assertEqual(ref,payload['memory_images']['attachments'][0]['target_ref'])
+        self.assertEqual(short_ref(ref),payload['附图'][0]['编号'])
         self.assertNotIn('data_uri',actual['message']['content'])
         self.assertIn('想再去海边灯塔',actual['message']['content'])
         again=self.fixture.store.build_pre_generation_context(**kwargs)

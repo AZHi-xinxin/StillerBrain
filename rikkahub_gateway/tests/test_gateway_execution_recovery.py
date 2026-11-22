@@ -99,6 +99,37 @@ class GatewayExecutionRecoveryTests(unittest.TestCase):
         self.assertEqual("summary", values["view"])
         self.assertEqual({"view", "execution_ref"}, set(values))
 
+    def test_invalid_managed_json_returns_to_host_and_continues_same_wake(self):
+        bad = NativeToolCall("synthetic-bad", "stbrain_open", '{"view":"unfinished')
+        good = self.batch()[1]
+        calls = self.app.decorate_execution_calls(self.prepared, [bad, good])
+        self.assertIs(bad, calls[0])
+        bindings = self.app.bind_response_tool_calls(self.prepared, calls)
+        self.assertEqual({good.tool_call_id}, set(bindings))
+        issues = [body for path, body in self.control.calls if path.endswith("/issue")]
+        self.assertEqual([good.tool_call_id], [c["call_id"] for c in issues[0]["calls"]])
+        self.app.finish_turn(self.prepared, keep_for_tools=True,
+            tool_call_ids=[c.tool_call_id for c in calls], tool_call_bindings=bindings)
+        self.app.mark_response_delivered(self.prepared)
+        payload = self.partial(calls)
+        payload["messages"][2]["content"] = '{"error":"Invalid tool arguments JSON"}'
+        continued = self.app.prepare_turn(payload, self.headers)
+        self.assertIs(self.prepared.session, continued.session)
+        corrected = NativeToolCall("synthetic-corrected", "stbrain_open", '{"view":"summary"}')
+        corrected_calls = self.app.decorate_execution_calls(continued, [corrected])
+        corrected_bindings = self.app.bind_response_tool_calls(continued, corrected_calls)
+        self.assertIn(corrected.tool_call_id, corrected_bindings)
+        self.app.finish_turn(continued, keep_for_tools=False)
+
+    def test_bad_managed_arguments_without_valid_peer_get_no_execution_lease(self):
+        for raw in ['{"view":', '[]', '{"view":"a","view":"b"}', '{"view":NaN}']:
+            with self.subTest(raw=raw):
+                bad = NativeToolCall("synthetic-bad-only", "stbrain_open", raw)
+                calls = self.app.decorate_execution_calls(self.prepared, [bad])
+                self.assertEqual([bad], calls)
+                self.assertEqual({}, self.app.bind_response_tool_calls(self.prepared, calls))
+        self.assertFalse(any(path.endswith("/issue") for path, _ in self.control.calls))
+
     def test_nonempty_model_reference_rejected_before_issue(self):
         call = NativeToolCall("synthetic-open", "stbrain_open", '{"execution_ref":"not-host-issued"}')
         with self.assertRaisesRegex(GatewayError, "execution_reference_model_supplied"):
@@ -290,6 +321,31 @@ class GatewayExecutionHTTPWireTests(unittest.TestCase):
 
     def test_sse_sse(self):
         self.roundtrip(True, True)
+
+    def malformed_roundtrip(self, stream):
+        raw_args = '{"view":"unfinished'
+        self.calls[1]["function"]["arguments"] = raw_args
+        status, raw = self.post([self.user], stream=stream)
+        self.assertEqual(200, status)
+        delivered = (_buffered_sse_tool_calls(raw) if stream else
+            self.app.response_tool_calls(json.loads(raw)))
+        self.assertEqual(raw_args, delivered[1].arguments_text)
+        self.assertFalse(any(path.endswith("/issue") for path, _ in self.control.calls))
+        self.calls = [fixtures.GatewayTests.wire_call(call) for call in delivered]
+        submitted = self.interleaved()
+        for message in submitted:
+            if message.get("role") == "tool" and message.get("tool_call_id") == delivered[1].tool_call_id:
+                message["content"] = '{"error":"Invalid tool arguments JSON"}'
+        status, result = self.post(submitted, stream=stream)
+        self.assertEqual(200, status)
+        self.assertIn(b"synthetic complete", result)
+        self.assertNotIn(b"gateway_request_failed", result)
+
+    def test_json_bad_managed_arguments_delivered_and_host_error_continues(self):
+        self.malformed_roundtrip(False)
+
+    def test_sse_bad_managed_arguments_delivered_and_host_error_continues(self):
+        self.malformed_roundtrip(True)
 
     def test_json_model_supplied_reference_never_reaches_client_as_tool(self):
         self.calls[1]["function"]["arguments"] = '{"execution_ref":"model-made"}'

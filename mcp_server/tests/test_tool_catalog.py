@@ -13,6 +13,7 @@ import jsonschema
 
 
 EXPECTED_PUBLIC_TOOLS = {
+    "memory_force_recall",
     "memory_desires",
     "emotion_list",
     "emotion_manage",
@@ -250,7 +251,7 @@ class ToolCatalogTests(unittest.TestCase):
         for intent in ("submit", "revise"):
             candidate = schema["$defs"][f"payload_{intent}"]
             self.assertFalse(candidate["additionalProperties"])
-            self.assertEqual({"content", "reason"}, set(candidate["properties"]))
+            self.assertEqual({"content", "reason", "ai_reason"}, set(candidate["properties"]))
         serialized = json.dumps(schema, sort_keys=True)
         self.assertNotIn("wake_capability", serialized)
         self.assertNotIn("challenge_response", serialized)
@@ -260,8 +261,6 @@ class ToolCatalogTests(unittest.TestCase):
         self.assertEqual(
             {
                 "candidate_id",
-                "write_context_ref",
-                "expected_row_version",
                 "expected_active_revision",
                 "ai_confirmation",
             },

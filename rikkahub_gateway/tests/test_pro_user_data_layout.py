@@ -161,8 +161,5 @@ class ProUserDataLayoutTests(unittest.TestCase):
         turn=self.prepare(app,self.fixture())
         self.assertTrue(turn.session.short_term_allowed)
         self.assertEqual('user',turn.payload['messages'][-1]['role'])
-        routing=json.loads(turn.payload['messages'][-1]['content'][-1]['text'].split('\n',1)[1])
-        self.assertEqual('stbrain_routing',routing['source'])
-        self.assertTrue(routing['content'].startswith('ST_SOURCE_V1 '))
-        self.assertFalse(any(str(m.get('content')).startswith('ST_SOURCE_V1 ') for m in turn.payload['messages'] if m['role']=='system'))
-
+        self.assertNotIn('ST_SOURCE_V1', json.dumps(turn.payload))
+        self.assertNotIn('stbrain_routing', json.dumps(turn.payload))

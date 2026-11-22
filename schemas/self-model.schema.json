@@ -1,102 +1,37 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:stiller-brain:self-model-content:0.1.0",
-  "title": "AI-owned Self Model Content",
-  "description": "The exact five-key payload authored and explicitly approved by the AI. Natural wording, headings, quotations and pronoun choice are preserved without host rewriting or a required opening word. Revision numbers and active pointers are runtime metadata. Runtime also limits the canonical JSON size to 16000 characters.",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "schema_version",
-    "boot_anchor",
-    "active_identity_capsule",
-    "facets",
-    "anchor_references"
-  ],
+  "$id": "urn:stiller-brain:self-model-content:0.3.0",
+  "title": "AI-authored self model — free-form JSON",
+  "description": "原文自由写作：任意JSON值、中文名称、自定义字段与结构均原样保存；没有字段白名单、必填身份字段、字数或条数限制。下列字段只是可选组织建议。自我定义仍需三个独立唤醒完成提交、复核、激活。",
   "properties": {
-    "schema_version": { "const": "0.1.0" },
+    "schema_version": {
+      "description": "schema_version"
+    },
     "boot_anchor": {
-      "description": "A small boot reminder written by the AI in its own chosen wording. This must be an object with exactly one text field, not a bare string.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["text"],
-      "properties": {
-        "text": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 500
-        }
-      }
+      "description": "可选启动提醒，可直接写文本或任意JSON。"
     },
     "active_identity_capsule": {
-      "description": "Stable identity content written and approved by the AI, without a required pronoun prefix. Its canonical JSON representation must be at most 4000 characters.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "name_and_identity",
-        "personality_foundation",
-        "expression_style",
-        "behavioral_principles",
-        "core_identity_anchors",
-        "self_revision_safety_prompt"
-      ],
-      "properties": {
-        "name_and_identity": { "type": "string", "minLength": 1 },
-        "personality_foundation": { "type": "string", "minLength": 1 },
-        "expression_style": { "type": "string", "minLength": 1 },
-        "behavioral_principles": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "type": "string", "minLength": 1 }
-        },
-        "core_identity_anchors": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "type": "string", "minLength": 1 }
-        },
-        "self_revision_safety_prompt": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
+      "description": "AI自己撰写的自我描述，自定字段、结构与长度。"
     },
     "facets": {
-      "description": "Optional situation-specific self-descriptions, authored and approved by the AI and injected without rewriting its wording.",
-      "type": "object",
-      "maxProperties": 16,
-      "propertyNames": { "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$" },
-      "additionalProperties": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 2500
-      }
+      "description": "Optional situation-specific self-descriptions, authored and approved by the AI and injected without rewriting its wording."
     },
     "anchor_references": {
-      "type": "array",
-      "maxItems": 32,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["anchor_id", "memory_ref", "meaning"],
-        "properties": {
-          "anchor_id": { "type": "string", "minLength": 1 },
-          "memory_ref": { "type": "string", "minLength": 1, "maxLength": 512 },
-          "meaning": { "type": "string", "minLength": 1 }
-        }
-      }
+      "description": "anchor_references"
+    },
+    "facet_recall": {
+      "description": "facet_recall"
     }
-  },
-  "x-runtime-limits": {
-    "boot_anchor_text_characters": 500,
-    "active_identity_capsule_canonical_json_characters": 4000,
-    "facet_value_characters": 2500,
-    "total_content_canonical_json_characters": 16000,
-    "max_facets": 16,
-    "max_anchor_references": 32
   },
   "x-injection-contract": {
     "voice": "ai_authored_original",
     "authorship": "ai_self",
     "host_must_not_reframe_as_second_or_third_person": true,
-    "injected_fields": ["boot_anchor", "active_identity_capsule", "facets"]
+    "injected_fields": [
+      "boot_anchor",
+      "active_identity_capsule",
+      "facets"
+    ],
+    "facet_recall": "每条facet都出现：key、正文词句、keywords、aliases硬命中显示全文，不限3条；未命中显示你自写的summary，旧字符串没有摘要时暂保全文，不替你生成。正文按当前语境词句匹配（过滤否定、引用、假设），key/keywords/aliases按最新人类正文的字面词匹配。related_facets或正文[[facet:名称]]可联动全文；环状引用去重。本地语义只做软命中：冷启动不等，热检索最多150ms，未及时返回就用硬命中与摘要。budget_tokens是facets独立预算，不挤普通记忆；必带全文及所有摘要优先，即使超过预算也不裁剪，预算限制额外软命中展开。上述开关、预算、语义阈值、摘要分隔句均可通过你自己的自我模型修订流程修改。诊断只在精确查询时返回。"
   }
 }

@@ -29,6 +29,36 @@ from rikkahub_gateway.tests.test_gateway_execution_recovery import ExecutionCont
 
 
 class CompactAuthorityTests(unittest.TestCase):
+    def test_real_candidate_submit_omits_internal_ref_and_version(self):
+        from mcp_server.service import SelfModelAccessService
+        from mcp_server.public_contract import PUBLIC_SUBMIT_INPUT_SCHEMA
+        from runtime.self_revision import SelfModelStore
+        service = SelfModelAccessService(SelfModelStore(self.directory / 'synthetic.sqlite3'),
+            onboarding=self.onboarding, **self.common)
+        for intent, payload in [('acknowledge', None), ('acknowledge', None),
+                                ('save_calm_prompt', {'text': '自己决定如何修改。'})]:
+            result = service.submit_self_model_candidate(intent=intent, payload=payload)
+            self.assertIn(result['decision'], ('advanced', 'saved'))
+        self.mcp.remove_tool('submit_self_model_candidate')
+
+        async def real_submit(intent: str, write_context_ref: str | None = None,
+                              expected_row_version: int | None = None,
+                              payload: dict[str, Any] | None = None) -> dict[str, Any]:
+            return service.submit_self_model_candidate(intent=intent,
+                write_context_ref=write_context_ref, expected_row_version=expected_row_version,
+                payload=payload)
+
+        self.mcp.add_tool(real_submit, name='submit_self_model_candidate')
+        self.mcp._tool_manager.get_tool('submit_self_model_candidate').parameters = deepcopy(PUBLIC_SUBMIT_INPUT_SCHEMA)
+        content = {'任意中文字段': '我的内容', 'facets': {'我的侧面': {'自选正文': '原样保存'}}}
+        args = {'intent': 'submit', 'payload': {'content': content}}
+        ref, batch = self.issue('submit_self_model_candidate', args)
+        result = self.call('submit_self_model_candidate', args, execution_ref=ref, include_ref=True)
+        self.assertEqual('pending', result['decision'], result.get('reason_codes'))
+        self.assertEqual(1, self.store.batch_status(**batch)['counts']['completed'])
+        candidate = service.store.list_candidates(self.common['model_id'])[0]
+        self.assertEqual(content, json.loads(candidate['content_json']))
+
     def setUp(self):
         self.enterContext(patch('socket.create_connection', side_effect=AssertionError('network_forbidden')))
         self.enterContext(patch('subprocess.Popen', side_effect=AssertionError('process_forbidden')))
@@ -233,7 +263,8 @@ class CompactAuthorityTests(unittest.TestCase):
     def test_invalid_arguments_include_contract_without_echoing_values(self):
         result = self.call('submit_self_model_candidate', {'intent': ['synthetic-secret-do-not-echo']})
         self.assertEqual('compact_action_arguments_invalid', result['reason_code'])
-        self.assertIn('arguments_schema', result['action_contract'])
+        self.assertNotIn('arguments_schema', result['action_contract'])
+        self.assertLess(len(json.dumps(result)), 4000)
         self.assertTrue(result['validation_issues'])
         self.assertNotIn('synthetic-secret-do-not-echo', json.dumps(result))
         self.assertEqual([], self.calls)

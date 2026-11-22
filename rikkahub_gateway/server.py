@@ -49,7 +49,7 @@ from .cache_layout import (USER_DATA_CONTEXT_LAYOUT_CONTRACT, USER_DATA_RULE,
                            project_historical_host_data)
 from .management import RouteStore, ManagementError, handle_management_request, managed_stream
 from .short_term import Scope, ShortTermMemory
-from .short_term_wire import client_source, source_message, handover_message, FinalBodyCollector
+from .short_term_wire import client_source, handover_message, FinalBodyCollector
 
 from .tool_execution import (
     EXECUTION_BINDING_CONTRACT,
@@ -2913,11 +2913,13 @@ class GatewayApplication:
         # textual modality. Never fall back to an older user's text merely
         # because the latest message contains only image/audio parts.
         query_text = ""
+        keyword_query_text = ""
         for message in reversed(messages):
             if message.get("role") == "user":
-                query_text = GatewayApplication._text_content(
+                keyword_query_text = GatewayApplication._text_content(
                     message.get("content")
-                ).strip()[:4000]
+                ).strip()
+                query_text = keyword_query_text[:4000]
                 break
         captures: list[dict[str, str]] = []
         latest_user_index = -1
@@ -2957,6 +2959,7 @@ class GatewayApplication:
             captures = captures[previous_user_index + 1 :]
         return {
             "query_text": query_text,
+            **({"keyword_query_text": keyword_query_text} if len(keyword_query_text) > 4000 else {}),
             "thread_id": thread_id if lineage_stable else None,
             "lineage_stable": lineage_stable,
             # This content-free fact is safe even when the client cannot send a
@@ -3622,12 +3625,9 @@ class GatewayApplication:
                 # Separate ephemeral host annotation: do not alter the exact
                 # authenticated Control frames/hash or persist this reference.
                 frame = self._short_term_frames.get(session.wake_id)
-                routing_frames = [source_message(
-                    session.short_term_source, session.short_term_transition,
-                    handover_present=frame is not None,
-                    handover_expired=session.short_term_had_handover and frame is None,
-                    tool_continuation=continuation,
-                )]
+                # Control's immutable compact projection owns the window/model
+                # transition notice. Same-window turns have no routing notice.
+                routing_frames = []
                 if frame is not None:
                     routing_frames.append(handover_message(frame[2], time.monotonic() - frame[0]))
                 if session.context_bundle and session.context_bundle["contract"] == USER_DATA_CONTEXT_LAYOUT_CONTRACT:
@@ -3773,7 +3773,11 @@ class GatewayApplication:
                             # A custom host authorization adapter may rely on
                             # schema validation. Never bypass its decision/errors.
                             and type(self.execution_boundary.policy) is NativeTransportPolicy
-                            and self._execution_tool(schemas.get(call.tool_name, {})) is None and str(exc) in {
+                            and (self._execution_tool(schemas.get(call.tool_name, {})) is None
+                                 or str(exc) in {
+                                     "tool_arguments_invalid_json", "tool_arguments_must_be_object",
+                                     "tool_arguments_duplicate_key", "tool_arguments_non_finite_number",
+                                 }) and str(exc) in {
                         "tool_not_advertised", "tool_schema_not_available", "tool_arguments_schema_invalid",
                         "tool_arguments_invalid_json", "tool_arguments_must_be_object",
                         "tool_arguments_duplicate_key", "tool_arguments_non_finite_number",

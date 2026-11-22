@@ -94,7 +94,7 @@ class ColloquialCredentialTests(unittest.TestCase):
     def test_all_shared_component_gates_receive_the_fix(self):
         names = (
             "authoring", "emotional_memory", "hallucination_vault", "learning_idea_box",
-            "learning_memory", "planning_memory", "self_governance",
+            "learning_memory", "planning_memory",
         )
         for name in names:
             with self.subTest(component=name):

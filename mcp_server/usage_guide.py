@@ -1,5 +1,7 @@
 """Static, credential-free usage help; reading help never opens a write context."""
 from __future__ import annotations
+
+from runtime.facet_recall import RULES as FACET_RECALL_RULES
 from typing import Any
 
 from .public_contract import BRAIN_MANUAL_MODULES
@@ -61,11 +63,12 @@ def module_usage_guide(module: str, *, simple: bool) -> dict[str, Any]:
             "title": "模块一 · 自我定义",
             "purpose": "由 AI 编写、复核和决定是否激活自己的自我定义。",
             "facets": {
-                "names": "名称由作者自定：1–80位英文字母或数字开头，可含._-；正文可以写中文。最多16项，每项最多2500字符，完整自我正文合计最多16000字符。",
-                "automatic": "默认网关在模块一生效且自我注入开启后，按当前用户文字与侧面的名称、原文做本地词句匹配，相关侧面原样进入动态上下文；无需增加scene等字段。",
-                "budget": "自动选择使用现有动态预算的余量，最多3项；没有相关线索或完整侧面放不下时本轮省略，已保存内容保持。它是轻量词句匹配，不是通用语义理解。",
+                "names": "名称、字段、字数和条数由作者决定，中文名称可用；原文或自定JSON结构均可保存。",
+                "automatic": FACET_RECALL_RULES,
+                "authoring": "可选用{text,summary,keywords,aliases,related_facets}；所有字段均可省略或扩展，摘要由你自己写，无摘要就保留全文。schema_version不限制保存。",
+                "settings": "facet_recall包含独立budget_tokens、四种硬匹配开关、semantic_enabled/semantic_threshold和summary_separator；分隔提示可改或设为空。用query_self_model(view='edit_basis')保留完整活动版，按现有自我修订流程更改。",
                 "host_override": "自制宿主在context/prepare省略facet_names使用自动选择；显式[]本轮不选侧面，显式名称列表按原key精确选择。",
-                "read": "query_self_model(view='edit_basis')可读活动版完整正文；自动注入只包含当轮选中的侧面。",
+                "read": "query_self_model(view='active',facet_names=['精确名称'])返回该条全文、摘要、设置和最近回执；view='edit_basis'读取完整活动版。回执不会每轮注入。",
             },
             "read": [
                 {"tool": "query_self_model", "arguments": {"view": "status"}, "use": "查看当前阶段。"},
@@ -74,16 +77,16 @@ def module_usage_guide(module: str, *, simple: bool) -> dict[str, Any]:
             ],
             "write_tools": ["submit_self_model_candidate", "activate_self_model_candidate"],
             "workflow": [
-                "是否修改由 AI 决定；需要修改时按相应连接的授权入口获取真实上下文。",
+                "是否修改由AI决定。网关调用可省略write_context_ref与expected_row_version，服务根据已验证的本轮会话补齐；无需反复抄内部编号。",
                 "按返回的当前阶段、版本和 action contract 提交候选。",
-                "在独立的后续上下文中读取完整待审材料，明确复核，再按后续阶段激活。",
+                "在下一次真实唤醒明确确认复核，再下一次真实唤醒确认激活。正文可按需查询，不要求重复读取才允许修改。",
             ],
-            "review": "本页是工具说明。候选正文、分页及完整呈现证明由相应授权的 open/review 流程提供；本页阅读不计入复核。",
+            "review": "候选正文可用 open/review 按需查看。复核以AI在新唤醒的明确确认作为决定，不强制阅读回执。",
         },
         "emotional_memory": {
             "title": "情感与经历记忆",
             "purpose": "保存经历原文、情感理解和情境，并保留修订历史。",
-            "read": [{"tool": "recall_emotional_memory", "use": "query 搜索；使用返回的 memory_id 查询原文和版本。"}],
+            "read": [{"tool": "recall_emotional_memory", "use": "query 搜索；使用返回的 memory_id 查询原文和版本；自动浮现的 #E 短编号可放 query 或 memory_id。"}],
             "write_tools": ["remember_memory", "revise_memory", "remember_emotional_memory",
                             "revise_emotional_memory", "integrate_emotional_memories", "manage_brain_pin", "veto_ephemeral_memory"],
             "example": {"tool": "remember_memory", "arguments": {"content": "一次值得记住的交流。"}},
@@ -92,7 +95,7 @@ def module_usage_guide(module: str, *, simple: bool) -> dict[str, Any]:
         "learning_memory": {
             "title": "学习与方法记忆",
             "purpose": "保存知识、方法、当前理解与不确定性，随新证据修订。",
-            "read": [{"tool": "recall_learning_memory", "use": "query 搜索；view='inventory' 浏览目录，再按回执提供的引用读原文。"},
+            "read": [{"tool": "recall_learning_memory", "use": "query 搜索；view='inventory' 浏览目录，再按回执提供的引用读原文；#L 短编号可放 query 或 target_ref。"},
                      {"tool": "preview_learning_recall", "use": "预览检索结果。"}],
             "write_tools": ["remember_memory", "revise_memory", "remember_learning_memory", "remember_learning_contrast_pair",
                             "revise_learning_memory", "integrate_learning_memories", "review_learning_change"],
@@ -106,7 +109,7 @@ def module_usage_guide(module: str, *, simple: bool) -> dict[str, Any]:
                 "call_notes_available 表示原文可手动读取；call_notes_current 是当前目录/参数结构、有效期、活动状态及最近失败的综合诊断，不是保存成功或最新版本标记。false 不删除原文，也不禁止读回。",
                 "直接入口参数平铺；经 stbrain_manage 调用时才包在 arguments 内。读取经验不执行工具，也不会把全文自动注入。",
             ],
-            "read": [{"tool": "recall_tool_guidance", "use": "空 query 或 view='directory' 查目录；card_id + view='card' 读原文，view='experiences' 读全部结果的经验（包括成功），view='failures' 仅读非成功项。经验可用 query 填编号或正文片段缩小范围，total/truncated 提示未列完。"}],
+            "read": [{"tool": "recall_tool_guidance", "use": "空 query 或 view='directory' 查目录；card_id + view='card' 读原文（#T 短编号可放 query 或 card_id），view='experiences' 读全部结果的经验（包括成功），view='failures' 仅读非成功项。经验可用 query 填编号或正文片段缩小范围，total/truncated 提示未列完。"}],
             "write_tools": ["remember_tool_guidance", "revise_memory", "record_tool_experience", "review_tool_guidance_candidate"],
             "example": {"tool": "remember_tool_guidance", "arguments": {"tool_name": "示例工具", "purpose": "整理资料时查询相关记录。"}},
             "workflow": ["tool_name 可写工具或 MCP 服务名，purpose 写用途，reminder 可写最多100字的一句场景提醒。", "四个普通脑统一用 revise_memory 修改：target_ref 使用查到的 tool-card://toolcard_…@版本，changes 只填要改的 reminder、purpose、scenario_tags、confidence 等。", "reminder/source_ref/expires_at 填 null 可清除，省略保留；clear_fields 兼容旧写法。普通修改无需 edit_class 或审查表。退役用 changes.intent='retire'；恢复用 changes.intent='restore' 和 changes.target_version，均放在 changes 内。", "退役示例：revise_memory(target_ref=已读引用, changes={'intent':'retire'})；恢复示例：revise_memory(target_ref=已读当前引用, changes={'intent':'restore','target_version':已读历史版本号})。工具卡用 intent 管理退役与恢复，不使用 changes.lifecycle。", "详细步骤按需读取；旧候选仍按查询回执处理。保存提醒是记忆操作，实际执行工具使用当前可用目录和授权。"],
@@ -114,7 +117,7 @@ def module_usage_guide(module: str, *, simple: bool) -> dict[str, Any]:
         "planning_memory": {
             "title": "计划与进度",
             "purpose": "保存 AI 采纳的计划，并记录有依据的推进事件。",
-            "read": [{"tool": "recall_planning_memory", "use": "query 搜索；按返回的 plan_ref 读取计划、版本和 event_seq。"}],
+            "read": [{"tool": "recall_planning_memory", "use": "query 搜索；按返回的 plan_ref 读取计划、版本和 event_seq；#P 短编号可放 query 或 plan_ref。"}],
             "write_tools": ["remember_memory", "revise_memory", "advance_plan", "remember_planning_memory",
                             "record_planning_event", "revise_planning_memory", "review_planning_change"],
             "example": {"tool": "remember_memory", "arguments": {"module": "planning_memory", "content": "下一次检查实验结果。", "keywords": ["实验"]}},

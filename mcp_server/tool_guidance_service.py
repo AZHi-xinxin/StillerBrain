@@ -8,6 +8,9 @@ target tool.
 
 from __future__ import annotations
 
+from .short_reference_reads import ShortReferenceError, resolve_short_read_fields
+
+
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -415,13 +418,15 @@ class ToolGuidanceAccessService:
         if self._permission().get("decision") != "allowed":
             return self._reject("module_one_required", status=self.status())
         try:
+            fields = resolve_short_read_fields(database=self.store.database,
+                owner_id=self.owner_id, model_id=self.model_id, module='tool-card', fields=fields)
             result = self.store.recall(
                 owner_id=self.owner_id,
                 model_id=self.model_id,
                 catalog=self._catalog(None),
                 **fields,
             )
-        except ToolGuidanceError as exc:
+        except (ToolGuidanceError, ShortReferenceError) as exc:
             return self._reject(str(exc), status=self.status())
         except TypeError:
             return self._reject("invalid_tool_guidance_fields", status=self.status())

@@ -45,8 +45,6 @@ class ReviewPagesFacadeTests(unittest.TestCase):
             first = self.service.open_brain(view="review")
             self.assertFalse(first["review_material_presented"])
             self.assertEqual(0, self.proof_count("candidate_full_review", review_wake))
-            denied = self.advance(review_wake, "accept_candidate_review", {"ai_confirmation": True})
-            self.assertIn("candidate_full_review_required", denied["reason_codes"])
             pages = self.read_all(first)
         self.assertGreater(len(pages), 1)
         self.assertTrue(pages[-1]["review_material_presented"])

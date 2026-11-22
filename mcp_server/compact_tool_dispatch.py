@@ -20,7 +20,7 @@ DISCOVERY_DESCRIPTION = (
     "按分类找 ST 功能，不必切换 MCP 档位。省略参数列分类；category 列该类操作；"
     "action 返回一个操作的完整参数说明。分类：self 自我定义、person 人称与存前提醒、"
     "diy 自写提示词/安全阀/浮现开关、images 记忆图片附件、desires 欲望备注、emotion 情感、feelings 自定义感觉、learning 学习、tools 工具、"
-    "planning 计划、work 随手记（只填正文，标签可选；仅主动查询，不日常浮现）、vault 黑匣子、system 状态/手册、memory 通用记忆。"
+    "planning 计划、force_recall 关键词必浮现（默认关，四脑合计10条）、work 随手记（只填正文，标签可选；仅主动查询，不日常浮现）、vault 黑匣子、system 状态/手册、memory 通用记忆。"
     "已知参数可直接 stbrain_manage，不强制先读说明。"
     "状态中的 accept_candidate_review 等动作别名也可直接查询或执行。"
 )
@@ -32,7 +32,7 @@ MANAGE_DESCRIPTION = (
     "说明书、回执或 detail_lookup 中提到的 ST 操作名，若不在当前独立工具目录中，"
     "将它填入 action、原参数填入 arguments；不要直接调用未列出的旧工具名。"
     "stbrain_open 的 next_calls 已带本轮实际引用、版本和固定参数；按你的决定选择，补 fill_required 即可。"
-    "参数有误会在本次工具结果中附完整调用说明，不必额外查目录。"
+    "参数有误时回执只指出具体问题；模块一可省略write_context_ref和expected_row_version，由服务补齐。"
     "这是完整 ST 操作入口，不执行其他 MCP 或系统命令；原有模块一密码、唤醒和权限规则不变。"
     "人类可在客户端禁用或设置审批此入口；启用它代表允许在原权限内选择其子操作。"
 )
@@ -120,7 +120,7 @@ def install_compact_tool_dispatch(mcp: Any) -> None:
                   "next_action": "此调用未执行；按下附调用说明修正即可继续，不必另查手册，也不阻塞对话。"}
         detail = describe(requested) if requested else None
         if detail:
-            result["action_contract"] = detail
+            result["action_contract"] = {key: value for key, value in detail.items() if key != "arguments_schema"}
         else:
             result["available_actions"] = [name for name in ACTION_CATEGORIES if available(name)]
             result["action_aliases"] = SELF_ACTION_ALIASES
@@ -150,7 +150,8 @@ def install_compact_tool_dispatch(mcp: Any) -> None:
                 # Only schema-owned keys/types; never echo values or exception
                 # text (which may contain candidate text or credentials).
                 issues = [{"code": error.validator,
-                           "required_arguments": error.schema.get("required", [])}
+                           "path": list(error.absolute_path),
+                           "missing_arguments": [key for key in error.schema.get("required", []) if isinstance(error.instance, dict) and key not in error.instance]}
                           for error in errors[:12]]
                 return rejected("compact_action_arguments_invalid", convert_result, requested, issues)
         except CompactRouteError as error:

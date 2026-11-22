@@ -40,6 +40,7 @@ else:
 EXECUTION_CONTRACT = "st-execution/1"
 EXECUTION_REF_FIELD = "execution_ref"
 EXECUTION_TOOLS = frozenset({
+    "memory_force_recall",
     "memory_desires",
     "store_memory_image", "list_memory_images", "read_memory_image", "remove_memory_image",
     "attach_memory_relation", "detach_memory_relation", "read_memory_relations",

@@ -21,7 +21,6 @@ import re
 import sqlite3
 from typing import Any, Iterator, Mapping, Sequence
 import uuid
-from .credential_guard import contains_credential_or_secret
 from .execution_binding import assert_bound_execution, expected_execution_wake
 
 
@@ -51,8 +50,8 @@ class SelfGovernanceError(ValueError):
 
 @dataclass(frozen=True)
 class GovernanceLimits:
-    text_characters: int = 2_000
-    reason_characters: int = 2_000
+    text_characters: int | None = None
+    reason_characters: int | None = None
     max_scene_tags: int = 32
     scene_tag_characters: int = 80
     injection_tokens: int = 360
@@ -75,17 +74,14 @@ def _new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex}"
 
 
-def _required_text(name: str, value: Any, maximum: int) -> str:
+def _required_text(name: str, value: Any, maximum: int | None) -> str:
     if not isinstance(value, str) or not value.strip():
         raise SelfGovernanceError(f"{name}_required")
-    result = value.strip()
-    if len(result) > maximum:
+    result = value if maximum is None else value.strip()
+    if maximum is not None and len(result) > maximum:
         raise SelfGovernanceError(f"{name}_too_long")
     return result
 
-
-def _contains_secret(*values: Any) -> bool:
-    return contains_credential_or_secret(values)
 
 
 def _estimate_tokens(value: Any) -> int:
@@ -241,37 +237,33 @@ class SelfGovernanceStore:
     def _validate_content(self, value: Any) -> dict[str, Any]:
         if not isinstance(value, Mapping):
             raise SelfGovernanceError("governance_content_must_be_object")
-        expected = {"schema_version", "text", "trigger_mode", "scene_tags"}
-        if set(value) != expected or value.get("schema_version") != "0.1.0":
+        if value.get("schema_version", "0.1.0") != "0.1.0":
             raise SelfGovernanceError("invalid_governance_content_structure")
         text = _required_text("governance_text", value.get("text"), self.limits.text_characters)
-        trigger_mode = value.get("trigger_mode")
+        trigger_mode = value.get("trigger_mode") if value.get("trigger_mode") is not None else "manual_only"
         if trigger_mode not in GOVERNANCE_TRIGGER_MODES:
             raise SelfGovernanceError("invalid_governance_trigger_mode")
-        raw_tags = value.get("scene_tags")
+        raw_tags = value.get("scene_tags") if value.get("scene_tags") is not None else []
         if not isinstance(raw_tags, list):
             raise SelfGovernanceError("scene_tags_must_be_array")
-        if len(raw_tags) > self.limits.max_scene_tags:
-            raise SelfGovernanceError("too_many_scene_tags")
         tags: list[str] = []
         seen: set[str] = set()
         for raw in raw_tags:
-            tag = _required_text("scene_tag", raw, self.limits.scene_tag_characters)
+            tag = _required_text("scene_tag", raw, None)
             key = tag.casefold()
             if key in seen:
-                raise SelfGovernanceError("duplicate_scene_tag")
+                continue
             seen.add(key)
             tags.append(tag)
         if trigger_mode == "scene_relevant" and not tags:
             raise SelfGovernanceError("scene_relevant_requires_scene_tags")
         result = {
+            **value,
             "schema_version": "0.1.0",
             "text": text,
             "trigger_mode": trigger_mode,
             "scene_tags": tags,
         }
-        if _contains_secret(result):
-            raise SelfGovernanceError("credential_or_secret_detected")
         return result
 
     def _ensure_state(
@@ -367,8 +359,6 @@ class SelfGovernanceStore:
         if isinstance(expected_row_version, bool) or not isinstance(expected_row_version, int):
             raise SelfGovernanceError("expected_row_version_required")
         reason = _required_text("reason", reason, self.limits.reason_characters)
-        if _contains_secret(reason):
-            raise SelfGovernanceError("credential_or_secret_detected")
 
         prepared_content: dict[str, Any] | None
         if operation == "set":
@@ -527,8 +517,6 @@ class SelfGovernanceStore:
             raise SelfGovernanceError("expected_row_version_required")
         if reason is not None:
             reason = _required_text("reason", reason, self.limits.reason_characters)
-            if _contains_secret(reason):
-                raise SelfGovernanceError("credential_or_secret_detected")
         if operation == "set":
             prepared_content = self._validate_content(content)
             if target_revision_id is not None:
@@ -626,8 +614,6 @@ class SelfGovernanceStore:
         self._require_ai(actor)
         candidate_id = _required_text("candidate_id", candidate_id, 300)
         reason = _required_text("reason", reason, self.limits.reason_characters)
-        if _contains_secret(reason):
-            raise SelfGovernanceError("credential_or_secret_detected")
         with self._connect() as connection:
             self._begin(connection)
             state = self._ensure_state(connection, owner_id, model_id, scope)
@@ -706,8 +692,6 @@ class SelfGovernanceStore:
             activation_reason = _required_text(
                 "reason", reason, self.limits.reason_characters
             )
-            if _contains_secret(activation_reason):
-                raise SelfGovernanceError("credential_or_secret_detected")
         with self._connect() as connection:
             self._begin(connection)
             state = self._ensure_state(connection, owner_id, model_id, scope)
@@ -1064,7 +1048,7 @@ class SelfGovernanceStore:
             "host_boundary": {
                 "validates": [
                     "owner/model/authorship",
-                    "schema/length/credential rejection",
+                    "trigger mode and readable authored text; no keyword or fixed text-length rejection",
                     "candidate hash/version/CAS",
                     "later real wake for explicitly proposed candidates",
                     "display/history/rollback",

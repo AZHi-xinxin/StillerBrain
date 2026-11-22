@@ -34,8 +34,10 @@ from .emotional_memory import EmotionalMemoryStore
 from .mixed_recall import select_mixed_recall
 from .memory_image_recall import append_image_hints
 from .memory_desires import append_desire_recall
-from .facet_selection import append_facet_projection
 from . import session_continuity
+from .recall_projection import project_dynamic, estimate_dynamic
+from .facet_recall import facet_body, recall_facets
+from .self_content import parts as self_parts, facet_map, stable_view
 from .self_model_review import ReviewPageError, prepare_review_page, record_review_page
 from .self_governance import (
     LEARNING_EPISODE_BOUNDARY_SIGNAL,
@@ -317,7 +319,10 @@ CALM_PROMPT_GUIDANCE = {
 }
 
 BODY_FRAMEWORK = {
-    "required_top_level": [
+    "authoring_version_note": "任何schema_version均可保存；以下仅说明旧格式。",
+    "supported_versions": {"0.1.0": "兼容旧内容，结构不限制",
+        "0.2.0": "兼容全文、摘要、关键词、别名和引用；字段均为可选"},
+    "suggested_top_level": [
         "schema_version",
         "boot_anchor",
         "active_identity_capsule",
@@ -332,9 +337,9 @@ BODY_FRAMEWORK = {
         "core_identity_anchors",
         "self_revision_safety_prompt",
     ],
-    "scope_note": "只写稳定自我模型；不要把单轮状态、无关事件档案或能力凭据写进正文。",
+    "scope_note": "上述字段只是组织建议，可自定义字段、中文名称和任意JSON结构；内容原样保存，不设字数条数门槛。",
     "submit_payload": {
-        "required_keys": ["content", "reason"],
+        "required_keys": ["content"],
         "additional_properties": False,
         "server_derived": ["diff", "evidence_refs", "expected_active_revision"],
         "evidence_source": "从 content.anchor_references 中提取 memory_ref；允许为空数组。",
@@ -737,6 +742,8 @@ class ModuleOneOnboardingStore:
         self._initialize()
         from .emotion_layer import EmotionLayerStore
         self.emotion_layer_store = EmotionLayerStore(self.database)
+        from .force_recall import ForceRecallStore
+        self.force_recall_store = ForceRecallStore(self.database)
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -937,6 +944,8 @@ class ModuleOneOnboardingStore:
             )
             initialize_profiles(connection)
             session_continuity.initialize(connection)
+            connection.execute("CREATE TABLE IF NOT EXISTS brain_context_projection_versions (wake_id TEXT PRIMARY KEY REFERENCES brain_context_snapshots(wake_id), version INTEGER NOT NULL CHECK(version=1))")
+            connection.execute("CREATE TABLE IF NOT EXISTS brain_context_summary_only (wake_id TEXT PRIMARY KEY REFERENCES brain_context_snapshots(wake_id))")
             snapshot_columns = {
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(brain_context_snapshots)").fetchall()
@@ -1058,12 +1067,12 @@ class ModuleOneOnboardingStore:
         owner_id: str,
         model_id: str,
         value: Any,
+        include_syntax: bool = True,
     ) -> bool:
         """Return whether model-controlled data contains protected credentials.
 
         Public write facades use this read-only predicate immediately after
-        binding a write context and before calling a module store.  It combines
-        the shared syntax gate with exact, hash-backed matching for every wake
+        binding a write context and before calling a module store.  The optional legacy syntax gate is separate from exact, hash-backed matching for every wake
         capability, edit response and direct-grant reference ever issued in the
         owner/model namespace.  The matching value is never returned, logged or
         persisted by this helper.
@@ -1071,7 +1080,7 @@ class ModuleOneOnboardingStore:
 
         owner_id = _require_text("owner_id", owner_id)
         model_id = _require_text("model_id", model_id)
-        if (contains_credential_or_secret(value) or _contains_direct_grant_syntax(value)
+        if include_syntax and (contains_credential_or_secret(value) or _contains_direct_grant_syntax(value)
                 or _contains_execution_ref_syntax(value)):
             return True
         with self._connect() as connection:
@@ -2484,7 +2493,7 @@ class ModuleOneOnboardingStore:
         Hosts explicitly opting into context layout v1, or offering tail layout
         v2 through its separate field, receive a hash-bound ordered bundle with
         unchanged stable/dynamic field values. Missing facet_names opts into
-        lightweight current-scene selection in the dynamic layer; an explicit
+        hard-hit originals plus authored summaries in a separately budgeted layer; an explicit
         empty list selects none, while named facets keep exact host selection.
         The selected layout is immutable,
         host-only snapshot metadata; v2 does not claim a fixed client history.
@@ -2624,9 +2633,9 @@ class ModuleOneOnboardingStore:
                 # A valid historical hash proves integrity, not that the old
                 # detector recognized a credential. Revalidate without altering
                 # the immutable snapshot or its author's memory.
-                stored_payload = {"stable": stable, "dynamic": dynamic}
+                stored_payload = {"dynamic": {k: v for k, v in dynamic.items() if k != "self_facets"}}
                 if contains_credential_or_secret(stored_payload) or self._contains_protected_value(
-                    connection, owner_id=owner_id, model_id=model_id, value=stored_payload,
+                    connection, owner_id=owner_id, model_id=model_id, value={"stable": stable, "dynamic": dynamic},
                 ):
                     return {
                         "decision": "self_model_context_unavailable",
@@ -2635,9 +2644,12 @@ class ModuleOneOnboardingStore:
                         "state_changed": False,
                         "pointer_changed": False,
                     }
+                compact = connection.execute("SELECT 1 FROM brain_context_projection_versions WHERE wake_id=?", (wake_id,)).fetchone() is not None
+                if compact and connection.execute("SELECT 1 FROM brain_context_summary_only WHERE wake_id=?", (wake_id,)).fetchone():
+                    compact = 2
                 message = self._context_message(
                     stable=stable,
-                    dynamic=dynamic,
+                    dynamic=dynamic, compact=compact,
                     hard_suppressed=layout_metadata.get("hard_suppressed", False),
                 )
                 if stored_layout is None and not stable and not dynamic:
@@ -2651,7 +2663,7 @@ class ModuleOneOnboardingStore:
                     if _sha256(suppressed_message) == snapshot["context_hash"]:
                         message = suppressed_message
                 bundle = self._context_bundle(
-                    stable=stable, dynamic=dynamic, message=message,
+                    stable=stable, dynamic=dynamic, message=message, compact=compact,
                     layout=stored_layout, wake=wake,
                     source_digest=source_digest,
                     host_contract_digest=host_contract_digest,
@@ -2739,7 +2751,8 @@ class ModuleOneOnboardingStore:
                 and state["injection_policy"] == "normal"
             )
             stable: dict[str, Any] = {}
-            automatic_facets: Mapping[str, str] = {}
+            automatic_facets: Mapping[str, Any] = {}
+            automatic_facet_policy = None
             if (
                 live_module
                 and automatic_scope_enabled("self_model")
@@ -2754,18 +2767,17 @@ class ModuleOneOnboardingStore:
                         "pointer_changed": False,
                     }
                 content = active["content"]
+                content = self_parts(content)
+                content["facets"] = facet_map(content.get("facets"))
                 selected_facets = {
-                    name: content["facets"][name]
+                    name: facet_body(content["facets"][name])
                     for name in (facet_names or ())
                     if name in content.get("facets", {})
                 }
-                stable = {
-                    "boot_anchor": content["boot_anchor"],
-                    "active_identity_capsule": content["active_identity_capsule"],
-                    "facets": selected_facets,
-                }
+                stable = stable_view(content, selected_facets)
                 if facet_names is None:
                     automatic_facets = content.get("facets", {})
+                    automatic_facet_policy = content.get("facet_recall")
                 if active_injection_structure_violations(stable):
                     return {
                         "decision": "self_model_context_unavailable",
@@ -2784,6 +2796,7 @@ class ModuleOneOnboardingStore:
             retrieval_diagnostics: dict[str, Any] = {}
             memory_notice_presented = False
             episode_reflection_presented = False
+            forced_candidates = []
             if (
                 (live_module or self.ordinary_memory_independent)
                 and global_injection_mode == "enabled"
@@ -2936,7 +2949,7 @@ class ModuleOneOnboardingStore:
                         **dynamic,
                         "hallucination_vault_status": vault_projection,
                     }
-                    if _estimate_tokens(candidate_dynamic) <= 1200:
+                    if estimate_dynamic(candidate_dynamic) <= 1200:
                         dynamic = candidate_dynamic
 
                 if (
@@ -2974,7 +2987,7 @@ class ModuleOneOnboardingStore:
                         owner_id=owner_id,
                         model_id=model_id,
                         query=query_text,
-                        thread_id=thread_id,
+                        thread_id=None,
                         budget_tokens=1200,
                         defer_budget=True,
                         connection=connection,
@@ -2992,110 +3005,79 @@ class ModuleOneOnboardingStore:
                     dynamic = session_continuity.prepare(
                         connection, owner_id=owner_id, model_id=model_id,
                         wake_id=wake_id, wake_seq=int(wake["wake_seq"]), frame=continuity_frame,
-                        items=recent, base=dynamic, estimate=_estimate_tokens,
+                        items=recent, base=dynamic, estimate=estimate_dynamic,
                     )
+                # Only a new, host-bound human event can cause a literal hit.
+                # The gateway keeps the full newest message for this bounded
+                # ten-record scan; ordinary semantic recall retains its limit.
+                if (wake["source_kind"] == "human_message"
+                        and source_frame.get("source_event_id") == wake["source_event_id"]):
+                    literal_query = source_frame.get("keyword_query_text", query_text)
+                    if isinstance(literal_query, str):
+                        forced_candidates = self.force_recall_store.candidates(
+                            connection, identity=(owner_id, model_id), query=literal_query,
+                            scope_enabled=automatic_scope_enabled,
+                        )
                 dynamic = select_mixed_recall(
+                    forced=forced_candidates,
                     diagnostics=retrieval_diagnostics,
                     base=dynamic,
                     planning=planning_injection,
                     learning=learning_outcome or [],
                     tool=list((tool_outcome or {}).get("envelopes", [])),
                     emotional=(emotional_outcome or {}).get("injection"),
-                    estimate_tokens=_estimate_tokens,
+                    estimate_tokens=estimate_dynamic,
                     budget=1200,
                     decorate_primary=lambda selected: self.emotion_layer_store.append_recall(
                         connection, owner_id=owner_id, model_id=model_id, wake_id=wake_id,
                         query=query_text, dynamic=selected, enabled=automatic_scope_enabled,
-                        estimate_tokens=_estimate_tokens, budget=1200,
+                        estimate_tokens=estimate_dynamic, budget=1200,
                         tool_candidates=(tool_outcome or {}).get("envelopes", []),
+                        excluded_refs={(x["module"], x["memory_id"]) for x in forced_candidates},
                     ),
                 )
                 dynamic = self.emotion_layer_store.append_recall(
                     connection, owner_id=owner_id, model_id=model_id, wake_id=wake_id,
                     query=query_text, dynamic=dynamic, enabled=automatic_scope_enabled,
-                    estimate_tokens=_estimate_tokens, budget=1200,
+                    estimate_tokens=estimate_dynamic, budget=1200,
                     tool_candidates=(tool_outcome or {}).get("envelopes", []),
+                    excluded_refs={(x["module"], x["memory_id"]) for x in forced_candidates},
                 )
-                # Keep the stable identity/cache prefix unchanged. Automatic
-                # facets use only residual shared space after ordinary recall;
-                # no authored body is shortened to fit and no memory is evicted.
-                if automatic_facets:
-                    candidate_dynamic = append_facet_projection(
-                        dynamic, automatic_facets, query_text,
-                        estimate_tokens=_estimate_tokens, budget=1200,
-                    )
-                    if "self_facets" in candidate_dynamic:
-                        facet_projection = {**stable, "facets": candidate_dynamic["self_facets"]["facets"]}
-                        if active_injection_structure_violations(facet_projection):
-                            return {
-                                "decision": "self_model_context_unavailable",
-                                "reason_codes": ["active_injection_structure_invalid"],
-                                "may_generate": False,
-                                "state_changed": state_changed,
-                                "pointer_changed": False,
-                            }
-                    dynamic = candidate_dynamic
-
                 if automatic_scope_enabled("emotional_memory"):
                     dynamic = append_desire_recall(connection, owner_id=owner_id, model_id=model_id, dynamic=dynamic,
-                        estimate_tokens=_estimate_tokens, budget=1200)
+                        estimate_tokens=estimate_dynamic, budget=1200)
                 dynamic = append_image_hints(connection, owner_id=owner_id, model_id=model_id,
-                    dynamic=dynamic, estimate_tokens=_estimate_tokens, budget=1200)
+                    dynamic=dynamic, estimate_tokens=estimate_dynamic, budget=1200)
+
+                # Facets own a separate budget. Attach only after the ordinary
+                # memories, desires and image hints have competed for their cap.
+                if automatic_facets:
+                    facet_payload = recall_facets(automatic_facets, query_text,
+                        policy=automatic_facet_policy, database=self.database,
+                        owner_id=owner_id, model_id=model_id, estimate=estimate_dynamic)
+                    if active_injection_structure_violations({**stable, "facets": facet_payload["facets"]}):
+                        return {"decision": "self_model_context_unavailable",
+                            "reason_codes": ["active_injection_structure_invalid"], "may_generate": False,
+                            "state_changed": state_changed, "pointer_changed": False}
+                    dynamic["self_facets"] = facet_payload
 
                 # No related recall can remain quiet. Keep the AI-authored
                 # governance above, but do not add a host-written save/reflection
                 # routine. Historical same-wake snapshots are reused unchanged.
 
-                # Capture only after recall, so the current input cannot be
-                # reflected back as an old memory in this same generation.  A
-                # missing stable conversation lineage disables the feature.
-                # Unlike recall snapshots/audit or TTL privacy cleanup, this
-                # persists ordinary message content and needs an activated basis.
-                source_event_id = source_frame.get("source_event_id")
-                if (
-                    thread_id
-                    and isinstance(source_event_id, str)
-                    and source_event_id.strip()
-                    and isinstance(capture_items, list)
-                    and self.emotional_store is not None
-                    and self._ordinary_capture_allowed(
-                        connection, owner_id=owner_id, model_id=model_id
-                    )
-                ):
-                    capture_payload = {
-                        "owner_id": owner_id,
-                        "model_id": model_id,
-                        "thread_id": thread_id,
-                        "source_event_id": source_event_id,
-                        "items": capture_items,
-                    }
-                    if not contains_credential_or_secret(
-                        capture_payload
-                    ) and not self._contains_protected_value(
-                        connection,
-                        owner_id=owner_id,
-                        model_id=model_id,
-                        value=capture_payload,
-                    ):
-                        self.emotional_store.capture_ephemeral(
-                            owner_id=owner_id,
-                            model_id=model_id,
-                            thread_id=thread_id,
-                            source_event_id=source_event_id,
-                            items=capture_items,
-                            connection=connection,
-                        )
+                # Same-window history stays in the host conversation. Only the
+                # gateway's reliable cross-window handover supplies short-term text.
             automatic_injection_suppressed = live_module and (
                 global_injection_mode != "enabled"
                 or not automatic_scope_enabled("self_model")
             ) and not dynamic
             message = self._context_message(
                 stable=stable,
-                dynamic=dynamic,
+                dynamic=dynamic, compact=2,
                 hard_suppressed=automatic_injection_suppressed,
             )
             bundle = self._context_bundle(
-                stable=stable, dynamic=dynamic, message=message,
+                stable=stable, dynamic=dynamic, message=message, compact=2,
                 layout=context_layout_snapshot, wake=wake,
                 source_digest=source_digest,
                 host_contract_digest=host_contract_digest,
@@ -3109,8 +3091,7 @@ class ModuleOneOnboardingStore:
             dynamic_hash = _sha256(dynamic)
             final_snapshot_payload = {
                 **snapshot_persistence_payload,
-                "stable": stable,
-                "dynamic": dynamic,
+                "dynamic": {k: v for k, v in dynamic.items() if k != "self_facets"},
             }
             if contains_credential_or_secret(
                 final_snapshot_payload
@@ -3118,9 +3099,13 @@ class ModuleOneOnboardingStore:
                 connection,
                 owner_id=owner_id,
                 model_id=model_id,
-                value=final_snapshot_payload,
+                value={**final_snapshot_payload, "stable": stable, "dynamic": dynamic},
             ):
                 raise OnboardingError("protected_persistence_value")
+            self.force_recall_store.record_prepared(
+                connection, identity=(owner_id, model_id), wake_id=wake_id,
+                source_event_id=wake["source_event_id"], candidates=forced_candidates, dynamic=dynamic,
+            )
             connection.execute(
                 "INSERT INTO brain_context_snapshots "
                 "(snapshot_id, wake_id, owner_id, model_id, source_digest, "
@@ -3145,6 +3130,8 @@ class ModuleOneOnboardingStore:
                     _iso(),
                 ),
             )
+            connection.execute("INSERT INTO brain_context_projection_versions VALUES (?,1)", (wake_id,))
+            connection.execute("INSERT INTO brain_context_summary_only VALUES (?)", (wake_id,))
             connection.execute(
                 "UPDATE brain_wake_sessions SET context_hash = ? WHERE wake_id = ?",
                 (context_hash, wake_id),
@@ -3261,12 +3248,14 @@ class ModuleOneOnboardingStore:
     def _context_bundle(
         *, stable: Mapping[str, Any], dynamic: Mapping[str, Any],
         message: Mapping[str, str], layout: Mapping[str, Any] | None,
-        wake: Mapping[str, Any], source_digest: str, host_contract_digest: str,
+        wake: Mapping[str, Any], source_digest: str, host_contract_digest: str, compact: bool = False,
     ) -> dict[str, Any] | None:
         if layout is None:
             return None
         if set(stable) & set(dynamic):
             raise OnboardingError("context_layout_projection_collision")
+        if compact:
+            dynamic = project_dynamic(dynamic, include_sources=compact == 1)
         stable_message = (
             {"role": "system", "content": _canonical(dict(stable))}
             if stable else dict(message) if not dynamic else None
@@ -3294,9 +3283,13 @@ class ModuleOneOnboardingStore:
         *,
         stable: Mapping[str, Any],
         dynamic: Mapping[str, Any] | None = None,
-        hard_suppressed: bool = False,
+        hard_suppressed: bool = False, compact: bool = False,
     ) -> dict[str, str]:
         """Return the exact role/content pair that the host must inject unchanged."""
+        had_dynamic = bool(dynamic)
+        if compact:
+            dynamic = project_dynamic(dynamic or {}, include_sources=compact == 1)
+            hard_suppressed = hard_suppressed or (had_dynamic and not stable and not dynamic)
         if not stable and not dynamic:
             # A hard-off wake still needs one authenticated, hash-bound system
             # frame so stbrain_open and explicit tools remain available.  The
@@ -3531,6 +3524,7 @@ class ModuleOneOnboardingStore:
         direct_grant_ref: str | None = None,
         direct_client_principal: str | None = None,
         present_details: bool = True,
+        advance_candidate_review: bool = False,
         expected_wake_id: str | None = None,
         review_page: int | None = None,
         expected_review_material_hash: str | None = None,
@@ -3679,7 +3673,7 @@ class ModuleOneOnboardingStore:
             # progress the optional brain.  Record the candidate-review transition
             # only on this explicit open, never during automatic prompt preparation.
             if (
-                (present_details or page_projection is not None)
+                (present_details or page_projection is not None or advance_candidate_review)
                 and state["stage"] == "candidate_wait"
                 and state["submitted_wake_seq"] is not None
                 and wake["source_kind"] != "tool_continuation"
@@ -4179,7 +4173,7 @@ class ModuleOneOnboardingStore:
                 "stable": json.loads(snapshot["stable_json"]),
                 "dynamic": json.loads(snapshot["dynamic_json"]),
             }
-            if contains_credential_or_secret(stored_payload) or self._contains_protected_value(
+            if contains_credential_or_secret({"dynamic": {k: v for k, v in stored_payload["dynamic"].items() if k != "self_facets"}}) or self._contains_protected_value(
                 connection, owner_id=owner_id, model_id=model_id, value=stored_payload,
             ):
                 return self._deny(state, "protected_persistence_value")
@@ -4201,6 +4195,7 @@ class ModuleOneOnboardingStore:
                 "UPDATE brain_wake_sessions SET injected_at = ? WHERE wake_id = ?",
                 (now, wake_id),
             )
+            self.force_recall_store.confirm(connection, identity=(owner_id, model_id), wake_id=wake_id)
             event_id = self._insert_event(
                 connection,
                 owner_id=owner_id,
@@ -4707,7 +4702,7 @@ class ModuleOneOnboardingStore:
             text = _require_text("text", payload.get("text"))
         except OnboardingError:
             return self._deny(state, "calm_prompt_required")
-        reasons = self.self_store._text_findings(text)
+        reasons = []
         if self._contains_protected_value(
             connection,
             owner_id=state["owner_id"],
@@ -4715,8 +4710,6 @@ class ModuleOneOnboardingStore:
             value=text,
         ):
             reasons.append("credential_or_secret_detected")
-        if len(text) > MAX_CALM_PROMPT_CHARS:
-            reasons.append("calm_prompt_too_long")
         reasons = list(dict.fromkeys(reasons))
         if reasons:
             return {
@@ -4805,10 +4798,10 @@ class ModuleOneOnboardingStore:
         or private material in diff metadata.  The fixed framework order keeps
         retries byte-for-byte stable.
         """
-        if not isinstance(content, Mapping):
-            return []
+        if not isinstance(content, Mapping) or (baseline is not None and not isinstance(baseline, Mapping)):
+            return [] if baseline == content else [{"op": "replace", "path": "/"}]
         result: list[dict[str, str]] = []
-        for key in BODY_FRAMEWORK["required_top_level"]:
+        for key in list(BODY_FRAMEWORK["suggested_top_level"]) + sorted((set(content) | set(baseline or {})) - set(BODY_FRAMEWORK["suggested_top_level"])):
             path = "/" + str(key).replace("~", "~0").replace("/", "~1")
             if baseline is None:
                 if key in content:
@@ -4851,7 +4844,7 @@ class ModuleOneOnboardingStore:
             baseline = json.loads(row["content_json"])
         except (TypeError, json.JSONDecodeError):
             return None, failure
-        if not isinstance(baseline, Mapping) or _sha256(baseline) != row["content_hash"]:
+        if _sha256(baseline) != row["content_hash"]:
             return None, failure
         return baseline, None
 
@@ -4900,21 +4893,10 @@ class ModuleOneOnboardingStore:
             ai_authored_reason = payload.get("ai_authored_reason", True)
             expected_active = payload.get("expected_active_revision")
 
-        reasons.extend(
-            self.self_store._text_findings(
-                {
-                    "diff": diff,
-                    "reason": reason_text,
-                    "evidence_refs": evidence_refs,
-                }
-            )
-        )
-        if self._contains_protected_value(
-            connection,
-            owner_id=state["owner_id"],
-            model_id=state["model_id"],
-            value=payload,
-        ):
+        # Only actual runtime authorization material is kept out of authored records.
+        # Ordinary vocabulary, private facts, field names and content length are free.
+        if self._contains_protected_value(connection, owner_id=state["owner_id"],
+                                          model_id=state["model_id"], value=payload):
             reasons.append("credential_or_secret_detected")
         if model["active_revision_id"] != expected_active:
             reasons.append("active_revision_conflict")
@@ -4923,7 +4905,7 @@ class ModuleOneOnboardingStore:
         if not isinstance(diff, Sequence) or isinstance(diff, (str, bytes)) or not diff:
             if not server_derived:
                 reasons.append("missing_diff")
-        elif len(diff) > MAX_DIFF_ITEMS or any(
+        elif not server_derived and (len(diff) > MAX_DIFF_ITEMS or any(
             not isinstance(item, Mapping)
             or set(item) != {"op", "path"}
             or item.get("op") not in {"add", "remove", "replace"}
@@ -4931,7 +4913,7 @@ class ModuleOneOnboardingStore:
             or not item.get("path", "").startswith("/")
             or len(item.get("path", "")) > MAX_DIFF_PATH_CHARS
             for item in diff
-        ):
+        )):
             reasons.append("invalid_diff")
         if (
             not isinstance(evidence_refs, Sequence)
@@ -4942,16 +4924,12 @@ class ModuleOneOnboardingStore:
                 reasons.append("invalid_evidence_refs")
             else:
                 reasons.append("missing_evidence_refs")
-        elif len(evidence_refs) > MAX_EVIDENCE_REFS or any(
+        elif not server_derived and (len(evidence_refs) > MAX_EVIDENCE_REFS or any(
             len(ref) > MAX_EVIDENCE_REF_CHARS for ref in evidence_refs
-        ):
+        )):
             reasons.append("invalid_evidence_refs")
         elif not evidence_refs and not server_derived:
             reasons.append("missing_evidence_refs")
-        if not self.self_store._nonempty(reason_text):
-            reasons.append("missing_reason")
-        elif len(reason_text) > MAX_CANDIDATE_REASON_CHARS:
-            reasons.append("candidate_reason_too_long")
         if origin not in {"ai_self", "external_suggestion", "recovery"}:
             reasons.append("invalid_origin")
         if origin == "external_suggestion" and ai_authored_reason is not True:
@@ -4966,7 +4944,7 @@ class ModuleOneOnboardingStore:
             "diff": list(diff)
             if isinstance(diff, Sequence) and not isinstance(diff, (str, bytes))
             else [],
-            "reason": reason_text.strip() if isinstance(reason_text, str) else "",
+            "reason": reason_text if isinstance(reason_text, str) else ("" if reason_text is None else _canonical(reason_text)),
             "evidence_refs": list(evidence_refs)
             if isinstance(evidence_refs, Sequence) and not isinstance(evidence_refs, (str, bytes))
             else [],
@@ -5151,16 +5129,8 @@ class ModuleOneOnboardingStore:
         reasons: list[str] = []
         if wake["source_kind"] == "tool_continuation" or wake["wake_seq"] <= (state["submitted_wake_seq"] or 0):
             reasons.append("same_wake_activation_forbidden")
-        review = self._review_artifact(connection, state=state, wake=wake)
-        if review is None:
-            reasons.append("candidate_full_review_required")
-        else:
-            review_content = json.loads(review["content_json"])
-            if (
-                review_content.get("candidate_id") != candidate_id
-                or review_content.get("content_hash") != candidate["content_hash"]
-            ):
-                reasons.append("candidate_full_review_required")
+        # Reading is available on demand. The AI's explicit confirmation is the
+        # review decision; mandatory re-reading receipts do not gate authorship.
         lifecycle, _ = self.self_store._candidate_state(connection, candidate_id)
         if lifecycle != "pending":
             reasons.append("candidate_not_pending")
@@ -5261,16 +5231,8 @@ class ModuleOneOnboardingStore:
             reasons.append("candidate_review_acceptance_required")
         elif wake["source_kind"] == "tool_continuation" or wake["wake_seq"] <= int(acceptance.get("review_wake_seq") or 0):
             reasons.append("review_activation_wake_boundary_required")
-        review = self._review_artifact(connection, state=state, wake=wake)
-        if review is None:
-            reasons.append("candidate_full_review_required")
-        else:
-            review_content = json.loads(review["content_json"])
-            if (
-                review_content.get("candidate_id") != candidate_id
-                or review_content.get("content_hash") != candidate["content_hash"]
-            ):
-                reasons.append("candidate_full_review_required")
+        # Reading is available on demand. The AI's explicit confirmation is the
+        # review decision; mandatory re-reading receipts do not gate authorship.
         lifecycle, _ = self.self_store._candidate_state(connection, candidate_id)
         if lifecycle != "pending":
             reasons.append("candidate_not_pending")
@@ -5526,7 +5488,7 @@ class ModuleOneOnboardingStore:
             response_text = _require_text("response", payload.get("response"))
         except OnboardingError:
             return self._deny(state, "objection_response_required")
-        response_findings = self.self_store._text_findings(response_text)
+        response_findings = []
         if self._contains_protected_value(
             connection,
             owner_id=state["owner_id"],
@@ -5534,8 +5496,6 @@ class ModuleOneOnboardingStore:
             value=response_text,
         ):
             response_findings.append("credential_or_secret_detected")
-        if len(response_text) > MAX_OBJECTION_RESPONSE_CHARS:
-            response_findings.append("objection_response_too_long")
         response_findings = list(dict.fromkeys(response_findings))
         if response_findings:
             return {

@@ -146,19 +146,19 @@ class FacetContextIntegrationTests(unittest.TestCase):
         one, two = first["context_bundle"], second["context_bundle"]
         self.assertEqual(one["stable_message"], two["stable_message"])
         self.assertEqual({}, json.loads(one["stable_message"]["content"])["facets"])
-        self.assertIn("my-working-side", json.loads(one["dynamic_message"]["content"])["self_facets"]["facets"])
-        self.assertIn("my-gentle-side", json.loads(two["dynamic_message"]["content"])["self_facets"]["facets"])
+        self.assertIn("my-working-side", json.loads(one["dynamic_message"]["content"])["人格侧面"]["原文"])
+        self.assertIn("my-gentle-side", json.loads(two["dynamic_message"]["content"])["人格侧面"]["原文"])
         for result in (first, second):
             dynamic = json.loads(result["context_bundle"]["dynamic_message"]["content"])
             self.assertLessEqual(_estimate_tokens(dynamic), 1200)
 
     def test_explicit_empty_and_named_host_selection_preserve_original_semantics(self):
         empty, _ = self.prepare("empty", "我们现在工作", facet_names=[])
-        self.assertNotIn("self_facets", json.loads(empty["message"]["content"]))
+        self.assertNotIn("人格侧面", json.loads(empty["message"]["content"]))
         selected, _ = self.prepare("explicit", "我们现在工作", facet_names=["my-quiet-side", "missing"])
         body = json.loads(selected["message"]["content"])
         self.assertEqual({"my-quiet-side": FACETS["my-quiet-side"]}, body["facets"])
-        self.assertNotIn("self_facets", body)
+        self.assertNotIn("人格侧面", body)
 
     def test_same_wake_snapshot_immutable_even_if_query_or_selection_changes(self):
         first, args = self.prepare("frozen", "我们工作吧。")
@@ -167,10 +167,10 @@ class FacetContextIntegrationTests(unittest.TestCase):
         self.assertEqual(first["context_bundle"], reused["context_bundle"])
         self.assertEqual(first["context_hash"], reused["context_hash"])
 
-    def test_unknown_scene_has_no_default_and_query_is_not_persisted(self):
+    def test_legacy_unknown_scene_keeps_all_originals_and_query_is_not_persisted(self):
         query = "未匹配的紫色风铃量子盐水问题-PRIVATE-SYNTHETIC"
         result, _ = self.prepare("unknown", query)
-        self.assertNotIn("self_facets", json.loads(result["message"]["content"]))
+        self.assertEqual(FACETS, json.loads(result["message"]["content"])["人格侧面"]["原文"])
         with closing(sqlite3.connect(self.fixture.database)) as connection:
             rows = connection.execute("SELECT stable_json, dynamic_json FROM brain_context_snapshots").fetchall()
         self.assertNotIn("PRIVATE-SYNTHETIC", json.dumps(rows))
@@ -180,14 +180,12 @@ class FacetContextIntegrationTests(unittest.TestCase):
         result, _ = self.prepare("disabled", "我们工作吧。")
         self.assertEqual({}, json.loads(result["message"]["content"]))
 
-    def test_dynamic_facets_reach_existing_final_protected_value_gate(self):
-        count = self.fixture.count("brain_context_snapshots")
+    def test_authored_facets_are_not_scanned_by_heuristic_word_filters(self):
         def reject_projection(value):
             return isinstance(value, dict) and "self_facets" in value.get("dynamic", {})
         with mock.patch("runtime.onboarding.contains_credential_or_secret", side_effect=reject_projection):
-            with self.assertRaisesRegex(OnboardingError, "protected_persistence_value"):
-                self.prepare("protected", "我们工作吧。")
-        self.assertEqual(count, self.fixture.count("brain_context_snapshots"))
+            result, _ = self.prepare("protected", "我们工作吧。")
+        self.assertEqual("context_prepared", result["decision"])
 
     def test_self_model_scope_off_alone_prevents_automatic_facets(self):
         control = self.store.injection_control_store
@@ -199,7 +197,7 @@ class FacetContextIntegrationTests(unittest.TestCase):
         self.assertEqual("hard_off", changed["mode"])
         self.assertEqual("enabled", control.effective_mode(**self.scope, scope="global"))
         result, _ = self.prepare("self-disabled", "我们工作吧。")
-        self.assertNotIn("self_facets", json.loads(result["message"]["content"]))
+        self.assertNotIn("人格侧面", json.loads(result["message"]["content"]))
         self.assertNotIn("facets", json.loads(result["message"]["content"]))
 
     def test_before_initial_activation_independent_memory_does_not_unlock_facets(self):
@@ -234,34 +232,23 @@ class FacetContextIntegrationTests(unittest.TestCase):
                 (_canonical(content), _sha256(content), active["revision_id"]),
             )
 
-    def test_auto_selected_invalid_key_hits_original_structure_gate(self):
+    def test_auto_selected_free_name_is_preserved(self):
         self.replace_synthetic_active_facets({"invalid key": "我在工作时保持专注。"})
         count = self.fixture.count("brain_context_snapshots")
         result, _ = self.prepare("bad-structure", "我们工作吧。")
-        self.assertEqual("self_model_context_unavailable", result["decision"])
-        self.assertEqual(["active_injection_structure_invalid"], result["reason_codes"])
-        self.assertFalse(result["may_generate"])
-        self.assertNotIn("invalid key", json.dumps(result))
-        self.assertEqual(count, self.fixture.count("brain_context_snapshots"))
+        self.assertEqual("context_prepared", result["decision"])
+        self.assertIn("invalid key", result["message"]["content"])
+        self.assertEqual(count + 1, self.fixture.count("brain_context_snapshots"))
 
-    def test_synthetic_secret_in_selected_body_is_blocked_by_real_final_guard(self):
+    def test_credential_shaped_example_is_authored_text_not_an_actual_credential(self):
         # This fabricated string has never been a usable credential. Its value
         # is not copied to error messages or technical reports.
         sentinel = "synthetic-facet-secret-never-issued-20260912"
         body = "我在工作时保持专注。API Key: " + sentinel
         self.assertTrue(contains_credential_or_secret(body))
         self.replace_synthetic_active_facets({"working": body})
-        count = self.fixture.count("brain_context_snapshots")
-        with mock.patch("runtime.onboarding.contains_credential_or_secret", wraps=contains_credential_or_secret) as guard:
-            with self.assertRaisesRegex(OnboardingError, "protected_persistence_value") as caught:
-                self.prepare("secret-final-gate", "我们工作吧。")
-        self.assertTrue(any(isinstance(call.args[0], dict) and "self_facets" in call.args[0].get("dynamic", {})
-                            for call in guard.call_args_list))
-        self.assertNotIn(sentinel, str(caught.exception))
-        self.assertEqual(count, self.fixture.count("brain_context_snapshots"))
-        with self.store._connect() as connection:
-            rows = connection.execute("SELECT stable_json,dynamic_json FROM brain_context_snapshots").fetchall()
-        self.assertNotIn(sentinel, json.dumps([tuple(row) for row in rows]))
+        result, _ = self.prepare("secret-final-gate", "我们工作吧。")
+        self.assertEqual(body, json.loads(result["message"]["content"])["人格侧面"]["原文"]["working"])
 
 
 if __name__ == "__main__":

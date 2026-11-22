@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from .short_reference_reads import ShortReferenceError, resolve_short_read_fields
+
+
 from typing import Any, Mapping
 
 from runtime import (
@@ -277,7 +280,11 @@ class EmotionalMemoryAccessService:
         if permission.get("decision") != "allowed":
             return self._reject("module_one_required", status=self.status())
         try:
-            if has_memory_id:
+            resolved = resolve_short_read_fields(database=self.store.database,
+                owner_id=self.owner_id, model_id=self.model_id, module='emotion',
+                fields={'query': query, 'memory_id': memory_id})
+            query, memory_id = resolved['query'], resolved['memory_id']
+            if memory_id:
                 result = self.store.recall_history(
                     owner_id=self.owner_id,
                     model_id=self.model_id,
@@ -301,7 +308,7 @@ class EmotionalMemoryAccessService:
                     ai_confirmation=ai_confirmation,
                     safety_emergency=safety_emergency,
                 )
-        except EmotionalMemoryError as exc:
+        except (EmotionalMemoryError, ShortReferenceError) as exc:
             return self._reject(str(exc), status=self.status())
         return {
             "module": "emotional_memory_module_two",

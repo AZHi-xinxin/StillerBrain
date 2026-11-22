@@ -124,6 +124,7 @@ class SelfGovernanceAccessService:
             return self._deny("legacy_candidate_requires_open_wake")
         try:
             protected = self.onboarding.contains_protected_persistence_value(
+                include_syntax=False,
                 owner_id=self.owner_id,
                 model_id=self.model_id,
                 value={

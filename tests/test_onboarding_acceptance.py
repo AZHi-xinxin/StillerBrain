@@ -520,7 +520,7 @@ class ModuleOneAcceptanceMatrixTests(unittest.TestCase):
         )
         self.assertEqual("allowed", allowed["decision"])
 
-    def test_live_injection_fails_closed_if_active_structure_is_invalid(self) -> None:
+    def test_live_injection_preserves_free_authored_structure(self) -> None:
         revision_id = self.bootstrap_live()
         corrupt = model_content("corrupt-active")
         corrupt["boot_anchor"]["text"] = None
@@ -556,10 +556,8 @@ class ModuleOneAcceptanceMatrixTests(unittest.TestCase):
             source_digest="source:voice-corruption",
             host_contract_digest="host-contract:v1",
         )
-        self.assertEqual("self_model_context_unavailable", prepared["decision"])
-        self.assertEqual(["active_injection_structure_invalid"], prepared["reason_codes"])
-        self.assertFalse(prepared["may_generate"])
-        self.assertNotIn("message", prepared)
+        self.assertEqual("context_prepared", prepared["decision"])
+        self.assertIsNone(json.loads(prepared["message"]["content"])["boot_anchor"]["text"])
 
     def test_D21_D22_D23_D24_edit_is_structured_and_append_only(self) -> None:
         revision_one = self.bootstrap_live()

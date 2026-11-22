@@ -184,7 +184,9 @@ def prepare(connection, *, owner_id, model_id, wake_id, wake_seq, frame, items, 
                    "route": route,
                    "model_transition": "unknown" if head is None else
                        "same" if head["route_json"] == _json(route) else "changed",
-                   "model_identity_basis": "configured_upstream_route_not_weight_attestation",
+                   "previous_route": json.loads(head["route_json"]) if head else {},
+                   "previous_source_key": head["source_key"] if head else "",
+                   "source_key": frame["source_key"],
                    "recent_memories": []}
     output = {**base, "session_continuity": model_frame}
     accepted = []
@@ -198,7 +200,10 @@ def prepare(connection, *, owner_id, model_id, wake_id, wake_seq, frame, items, 
             output["session_continuity"] = trial
             accepted.append(ref)
     if estimate(output) > budget:
-        output = base
+        # A real window/model transition must not vanish when ordinary recall
+        # has used its quota. Keep only the short event; memory items stay pending.
+        output = ({**base, "session_continuity": {**model_frame, "recent_memories": []}}
+                  if changed or model_frame["model_transition"] == "changed" else base)
         accepted = []
     proposal = {"source_key": frame["source_key"], "route": route, "wake_seq": wake_seq,
                 "observed": observed, "cutoff": cutoff, "pending": pending, "accepted": accepted}

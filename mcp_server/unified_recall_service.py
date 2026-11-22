@@ -24,6 +24,7 @@ from runtime.credential_guard import contains_credential_or_secret
 from runtime.lexical_retrieval import explicit_alias_match
 from runtime.memory_image_recall import image_attachment_hint
 from runtime.tool_guidance import _checked_version_content, _scene_score
+from runtime.recall_projection import SHORT_REF, short_ref
 
 
 MODULES = ('emotional_memory', 'learning_memory', 'planning_memory', 'tool_guidance')
@@ -106,6 +107,7 @@ class UnifiedRecallAccessService:
             return self._reject('credential_or_secret_detected')
         selected = (module,) if module is not None else MODULES
         query = query.strip()
+        short_query = SHORT_REF.fullmatch(query) is not None
         binding = _digest([self.owner_id, self.model_id, selected, query])
         previous = None
         if cursor is not None:
@@ -136,12 +138,19 @@ class UnifiedRecallAccessService:
                     if path not in connections:
                         connections[path] = stack.enter_context(_read_connection(path))
                     groups[name] = list(connections).index(path)
-                    found, fingerprint = self._module(name, service.store, connections[path], query,
+                    found, fingerprint = self._module(name, service.store, connections[path], '' if short_query else query,
                                                       semantic_status)
+                    if short_query:
+                        found = [item for item in found if short_ref(item['ref']) == query]
                     # Recheck projected data, including old records predating the
                     # credential guard. Errors never echo stored content or paths.
                     safe = []
                     for item in found:
+                        item = {**item, 'short_ref': short_ref(item['ref'])}
+                        if short_query and not item.get('content_stub'):
+                            receipt = self._recall_receipt(item['ref'])
+                            if receipt:
+                                item['automatic_recall_receipt'] = receipt
                         if contains_credential_or_secret(item):
                             error = {'module': name, 'reason_code': 'protected_content_withheld'}
                             if error not in errors:
@@ -159,6 +168,8 @@ class UnifiedRecallAccessService:
                     errors.append({'module': name, 'reason_code': 'module_read_failed'})
         # Stable grouping, never compare unrelated per-brain scores as probabilities.
         items.sort(key=lambda item: (MODULES.index(item['module']), item['ref']))
+        if short_query and len(items) > 1:
+            return self._reject('short_reference_ambiguous_use_full_reference')
         errors.sort(key=lambda item: (item['module'], item['reason_code']))
         snapshot = _digest([stamps, errors, semantic_status])
         if previous is not None and previous['snapshot'] != snapshot:
@@ -191,6 +202,42 @@ class UnifiedRecallAccessService:
                 'ordering': 'module_then_versioned_reference', 'summary_only': True,
                 'state_changed': False, 'write_context_created': False,
                 'guidance': guidance}
+
+    def _recall_receipt(self, ref: str) -> dict | None:
+        """Explicit diagnostic read; never merge private text back into prompts."""
+        module, identity = ref.split('://', 1)
+        identity = identity.rsplit('@', 1)[0]
+        try:
+            path = Path(self.onboarding.database).resolve()
+            with _read_connection(path) as connection:
+                row = connection.execute(
+                    "SELECT prepared_at,dynamic_json FROM brain_context_snapshots WHERE owner_id=? AND model_id=? "
+                    "AND injected_at IS NOT NULL AND instr(dynamic_json,?)>0 ORDER BY prepared_at DESC LIMIT 1",
+                    (self.owner_id, self.model_id, identity)).fetchone()
+            if row is None:
+                return None
+            dynamic = json.loads(row['dynamic_json'])
+            entries = dynamic.get('emotional_memory', {}).get('memories', []) if module == 'emotion' else (
+                dynamic.get({'learning': 'learning_memory', 'plan': 'planning_memory',
+                             'tool-card': 'tool_guidance'}[module], {}).get('envelopes', []))
+            entries = [*entries, *dynamic.get('force_recall', {}).get('items', []),
+                       *dynamic.get('session_continuity', {}).get('recent_memories', []),
+                       *dynamic.get('emotion_layer', {}).get('memories', [])]
+            for item in entries:
+                item_ref = item.get('item_ref') or item.get('memory_ref') or ('emotion://' + item['memory_id'] if item.get('memory_id') else '')
+                if not item_ref.startswith(module + '://'):
+                    continue
+                item_id = item_ref.split('://', 1)[-1].rsplit('@', 1)[0]
+                if item_id == identity:
+                    keys = ('memory_id', 'item_ref', 'score', 'semantic_score', 'salience_score', 'exact_match',
+                            'keyword_match', 'association_depth', 'presentation', 'primary_emotion',
+                            'origin', 'origin_label', 'confidence', 'gate_decision', 'retrieval_match',
+                            'candidate_only', 'selection_priority', 'presence_mode', 'state')
+                    return {'prepared_at': row['prepared_at'], 'fields': {k: item[k] for k in keys if k in item},
+                            'note': '最近一次已确认自动浮现的诊断；分数不是事实正确率，正文与当前版本按 detail_lookup 读取。'}
+        except (sqlite3.Error, OSError, ValueError, KeyError, AttributeError, TypeError):
+            return None
+        return None
 
     @staticmethod
     def _entry(module: str, ref: str, title: str, summary: str, lifecycle: str,

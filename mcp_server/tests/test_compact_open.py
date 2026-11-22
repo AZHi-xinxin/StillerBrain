@@ -207,7 +207,7 @@ class CompactOpenStateTests(unittest.TestCase):
         self.assertIn("human_objection", full["continuation"])
         self.assertEqual(1, self.proof_count("human_objection_presented", wake))
 
-    def test_old_full_review_cannot_be_reused_after_new_summary_wake(self) -> None:
+    def test_explicit_review_does_not_require_a_new_read_receipt(self) -> None:
         self.candidate_wait()
         previous = self.wake("full-review-previous")
         self.runtime_open(present_details=True)
@@ -217,16 +217,10 @@ class CompactOpenStateTests(unittest.TestCase):
         rejected = self.advance(
             current, "accept_candidate_review", {"ai_confirmation": True}
         )
-        self.assertEqual("reject", rejected["decision"])
-        self.assertIn("candidate_full_review_required", rejected["reason_codes"])
+        self.assertEqual("review_accepted", rejected["decision"])
         self.assertEqual(0, self.proof_count("candidate_full_review", current))
-        self.runtime_open(present_details=True)
-        accepted = self.advance(
-            current, "accept_candidate_review", {"ai_confirmation": True}
-        )
-        self.assertEqual("review_accepted", accepted["decision"])
 
-    def test_summary_cannot_activate_previous_wake_accepted_candidate(self) -> None:
+    def test_new_wake_can_activate_previous_wake_accepted_candidate_without_rereading(self) -> None:
         self.candidate_wait()
         reviewed = self.wake("review-before-summary-activation")
         self.runtime_open(present_details=True)
@@ -241,8 +235,7 @@ class CompactOpenStateTests(unittest.TestCase):
             "activate_candidate",
             {"expected_active_revision": None, "ai_confirmation": True},
         )
-        self.assertEqual("reject", denied["decision"])
-        self.assertIn("candidate_full_review_required", denied["reason_codes"])
+        self.assertEqual("activate", denied["decision"])
         self.assertEqual(0, self.proof_count("candidate_full_review", current))
 
     def test_summary_preserves_existing_same_wake_full_review_proof(self) -> None:

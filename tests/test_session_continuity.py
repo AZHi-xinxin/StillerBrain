@@ -93,6 +93,15 @@ class CursorTests(unittest.TestCase):
         _, result = self.prepare(items=[])
         self.assertEqual([], self.refs(result))
 
+    def test_real_transition_survives_full_memory_budget_without_acknowledging_pending(self):
+        wake, _ = self.prepare(); self.ack(wake)
+        switched, result = self.prepare('B', [item('new')], budget=1)
+        self.assertEqual('changed', result['source_transition'])
+        self.assertEqual([], self.refs(result))
+        self.ack(switched)
+        _, retry = self.prepare('B', [item('new')])
+        self.assertEqual([item('new')['envelope']['item_ref']], self.refs(retry))
+
     def test_late_and_duplicate_ack_cannot_regress_state(self):
         a, _ = self.prepare(); b, _ = self.prepare("B")
         self.assertTrue(self.ack(b))
@@ -105,7 +114,9 @@ class CursorTests(unittest.TestCase):
         self.assertEqual("unknown", first["model_transition"])
         self.assertEqual("changed", second["model_transition"])
         self.assertEqual("same", second["source_transition"])
-        self.assertIn("not_weight_attestation", second["model_identity_basis"])
+        self.assertNotIn("model_identity_basis", second)
+        self.assertEqual("route-one", second["previous_route"]["upstream_model"])
+        self.assertEqual("route-two", second["route"]["upstream_model"])
 
     def test_other_owner_isolated(self):
         a, _ = self.prepare(items=[item("owner-one")]); self.ack(a)

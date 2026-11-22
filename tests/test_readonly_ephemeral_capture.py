@@ -85,7 +85,7 @@ class ReadOnlyEphemeralCaptureTests(unittest.TestCase):
             self.assertEqual(0, connection.execute("SELECT COUNT(*) FROM emotion_memories").fetchone()[0])
         self.assertNotIn("Synthetic current message", result["message"]["content"])
 
-    def test_existing_content_can_recall_without_new_capture_or_budget_clearing(self):
+    def test_existing_content_is_not_recaptured_or_reinjected(self):
         original = self.seed_existing()
         before = self.rows()
         # Far exceeds the 600-token thread budget if capture is accidentally run.
@@ -94,7 +94,7 @@ class ReadOnlyEphemeralCaptureTests(unittest.TestCase):
             result = self.frame("read-existing", items=items)
         capture.assert_not_called()
         self.assertEqual(before, self.rows())
-        self.assertIn(original, result["message"]["content"])
+        self.assertNotIn(original, result["message"]["content"])
         self.assertNotIn("合成新内容", result["message"]["content"])
 
     def test_submitted_real_candidate_is_not_first_activation(self):
@@ -107,19 +107,19 @@ class ReadOnlyEphemeralCaptureTests(unittest.TestCase):
         with closing(sqlite3.connect(self.database)) as connection:
             self.assertEqual(0, connection.execute("SELECT COUNT(*) FROM self_model_revisions").fetchone()[0])
 
-    def test_real_three_wake_activation_allows_capture_after_recall(self):
+    def test_real_three_wake_activation_still_does_not_capture_same_window(self):
         self.bootstrap_live()
         original = self.seed_existing()
         new_text = "Synthetic newly captured message after actual activation."
         with patch.object(self.emotional, "capture_ephemeral", wraps=self.emotional.capture_ephemeral) as capture:
             result = self.frame("after-activation", items=[{"role": "user", "content": new_text}])
-        capture.assert_called_once()
-        self.assertEqual(2, len(self.rows()))
-        self.assertIn(new_text, [row[2] for row in self.rows()])
-        self.assertIn(original, result["message"]["content"])
+        capture.assert_not_called()
+        self.assertEqual(1, len(self.rows()))
+        self.assertNotIn(new_text, [row[2] for row in self.rows()])
+        self.assertNotIn(original, result["message"]["content"])
         self.assertNotIn(new_text, result["message"]["content"])
 
-    def test_real_edit_candidate_keeps_activated_basis_and_capture(self):
+    def test_real_edit_candidate_does_not_capture_same_window(self):
         revision = self.bootstrap_live()
         wake, _ = self.wake("start-real-edit")
         challenge = self.advance(wake, "begin_edit")
@@ -133,8 +133,8 @@ class ReadOnlyEphemeralCaptureTests(unittest.TestCase):
         self.assertTrue(state["module_one_unlocked"])
         with patch.object(self.emotional, "capture_ephemeral", wraps=self.emotional.capture_ephemeral) as capture:
             self.frame("during-real-edit")
-        capture.assert_called_once()
-        self.assertEqual(1, len(self.rows()))
+        capture.assert_not_called()
+        self.assertEqual(0, len(self.rows()))
 
     def test_unlock_flag_alone_does_not_establish_capture_permission(self):
         # Corrupt only this test fixture; never a real installation.

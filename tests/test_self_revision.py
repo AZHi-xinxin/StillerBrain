@@ -231,69 +231,21 @@ class SelfRevisionRuntimeTests(unittest.TestCase):
             [event["event_type"] for event in self.store.list_events(self.model_id)],
         )
 
-    def test_m1_04_rejects_credentials_scope_and_external_ghostwriting(self) -> None:
-        secret = model_content()
-        secret["active_identity_capsule"]["personality_foundation"] += " password: not-for-storage"
-        rejected_secret = self.propose(secret, checkpoint="wake-1", key="secret")
-        self.assertEqual("reject", rejected_secret["decision"])
-        self.assertIn("credential_or_secret_detected", rejected_secret["reason_codes"])
-
-        scoped = model_content()
-        scoped["tools"] = {"MCP": "call-this"}
-        rejected_scope = self.propose(scoped, checkpoint="wake-2", key="scope")
-        self.assertEqual("reject", rejected_scope["decision"])
-        self.assertIn("scope_boundary_violation", rejected_scope["reason_codes"])
-
-        boundary_cases = (
-            ("phone", "我的手机号是 13800138000。", "mutable_human_fact_detected"),
-            ("email", "我的邮箱是 owner@example.com。", "mutable_human_fact_detected"),
-            ("fabricated-capability", "我可以控制设备并拥有真实权限。", "scope_boundary_violation"),
-            (
-                "embedded-mcp-tool-instruction",
-                "玩具使用方法：先语言命令再调 toyMCP 工具，参数顺序不能反。",
-                "scope_boundary_violation",
-            ),
-        )
-        for label, text, expected_reason in boundary_cases:
-            with self.subTest(boundary=label):
-                guarded = model_content()
-                guarded["active_identity_capsule"]["personality_foundation"] += f" {text}"
-                rejected = self.propose(
-                    guarded,
-                    checkpoint=f"wake-guard-{label}",
-                    key=f"guard-{label}",
-                )
-                self.assertEqual("reject", rejected["decision"])
-                self.assertIn(expected_reason, rejected["reason_codes"])
-
-        external = self.propose(
-            model_content(),
-            checkpoint="wake-3",
-            key="external",
-            origin="external_suggestion",
-            ai_authored_reason=False,
-        )
-        self.assertEqual("reject", external["decision"])
-        self.assertIn("external_origin_without_ai_reason", external["reason_codes"])
-        self.assertEqual([], self.store.list_candidates(self.model_id))
-        self.assertTrue(
-            all(
-                event["details"].get("content_persisted") is False
-                for event in self.store.list_events(self.model_id)
-            )
-        )
-
-        legitimate_principle = model_content()
-        legitimate_principle["active_identity_capsule"]["behavioral_principles"].append(
-            "我重视工具的谨慎使用。"
-        )
-        accepted = self.propose(
-            legitimate_principle,
-            checkpoint="wake-legitimate-tool-principle",
-            key="legitimate-tool-principle",
-        )
-        self.assertEqual("pending", accepted["decision"])
-        self.assertNotIn("scope_boundary_violation", accepted["reason_codes"])
+    def test_authored_words_and_fields_are_not_treated_as_credentials_or_capabilities(self):
+        examples = ['password: not-for-storage', '我的手机号是 13800138000。',
+                    '我的邮箱是 owner@example.com。', '我可以控制设备并拥有真实权限。',
+                    '玩具使用方法：先语言命令再调 toyMCP 工具，参数顺序不能反。']
+        for index, text in enumerate(examples):
+            content = model_content()
+            content['active_identity_capsule']['personality_foundation'] = text
+            content['tools'] = {'MCP': 'call-this'}
+            result = self.propose(content, checkpoint=f'free-{index}', key=f'free-{index}')
+            self.assertEqual('pending', result['decision'])
+            stored = next(r for r in self.store.list_candidates(self.model_id) if r['candidate_id'] == result['candidate_id'])
+            self.assertEqual(content, json.loads(stored['content_json']))
+        external = self.propose(model_content(), checkpoint='external', key='external',
+                                origin='external_suggestion', ai_authored_reason=False)
+        self.assertIn('external_origin_without_ai_reason', external['reason_codes'])
 
     def test_active_injectable_text_preserves_ai_chosen_wording(self) -> None:
         cases = []
@@ -333,10 +285,9 @@ class SelfRevisionRuntimeTests(unittest.TestCase):
         too_long = model_content()
         too_long["active_identity_capsule"]["personality_foundation"] = "我" + "长" * 5000
         result = self.propose(too_long, checkpoint="wake-1", key="long")
-        self.assertEqual("revise", result["decision"])
-        self.assertIn("identity_capsule_too_long", result["reason_codes"])
-        self.assertIsNone(result["candidate_id"])
-        self.assertEqual([], self.store.list_candidates(self.model_id))
+        self.assertEqual("pending", result["decision"])
+        stored = self.store.list_candidates(self.model_id)[0]
+        self.assertEqual(too_long, json.loads(stored["content_json"]))
 
         self.bootstrap()
         injection = self.store.build_injection(

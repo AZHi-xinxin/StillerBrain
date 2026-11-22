@@ -72,7 +72,7 @@ class DataRealControlWireTests(layout.CacheLayoutRealControlWireTests):
         first=self.post(messages);session=self.app._current_session
         self.assertEqual(USER_DATA_RULE,session.context_bundle['layout'])
         dynamic=json.loads(session.context_bundle['dynamic_message']['content'])
-        self.assertIn('learning_memory',dynamic)
+        self.assertIn('记忆',dynamic)
         parts=self.upstream_payloads[0]['messages'][-1]['content']
         self.assertEqual('Synthetic body counter: 2',json.loads(parts[-2]['text'].split('\n',1)[1])['content'])
         self.assertEqual(dynamic,json.loads(json.loads(parts[-1]['text'].split('\n',1)[1])['content']))

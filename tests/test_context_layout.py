@@ -118,7 +118,7 @@ class ContextLayoutTests(unittest.TestCase):
         stable = json.loads(bundle["stable_message"]["content"])
         dynamic = json.loads(bundle["dynamic_message"]["content"])
         self.assertEqual({"boot_anchor", "active_identity_capsule", "facets"}, set(stable))
-        self.assertIn("learning_memory", dynamic)
+        self.assertIn("记忆", dynamic)
         self.assertEqual(json.loads(first["message"]["content"]), {**stable, **dynamic})
         self.assertNotIn("完整理解测试标记", bundle["dynamic_message"]["content"])
         self.confirm(wake, first["context_hash"])

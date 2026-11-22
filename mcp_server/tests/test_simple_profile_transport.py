@@ -62,7 +62,7 @@ async def probe():
                 yield from text_values(decoded)
 
     tools = server.mcp._tool_manager.list_tools()
-    check(len(tools) == 61, "manager registers desires, feeling tools and host-only image transport")
+    check(len(tools) == 62, "manager registers desires, feeling tools and host-only image transport")
     check("memory_desires" in {tool.name for tool in tools}, "desire tool registered")
     check(server.SIMPLE_MEMORY_ACCESS is True, "simple profile actually active")
     required = server.mcp._tool_manager.get_tool("remember_tool_guidance").parameters.get("required", [])
@@ -313,7 +313,7 @@ class SimpleProfileTransportTests(unittest.TestCase):
         self.assertEqual(0, completed.returncode, completed.stderr)
         proof = json.loads(completed.stdout.strip().splitlines()[-1])
         self.assertEqual("PASS", proof["decision"])
-        self.assertEqual(61, proof["tool_count"])
+        self.assertEqual(62, proof["tool_count"])
         self.assertTrue(proof["module_one_bootstrapped"])
         self.assertTrue(proof["unactivated_ordinary_writes_rejected"])
         self.assertEqual(0, proof["ordinary_operations_created_wakes"])

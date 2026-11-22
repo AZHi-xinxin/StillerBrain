@@ -366,7 +366,10 @@ class CacheLayoutRealControlWireTests(unittest.TestCase):
         stable = json.loads(session.context_bundle["stable_message"]["content"])
         dynamic = json.loads(session.context_bundle["dynamic_message"]["content"])
         self.assertEqual(json.loads(session.message["content"]), {**stable, **dynamic})
-        self.assertIn("learning_memory", dynamic)
+        self.assertIn("记忆", dynamic)
+        self.assertNotIn("ST_SOURCE_V1", json.dumps(first))
+        for item in dynamic["记忆"]:
+            self.assertTrue({'编号', '摘要'} <= set(item) <= {'编号', '摘要', '来源'})
         self.assertEqual(session.context_bundle["dynamic_message"], self.upstream_payloads[0]["messages"][-2])
         wake_ids = [session.wake_id]
         messages.extend([first["choices"][0]["message"],
@@ -389,6 +392,7 @@ class CacheLayoutRealControlWireTests(unittest.TestCase):
         self.assertEqual(["closed"] * 3, [row[1] for row in snapshots])
         self.assertEqual([3, 7, 9], [json.loads(row[2])["layout"]["human_message_index"] for row in snapshots])
         for payload in self.upstream_payloads:
+            self.assertNotIn("ST_SOURCE_V1", json.dumps(payload))
             for forbidden in ("context_bundle", "initial_messages_digest", "wake_capability", self.token):
                 self.assertNotIn(forbidden, json.dumps(payload))
 

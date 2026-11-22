@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from runtime.recall_projection import short_ref
 import json
 import unittest
 from unittest import mock
@@ -265,8 +266,8 @@ class PersistentWakeIntegrationTests(unittest.TestCase):
         for i in range(2):
             wake, args, result = self.prepare(f"persistent-new-{i}")
             projected = json.loads(result["message"]["content"])
-            self.assertEqual(set(self.ids), {item["item_ref"] for item in projected["planning_memory"]["envelopes"]})
-            self.assertLessEqual(_estimate_tokens({"planning_memory": projected["planning_memory"]}), 1200)
+            self.assertEqual({short_ref(x) for x in self.ids}, {item["编号"] for item in projected["记忆"]})
+            self.assertLessEqual(_estimate_tokens({"记忆": projected["记忆"]}), 1200)
             self.store.confirm_context_injected(owner_id=self.fixture.owner, model_id=self.fixture.model,
                 wake_id=wake["wake_id"], wake_capability=wake["wake_capability"], context_hash=result["context_hash"])
             with mock.patch.object(self.planning, "build_injection", side_effect=AssertionError("must reuse snapshot")):

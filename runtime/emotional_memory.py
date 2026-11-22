@@ -2805,6 +2805,8 @@ class EmotionalMemoryStore:
                 else:
                     item["summary"] = row["summary"]
                     item["gate_decision"] = row["default_decision"]
+                if defer_budget and item.get("presentation") != "neutral_hint":
+                    item["auto_summary"] = row["summary"]
                 memories.append(item)
                 if row["memory_id"] in semantic_only:
                     item["retrieval_match"] = "local_semantic_candidate"

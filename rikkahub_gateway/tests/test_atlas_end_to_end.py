@@ -106,6 +106,35 @@ class AtlasEndToEndTests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertEqual(old_graph["stars"], new_graph["stars"])
 
+    def test_tool_stars_and_cross_brain_links_survive_full_http_chain(self):
+        from runtime.tool_guidance import ToolGuidanceStore
+        ToolGuidanceStore(self.database)
+        with closing(sqlite3.connect(self.database)) as db:
+            insert_synthetic(db, "tool_cards", card_id="synthetic-tool", lifecycle="active", current_version=1)
+            columns = list(db.execute("PRAGMA table_info(tool_card_versions)"))
+            values = {row[1]: 1 if row[2] == "INTEGER" else "DO_NOT_PROJECT_PRIVATE_BODY"
+                      for row in columns if row[3] or row[5]}
+            values.update(version_id="synthetic-tool-version", card_id="synthetic-tool", version=1,
+                          capability_class="READ", risk_level="low", confirmation_policy="never",
+                          completion_rule="result", auto_recall_mode="normal", source_type="ai",
+                          linked_tool_refs_json="[]", related_refs_json='["emotion://synthetic-emotion@1"]')
+            db.execute(f"INSERT INTO tool_card_versions({','.join(values)}) "
+                       f"VALUES({','.join('?' for _ in values)})", tuple(values.values()))
+            db.commit()
+        self.register()
+        with closing(sqlite3.connect(self.database)) as db:
+            before = list(db.iterdump())
+        status, headers, graph = self.call(SNAPSHOT, token=TOKEN)
+        self.assertEqual(200, status)
+        self.assertEqual("no-store", headers["Cache-Control"])
+        stars = {star["type"]: star["id"] for star in graph["stars"]}
+        self.assertEqual({"情感", "学习", "规划", "工具"}, set(stars))
+        self.assertEqual([{stars["工具"], stars["情感"]}],
+                         [{edge["a"], edge["b"]} for edge in graph["edges"]])
+        self.assertNotIn("DO_NOT_PROJECT_PRIVATE_BODY", json.dumps(graph))
+        with closing(sqlite3.connect(self.database)) as db:
+            self.assertEqual(before, list(db.iterdump()))
+
     def test_policy_disable_stops_read_and_registration_but_allows_self_revoke(self):
         self.register()
         self.grants.enabled = False

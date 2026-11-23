@@ -220,7 +220,7 @@ class AtlasTransportTests(unittest.TestCase):
         values = []
         for key in ("body", "summary", "title", "owner_id"):
             value = copy.deepcopy(GRAPH); value["stars"][0][key] = "private"; values.append(value)
-        for key, val in (("id", "raw-id"), ("type", "private"), ("storedAt", "now")):
+        for key, val in (("id", "raw-id"), ("type", "private"), ("type", "工作"), ("storedAt", "now")):
             value = copy.deepcopy(GRAPH); value["stars"][0][key] = val; values.append(value)
         for edge in ({"a": "a" * 64, "b": "c" * 64}, {"a": "a" * 64, "b": "a" * 64},
                      {"a": "a" * 64, "b": "b" * 64, "body": "private"}):

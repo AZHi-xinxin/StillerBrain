@@ -1,6 +1,6 @@
 {
   "format": "stiller-source-package/1",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "distribution": "source-available-stable-release",
   "files": [
     {
@@ -17,7 +17,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "d6ba913926dbfccf5e12fb66455a0f7528d9a249df473a5421a73acb443854b8"
+      "sha256": "5f7d02d167b588b03518cc3078b1c602b48b3cd0d3473da4a659caf21e5a5d49"
     },
     {
       "path": "COMMERCIAL-LICENSE.md",
@@ -41,7 +41,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "b683e16903e257750ad3931e6647cf209ee678519bc0599d661d6cc7f3ab2351"
+      "sha256": "6b496eb6b5da85ad63ca93d29454dcff819eb42665bd5099ba35c2d5c4f31940"
     },
     {
       "path": "RELEASE-NOTES-0.2.0-preview.1.md",
@@ -102,6 +102,10 @@
     {
       "path": "RELEASE-NOTES-0.2.6.md",
       "sha256": "898a324b22987c95d6f573f9bf3b0ed4caf77332acb090b60e73799636f977f4"
+    },
+    {
+      "path": "RELEASE-NOTES-0.2.7.md",
+      "sha256": "9ab4b691266493efc18f34f9d3d7ae2aa7c054f5b13427c6f66f2c4a805bde6b"
     },
     {
       "path": "RELEASE-NOTES-preview.3.md",
@@ -285,7 +289,7 @@
     },
     {
       "path": "docs/UPDATE-VALIDATION.md",
-      "sha256": "a6eeb16a71019462dc51b2d8af33d01dc28b4aef70e5fb14444d23d7f65ad3c5"
+      "sha256": "e8e293d9e4b66657956348f9545a7849c333da351c5a79e1ba6f2c7a2015920a"
     },
     {
       "path": "docs/assets/stiller-cover.svg",
@@ -913,7 +917,7 @@
     },
     {
       "path": "release-state.json",
-      "sha256": "5cf93d1e9d51a582587dfba5fc51a97181d79c4313086b3ef226d1a466bd6f21"
+      "sha256": "8bb3d910be2fa6ee1359ec4c659a3dbe94ee37d8cfe5d992b4d9d99d270f01a3"
     },
     {
       "path": "requirements-linux-arm64-py312.lock",
@@ -949,7 +953,7 @@
     },
     {
       "path": "rikkahub_gateway/atlas.py",
-      "sha256": "043f66732c36cbed1700f9779ae6b81442f04740914c108b4568b23687e1e5ff"
+      "sha256": "c9c2ed99e3ef824801582b49e97b10519b2f4f094558b3fc5a52d1c96f954a3f"
     },
     {
       "path": "rikkahub_gateway/balance.py",
@@ -1053,7 +1057,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_atlas_end_to_end.py",
-      "sha256": "c88a56e5f51e8f6a52f706b475cbb0744c1ff978c732a947434c51a9da4722ea"
+      "sha256": "475f1c4cf683489559532d76e3cc42104090259e3727a8b9f205d35b9f1153f1"
     },
     {
       "path": "rikkahub_gateway/tests/test_auxiliary_isolation.py",
@@ -1113,7 +1117,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_atlas.py",
-      "sha256": "589c55382d32015255e15165e1e532d7d8525e6f0809ce16655c9c5615dd606c"
+      "sha256": "e815651ff7023c46c8676c39344db44b3ac68214ded45455c625516e557439ba"
     },
     {
       "path": "rikkahub_gateway/tests/test_gateway_balance.py",
@@ -1672,12 +1676,16 @@
       "sha256": "df84b8b1f9432dd5cd894140d37d09b438c5714748de2634add27c08e59dc947"
     },
     {
+      "path": "source-release-state-0.2.6.json",
+      "sha256": "ac81bb045654910e46edbc55df3c3ced760898e24cf2fd1b95bdaf97c0834b60"
+    },
+    {
       "path": "source-release-state-preview.5.json",
       "sha256": "5f21cbf24d9d098a1ee1522268d5763e179958a48fa638eb2a162e9cb5848ab7"
     },
     {
       "path": "source-release-state.json",
-      "sha256": "ac81bb045654910e46edbc55df3c3ced760898e24cf2fd1b95bdaf97c0834b60"
+      "sha256": "089b8808631de3490e382a77f819a4507321a8295d84cb2fd5ea0e05c7534494"
     },
     {
       "path": "tests/__init__.py",

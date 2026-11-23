@@ -90,7 +90,7 @@ def project_response(route, value, request):
         for star in value["stars"]:
             if (not isinstance(star, dict) or set(star) != {"id", "type", "storedAt"}
                     or not _valid(HEX64, star.get("id")) or star["id"] in ids
-                    or star.get("type") not in ("情感", "学习", "规划")
+                    or star.get("type") not in ("情感", "学习", "规划", "工具")
                     or not _instant(star.get("storedAt"))):
                 raise _unavailable()
             ids.add(star["id"])

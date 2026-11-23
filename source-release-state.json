@@ -1,38 +1,30 @@
 {
   "format": "stiller-source-release-state/1",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "release_channel": "stable",
   "distribution": "source-available-stable-release",
   "license": "PolyForm-Noncommercial-1.0.0",
-  "base_public_commit": "c3c38c5266ceb14ce7b36c64c330f47a25c2b791",
-  "historical_public_state": "source-release-state-0.2.5.json",
-  "implemented_revisions": "Emotion-bound plans; explicit one-hop associated recall; four-brain timelines and AI-authored consolidation; newest-created recall; open keyword authoring; anonymous atlas links",
+  "base_public_commit": "7036052f1b6227aee807a8b614fb0c70f0b060cc",
+  "historical_public_state": "source-release-state-0.2.6.json",
+  "implemented_revisions": "Accept tool-memory metadata in the atlas gateway; regression covers four categories and cross-brain links through the full HTTP chain",
   "publication_real_model_calls": 0,
   "publication_live_service_changes": false,
   "production_readiness_certified": false,
   "human_acceptance": {
-    "scope": "Maintainer reported their AI used the current deployed runtime without problems and explicitly authorized stable publication on 2026-11-23",
-    "current_deployment_in_use": true,
-    "all_clients_models_and_existing_windows_certified": false,
+    "scope": "Maintainer explicitly authorized agent-operated real-phone verification, then GitHub publication and TechHub result reply on 2026-11-23",
+    "real_phone_verification_passed": true,
+    "all_clients_models_and_networks_certified": false,
     "private_test_content_published": false
   },
   "database_upgrade": {
-    "schema_changed_since_previous_public_release": true,
-    "initialization_adds_columns": [
-      "emotion_memories.bound_plan_refs_json (default empty list)"
-    ],
-    "initialization_adds_tables": [
-      "memory_consolidations",
-      "memory_consolidation_sources"
-    ],
+    "schema_changed_since_previous_public_release": false,
     "existing_memory_rows_rewritten": false,
-    "preserve_private_config_and_identity": true,
-    "stop_writes_and_backup_before_upgrade": true
+    "preserve_private_config_and_identity": true
   },
   "automated_regressions_use_synthetic_state": true,
   "frozen_candidate_regression": {
-    "tests": 2919,
-    "passed": 2918,
+    "tests": 2920,
+    "passed": 2919,
     "skipped": 1,
     "failures": 0,
     "errors": 0,
@@ -43,13 +35,13 @@
         "failures": 0,
         "errors": 0,
         "skipped": 0,
-        "seconds": 47.185,
+        "seconds": 27.996,
         "skip_reasons": [],
         "failed_tests": [],
         "python": "3.12.15 (main, Oct 21 2026, 17:47:06) [Clang 23.1.3 ]",
         "uid": 1000,
         "network": "isolated namespace; loopback only",
-        "timestamp": "2026-11-23T06:10:07.061633-08:00"
+        "timestamp": "2026-11-23T07:50:29.533789-08:00"
       },
       {
         "group": "mcp_server/tests",
@@ -57,21 +49,21 @@
         "failures": 0,
         "errors": 0,
         "skipped": 0,
-        "seconds": 286.011,
+        "seconds": 189.668,
         "skip_reasons": [],
         "failed_tests": [],
         "python": "3.12.15 (main, Oct 21 2026, 17:47:06) [Clang 23.1.3 ]",
         "uid": 1000,
         "network": "isolated namespace; loopback only",
-        "timestamp": "2026-11-23T06:14:05.662551-08:00"
+        "timestamp": "2026-11-23T07:53:11.215895-08:00"
       },
       {
         "group": "rikkahub_gateway/tests",
-        "tests": 964,
+        "tests": 965,
         "failures": 0,
         "errors": 0,
         "skipped": 1,
-        "seconds": 220.39,
+        "seconds": 191.545,
         "skip_reasons": [
           {
             "test": "test_windows_private_acl_real_create_save_and_reopen (rikkahub_gateway.tests.test_route_management.PathGuardTests.test_windows_private_acl_real_create_save_and_reopen)",
@@ -82,7 +74,7 @@
         "python": "3.12.15 (main, Oct 21 2026, 17:47:06) [Clang 23.1.3 ]",
         "uid": 1000,
         "network": "isolated namespace; loopback only",
-        "timestamp": "2026-11-23T06:12:59.193152-08:00"
+        "timestamp": "2026-11-23T07:53:12.775797-08:00"
       },
       {
         "group": "packaging_tests",
@@ -90,16 +82,15 @@
         "failures": 0,
         "errors": 0,
         "skipped": 0,
-        "seconds": 8.664,
+        "seconds": 5.121,
         "skip_reasons": [],
         "failed_tests": [],
         "python": "3.12.15 (main, Oct 21 2026, 17:47:06) [Clang 23.1.3 ]",
         "uid": 1000,
         "network": "isolated namespace; loopback only",
-        "timestamp": "2026-11-23T06:09:27.027922-08:00"
+        "timestamp": "2026-11-23T07:50:06.172054-08:00"
       }
     ],
-    "python": "CPython 3.12.15 existing isolated dependency environment",
     "synthetic_state": true,
     "real_model_calls": 0,
     "long_stream_test_enabled": true,
@@ -110,5 +101,5 @@
   "core_dependencies_changed": false,
   "github_publication_authorized": true,
   "stable_release_authorized": true,
-  "notes": "Stable publication of the accepted L92 delta against the current public main; public configurable routes preserved. No restart of the already-current ST production service, private state publication or real model calls."
+  "notes": "Minimal hotfix from public v0.2.6; deployed ST and real Orbis phone verified before publication. No private state in the package."
 }

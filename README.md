@@ -1,6 +1,6 @@
 # Stiller Brain（ST）
 
-> 当前正式版 **0.2.6**：情感绑定计划、显式关联摘要、普通四脑时间线与自主整理、最近存入查询和星图扩展。维护者与所属 AI 使用正常后授权发布。[下载正式版](https://github.com/AZHi-xinxin/StillerBrain/releases/tag/v0.2.6) · [更新与升级](RELEASE-NOTES-0.2.6.md) · [整理与时间线](docs/MEMORY-CONSOLIDATION.md)。
+> 当前正式版 **0.2.7**：修复工具脑星点导致 ST 星图整体返回503的问题；保留0.2.6的关联回忆与自主整理功能。[下载正式版](https://github.com/AZHi-xinxin/StillerBrain/releases/tag/v0.2.7) · [更新说明](RELEASE-NOTES-0.2.7.md)。
 
 昕昕 & 阿止
 

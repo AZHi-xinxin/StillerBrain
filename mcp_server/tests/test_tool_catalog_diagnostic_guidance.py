@@ -136,7 +136,7 @@ async def probe(mode):
                 'scenario_tags': ['这个旧版本不得覆盖新版本']})
             assert 'tool_card_version_conflict' in stale['reason_codes'] and snapshot() == before
             for bad in (['密码轮换为 SYNTHETIC_TAG_SECRET_987'], ['到家\n开灯'], ['\x00'], ['\x85'], [''],
-                        ['相同', '相同'], ['字' * 129], ['场景' + str(n) for n in range(17)]):
+                        ['相同', '相同'], ['字' * 129]):
                 for name, args in (
                     ('remember_tool_guidance', {'tool_name': 'BadSynthetic', 'purpose': '合成负控。'}),
                     ('revise_tool_guidance', {'card_id': card['card_id'], 'expected_card_version': 2})):

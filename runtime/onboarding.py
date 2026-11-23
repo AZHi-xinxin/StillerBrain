@@ -34,6 +34,8 @@ from .emotional_memory import EmotionalMemoryStore
 from .mixed_recall import select_mixed_recall
 from .memory_image_recall import append_image_hints
 from .memory_desires import append_desire_recall
+from .emotion_plan_bindings import append_bound_plans
+from .associated_recall import append_associated_recall
 from . import session_continuity
 from .recall_projection import project_dynamic, estimate_dynamic
 from .facet_recall import facet_body, recall_facets
@@ -3048,6 +3050,16 @@ class ModuleOneOnboardingStore:
                         estimate_tokens=estimate_dynamic, budget=1200)
                 dynamic = append_image_hints(connection, owner_id=owner_id, model_id=model_id,
                     dynamic=dynamic, estimate_tokens=estimate_dynamic, budget=1200)
+
+                dynamic = append_associated_recall(connection, owner_id=owner_id, model_id=model_id,
+                    dynamic=dynamic, enabled=automatic_scope_enabled, query=query_text)
+                if self.planning_store is not None and automatic_scope_enabled("planning_memory"):
+                    dynamic = append_bound_plans(connection, owner_id=owner_id, model_id=model_id,
+                        dynamic=dynamic, planning_store=self.planning_store)
+
+                from .memory_consolidation import append_consolidation_notice
+                dynamic = append_consolidation_notice(connection, owner_id=owner_id, model_id=model_id,
+                    query=query_text, dynamic=dynamic, enabled=automatic_scope_enabled)
 
                 # Facets own a separate budget. Attach only after the ordinary
                 # memories, desires and image hints have competed for their cap.

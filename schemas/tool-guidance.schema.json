@@ -12,7 +12,6 @@
     },
     "shortTextList": {
       "type": "array",
-      "maxItems": 8,
       "uniqueItems": true,
       "items": {
         "$ref": "#/$defs/shortText"
@@ -20,7 +19,6 @@
     },
     "tagList": {
       "type": "array",
-      "maxItems": 16,
       "uniqueItems": true,
       "items": {
         "type": "string",
@@ -31,7 +29,6 @@
     },
     "hintList": {
       "type": "array",
-      "maxItems": 16,
       "uniqueItems": true,
       "items": {
         "type": "string",
@@ -151,7 +148,7 @@
         "display_label": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 120
+          "maxLength": 4000
         },
         "capability_class": {
           "enum": [
@@ -181,7 +178,6 @@
         },
         "critical_preconditions": {
           "type": "array",
-          "maxItems": 4,
           "items": {
             "$ref": "#/$defs/shortText"
           }
@@ -189,7 +185,7 @@
         "purpose": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 300
+          "maxLength": 64000
         },
         "use_when": {
           "$ref": "#/$defs/shortTextList"
@@ -205,11 +201,11 @@
         },
         "call_notes": {
           "type": "string",
-          "maxLength": 800
+          "maxLength": 1000000
         },
         "documentation_note": {
           "type": "string",
-          "maxLength": 500
+          "maxLength": 1000000
         },
         "referent_bindings": {
           "type": "array",
@@ -219,7 +215,12 @@
           }
         },
         "keywords": {
-          "$ref": "#/$defs/hintList"
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         },
         "aliases": {
           "$ref": "#/$defs/hintList"
@@ -242,7 +243,6 @@
         },
         "linked_tool_refs": {
           "type": "array",
-          "maxItems": 8,
           "uniqueItems": true,
           "items": {
             "type": "string",
@@ -263,7 +263,6 @@
         },
         "related_refs": {
           "type": "array",
-          "maxItems": 8,
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/relatedRef"
@@ -287,7 +286,6 @@
         },
         "additional_source_refs": {
           "type": "array",
-          "maxItems": 16,
           "uniqueItems": true,
           "items": {
             "type": "string",
@@ -317,7 +315,10 @@
           "format": "date-time"
         },
         "expires_at": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time",
           "description": "Optional AI-chosen expiry. Null means no fixed expiry; a timezone-aware ISO timestamp may represent a past or future date."
         },
@@ -706,7 +707,7 @@
     }
   },
   "x-runtime-limits": {
-    "canonical_json_characters": 8000,
+    "canonical_json_characters": 4000000,
     "default_expiry_days": 30,
     "maximum_expiry_days": 180,
     "precise_query_estimated_tokens": 2000,

@@ -75,8 +75,6 @@ def resolve_daily_memory_module(arguments: Mapping[str, Any]) -> str:
 def _keywords(value: Any) -> Any:
     if not isinstance(value, str):
         return value
-    if len(value) > 32_768:
-        raise DailyMemoryInputError("invalid_keywords", "keywords")
     text = value.strip()
     if not text:
         return None

@@ -18,10 +18,13 @@ from unittest.mock import patch
 from urllib.parse import unquote, urlsplit
 
 
-MODES = ('directory', 'search', 'cursor', 'privacy', 'binding', 'multiple_databases', 'semantic', 'short', 'short_legacy')
+MODES = ('directory', 'search', 'cursor', 'privacy', 'binding', 'multiple_databases', 'semantic', 'short', 'short_legacy', 'recent')
 
 
 class UnifiedRecallTransportTests(unittest.TestCase):
+    def test_recent_storage_time_cross_brain_paging_edit_and_timezone(self):
+        self.probe('recent')
+
     def probe(self, mode):
         allowed = {'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'SYSTEMDRIVE', 'PATH',
                    'PATHEXT', 'TEMP', 'TMP', 'OS'}
@@ -143,7 +146,7 @@ async def probe(mode):
             assert result['state_changed'] is False
             return result
 
-        assert len(server.mcp._tool_manager.list_tools()) == 62  # Includes feeling tools and the host-only transport.
+        assert len(server.mcp._tool_manager.list_tools()) == 64  # Includes feeling tools and the host-only transport.
         empty = await recall()
         assert empty['items'] == [] and empty['exhaustive'] and not empty['partial'], empty
         # Reading before first activation does not grant ordinary writes or open core review.
@@ -193,8 +196,13 @@ async def probe(mode):
                     break
             assert len(found) == sum(map(len, saved.values()))
             assert len({item['ref'] for item in found}) == len(found)
-            assert [item['module'] for item in found] == sorted(
-                [item['module'] for item in found], key=MODULES.index)
+            if mode == 'search':
+                assert [item['module'] for item in found] == sorted(
+                    [item['module'] for item in found], key=MODULES.index)
+            else:
+                from datetime import datetime
+                moments = [datetime.fromisoformat(item['created_at']) for item in found]
+                assert moments == sorted(moments, reverse=True)
             for module in MODULES:
                 one = await recall(module=module, limit=50, **args)
                 assert all(item['module'] == module for item in one['items'])
@@ -309,6 +317,50 @@ async def probe(mode):
                 pending = await recall(query='玄黓魑魅', module='emotional_memory')
             assert not pending['exhaustive'] and not pending['retrieval_complete']
             assert pending['semantic_status']['emotional_memory'] == 'indexing_lexical_fallback'
+
+        elif mode == 'recent':
+            from datetime import datetime
+            tables = {'emotional_memory': ('emotion_memories', 'memory_id'),
+                      'learning_memory': ('learning_items', 'learning_id'),
+                      'planning_memory': ('planning_items', 'plan_id'),
+                      'tool_guidance': ('tool_cards', 'card_id')}
+            expected = []
+            for index, name in enumerate(MODULES):
+                table, key = tables[name]
+                for offset, item in enumerate(saved[name]):
+                    identity = item.get('id') or item['card_id']
+                    # Equal instants in different offsets require chronological,
+                    # rather than lexical timestamp ordering; all modules mix.
+                    at = (f'2026-11-23T{10 + index:02}:00:00+00:00' if offset == 0
+                          else f'2026-11-23T{18 + index:02}:00:00+08:00')
+                    sql(f'UPDATE {table} SET created_at=? WHERE {key}=?', (at, identity))
+                    expected.append((datetime.fromisoformat(at), name, identity))
+
+            async def pages():
+                collected, cursor = [], None
+                while True:
+                    page = await recall(limit=2, **({'cursor': cursor} if cursor else {}))
+                    assert page['ordering'] == 'created_at_desc_then_module_reference'
+                    assert page['state_changed'] is False and not page['partial'], page
+                    collected.extend(page['items'])
+                    cursor = page['next_cursor']
+                    if not cursor:
+                        return collected
+
+            before = snapshot()
+            found = await pages()
+            assert snapshot() == before
+            assert len(found) == 8 and len({x['ref'] for x in found}) == 8
+            expected.sort(key=lambda x: (-x[0].timestamp(), MODULES.index(x[1]), x[2]))
+            assert [x[2] for x in expected] == [x['ref'].split('://')[1].split('@')[0] for x in found]
+            old = saved['emotional_memory'][0]
+            edited = await call('revise_memory', {'target_ref': old['ref'], 'changes': {'summary': 'Recently edited old memory.'}})
+            assert edited['decision'] == 'revised', edited
+            again = await pages()
+            assert [x['ref'].split('@')[0] for x in again] == [x['ref'].split('@')[0] for x in found]
+            assert next(x for x in again if x['ref'] == edited['ref'])['created_at'] == '2026-11-23T10:00:00+00:00'
+            one = await recall(module='emotional_memory', limit=20)
+            assert len(one['items']) == 2 and all(x['module'] == 'emotional_memory' for x in one['items'])
 
         elif mode == 'cursor':
             first = await recall(limit=1)

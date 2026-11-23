@@ -40,17 +40,17 @@ class ToolGuidanceError(RuntimeError):
 
 @dataclass(frozen=True)
 class ToolGuidanceLimits:
-    display_label_chars: int = 120
-    purpose_chars: int = 300
-    documentation_note_chars: int = 500
-    call_notes_chars: int = 800
-    condition_items: int = 8
+    display_label_chars: int = 4000
+    purpose_chars: int = 64000
+    documentation_note_chars: int = 1000000
+    call_notes_chars: int = 1000000
+    condition_items: int = 100000
     condition_chars: int = 160
-    critical_preconditions: int = 4
-    tag_items: int = 16
-    linked_refs: int = 8
-    related_refs: int = 8
-    total_content_chars: int = 8000
+    critical_preconditions: int = 100000
+    tag_items: int = 100000
+    linked_refs: int = 100000
+    related_refs: int = 100000
+    total_content_chars: int = 4000000
     precise_query_tokens: int = 2000
     summary_chars: int = 100
 
@@ -207,13 +207,13 @@ def _json(value: str | None, default: Any) -> Any:
     return default if value is None else json.loads(value)
 
 
-def _text(name: str, value: Any, maximum: int, *, allow_empty: bool = False) -> str:
+def _text(name: str, value: Any, maximum: int | None, *, allow_empty: bool = False) -> str:
     if not isinstance(value, str):
         raise ToolGuidanceError(f"{name}_must_be_string")
     cleaned = value.strip()
     if not cleaned and not allow_empty:
         raise ToolGuidanceError(f"{name}_required")
-    if len(cleaned) > maximum:
+    if maximum is not None and len(cleaned) > maximum:
         raise ToolGuidanceError(f"{name}_too_long")
     return cleaned
 
@@ -233,16 +233,16 @@ def _integer(name: str, value: Any, minimum: int, maximum: int) -> int:
 def _strings(
     name: str,
     values: Any,
-    maximum: int,
+    maximum: int | None,
     *,
-    item_chars: int,
+    item_chars: int | None,
     pattern: re.Pattern[str] | None = None,
 ) -> list[str]:
     if values is None:
         return []
     if not isinstance(values, list):
         raise ToolGuidanceError(f"{name}_must_be_array")
-    if len(values) > maximum:
+    if maximum is not None and len(values) > maximum:
         raise ToolGuidanceError(f"{name}_too_many")
     result: list[str] = []
     for value in values:
@@ -918,7 +918,7 @@ class ToolGuidanceStore:
         if source in {"external_document", "human_reported"} and not source_value:
             raise ToolGuidanceError("source_ref_required")
         extra_sources = _strings(
-            "additional_source_refs", additional_source_refs, 16, item_chars=2000
+            "additional_source_refs", additional_source_refs, None, item_chars=2000
         )
         if source_value and source_value in extra_sources:
             raise ToolGuidanceError("duplicate_source_ref")
@@ -959,7 +959,7 @@ class ToolGuidanceStore:
                 pattern=_SCENE_TAG,
             ),
             "scenario_examples": _strings(
-                "scenario_examples", scenario_examples, 8, item_chars=160
+                "scenario_examples", scenario_examples, None, item_chars=None
             ),
             "call_notes": _text(
                 "call_notes", call_notes, self.limits.call_notes_chars, allow_empty=True
@@ -971,8 +971,8 @@ class ToolGuidanceStore:
                 allow_empty=True,
             ),
             "referent_bindings": [],
-            "keywords": _strings("keywords", keywords, 16, item_chars=160),
-            "aliases": _strings("aliases", aliases, 16, item_chars=160),
+            "keywords": _strings("keywords", keywords, None, item_chars=None),
+            "aliases": _strings("aliases", aliases, None, item_chars=None),
             "salience": _integer("salience", salience, 0, 100),
             "auto_recall_mode": recall_mode,
             "salience_reason": _text(
@@ -1038,7 +1038,7 @@ class ToolGuidanceStore:
         forbidden = _forbidden_content(content)
         if forbidden:
             raise ToolGuidanceError(forbidden)
-        if len(_canonical(content)) > self.limits.total_content_chars:
+        if len(_canonical({**content, "keywords": []})) > self.limits.total_content_chars:
             raise ToolGuidanceError("tool_card_content_too_long")
         return content
 

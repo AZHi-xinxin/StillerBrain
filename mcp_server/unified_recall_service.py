@@ -17,6 +17,7 @@ import json
 import secrets
 import sqlite3
 from contextlib import ExitStack, contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -167,7 +168,13 @@ class UnifiedRecallAccessService:
                 except Exception:
                     errors.append({'module': name, 'reason_code': 'module_read_failed'})
         # Stable grouping, never compare unrelated per-brain scores as probabilities.
-        items.sort(key=lambda item: (MODULES.index(item['module']), item['ref']))
+        if query:
+            items.sort(key=lambda item: (MODULES.index(item['module']), item['ref']))
+        else:
+            # Creation timestamps are store-owned. Editing a record changes its
+            # updated_at/version, not its position among newly stored memories.
+            items.sort(key=lambda item: (-datetime.fromisoformat(item['created_at'].replace('Z', '+00:00')).timestamp(),
+                                         MODULES.index(item['module']), item['ref']))
         if short_query and len(items) > 1:
             return self._reject('short_reference_ambiguous_use_full_reference')
         errors.sort(key=lambda item: (item['module'], item['reason_code']))
@@ -199,7 +206,8 @@ class UnifiedRecallAccessService:
                 'next_cursor': next_cursor, 'exhaustive': retrieval_complete and offset == 0 and not has_more,
                 'semantic_status': semantic_status, 'retrieval_complete': retrieval_complete,
                 'snapshot_scope': ('shared_database' if len(set(groups.values())) <= 1 else 'per_database'),
-                'ordering': 'module_then_versioned_reference', 'summary_only': True,
+                'ordering': 'module_then_versioned_reference' if query else 'created_at_desc_then_module_reference',
+                'summary_only': True,
                 'state_changed': False, 'write_context_created': False,
                 'guidance': guidance}
 
@@ -242,11 +250,11 @@ class UnifiedRecallAccessService:
     @staticmethod
     def _entry(module: str, ref: str, title: str, summary: str, lifecycle: str,
                tool: str, arguments: dict[str, Any], *, restricted: bool = False,
-               hint: dict[str, Any] | None = None) -> dict[str, Any]:
+               hint: dict[str, Any] | None = None, created_at: str) -> dict[str, Any]:
         result = {'module': module, 'ref': ref, 'title': _RESTRICTED_TITLE if restricted else title,
                   'summary': _RESTRICTED_SUMMARY if restricted else summary, 'lifecycle': lifecycle,
                   'content_stub': restricted, 'detail_lookup': {'tool': tool, 'arguments': arguments},
-                  'permission_authority': 'none'}
+                  'permission_authority': 'none', 'created_at': created_at}
         if hint is not None:
             result.update({'retrieval_match': 'lexical_alias_candidate', 'candidate_only': True,
                            'retrieval_note': '词句别名候选；只提供查找线索，不代表事件已经发生或已经核验。'})
@@ -283,7 +291,7 @@ class UnifiedRecallAccessService:
                 entry = self._entry(name, ref, '情感与经历', public['summary'], row['lifecycle'],
                     'recall_emotional_memory', {'memory_id': row['memory_id'], 'include_originals': True},
                     restricted=row['sensitivity'] in {'intimate', 'restricted'},
-                    hint={} if row['memory_id'] in hints else None)
+                    hint={} if row['memory_id'] in hints else None, created_at=row['created_at'])
                 if row['memory_id'] in semantic_hints:
                     entry.update({'retrieval_match': 'local_semantic_candidate', 'candidate_only': True,
                                   'cosine_similarity': semantic_hints[row['memory_id']],
@@ -314,7 +322,8 @@ class UnifiedRecallAccessService:
                 result.append(self._entry(name, ref, content['title'], content['summary'], row['lifecycle'],
                     'recall_learning_memory', {'target_ref': ref, 'include_archived': True, 'include_versions': True,
                                               'include_pending': row['lifecycle'] == 'pending_review'},
-                    restricted=content.get('sensitivity') in {'intimate', 'restricted'}, hint=hint))
+                    restricted=content.get('sensitivity') in {'intimate', 'restricted'}, hint=hint,
+                    created_at=row['created_at']))
             return result, [[dict(row) for row in rows], lineage]
         if name == 'planning_memory':
             rows = connection.execute("SELECT * FROM planning_items WHERE owner_id=? AND model_id=? AND recall_lifecycle!='quarantined' ORDER BY plan_id", values).fetchall()
@@ -330,7 +339,8 @@ class UnifiedRecallAccessService:
                         continue
                 result.append(self._entry(name, public['plan_ref'], content['title'], content['summary'],
                     public['state_projection']['state'], 'recall_planning_memory',
-                    {'plan_ref': public['plan_ref'], 'include_terminal': True, 'include_history': True}, hint=hint))
+                    {'plan_ref': public['plan_ref'], 'include_terminal': True, 'include_history': True}, hint=hint,
+                    created_at=row['created_at']))
             return result, fingerprints
         pairs = store._candidate_rows(connection, **identity)
         for card, version in pairs:
@@ -344,5 +354,6 @@ class UnifiedRecallAccessService:
             ref = f"tool-card://{card['card_id']}@{version['version']}"
             result.append(self._entry(name, ref, content['display_label'],
                 content.get('reminder') or content['purpose'], card['lifecycle'],
-                'recall_tool_guidance', {'card_id': ref, 'view': 'card', 'include_stale': True}, hint=hint))
+                'recall_tool_guidance', {'card_id': ref, 'view': 'card', 'include_stale': True}, hint=hint,
+                created_at=card['created_at']))
         return result, [[dict(card), version['content_hash']] for card, version in pairs]

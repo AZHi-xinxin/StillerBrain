@@ -168,23 +168,22 @@ class PublicToolCompatibilityTests(unittest.TestCase):
         self.assert_valid_in_both_views("remember_planning_memory", arguments)
 
     def test_create_keeps_list_and_reference_constraints(self) -> None:
+        extended = create_arguments()
+        extended["scene_tags"] = [f"场景{i}" for i in range(100)]
+        self.assert_valid_in_both_views("remember_planning_memory", extended)
         cases = [
             {"scene_tags": "exercise"},
             {"scene_tags": [""]},
             {"scene_tags": ["same", "same"]},
-            {"scene_tags": [str(index) for index in range(17)]},
             {"scene_tags": ["x" * 161]},
             {"keywords": [""]},
             {"keywords": ["same", "same"]},
-            {"keywords": [str(index) for index in range(17)]},
-            {"keywords": ["x" * 161]},
             {"parent_ref": "plan://invalid@1"},
             {"parent_ref": PLAN_REF[:-1] + "0"},
             {"parent_ref": "plan_" + "a" * 32},
             {"dependency_refs": None},
             {"dependency_refs": ["plan://invalid@1"]},
             {"dependency_refs": [DEPENDENCY_REF, DEPENDENCY_REF]},
-            {"dependency_refs": ["plan://plan_" + f"{index:032x}" + "@1" for index in range(9)]},
         ]
         for changes in cases:
             with self.subTest(changes=changes):
@@ -277,7 +276,7 @@ class PublicToolCompatibilityTests(unittest.TestCase):
         tags = self.schemas["remember_tool_guidance"]["properties"]["scenario_tags"]
         array = next(option for option in tags["anyOf"] if option.get("type") == "array")
         self.assertEqual(module_schema["$defs"]["tagList"]["items"], array["items"])
-        self.assertEqual(16, array["maxItems"])
+        self.assertNotIn("maxItems", array)
         self.assertEqual(0, array["minItems"])
         self.assertTrue(array["uniqueItems"])
         self.assertIsNone(tags["default"])
@@ -287,10 +286,10 @@ class PublicToolCompatibilityTests(unittest.TestCase):
         self.assertTrue(validator.is_valid([]))
         self.assertTrue(validator.is_valid(["home.arrival", "room-light_1"]))
         self.assertTrue(validator.is_valid(["回家了", "准备睡觉", "home arrival", "-start"]))
+        self.assertTrue(validator.is_valid([f"scene.{index}" for index in range(100)]))
         invalid_tags = (
             [""], ["   "], ["回家\n开灯"], ["home\x00arrival"],
             ["x" * 129], ["same", "same"],
-            [f"scene.{index}" for index in range(17)],
         )
         for invalid in invalid_tags:
             with self.subTest(tags=invalid):

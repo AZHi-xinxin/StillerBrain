@@ -127,7 +127,7 @@ async def probe():
         {'importance': '1000'}, {'source_basis': 'made-up'}, {'confidence': True},
         {'kind': os.environ['STBRAIN_MCP_TOKEN']}, {'emotion': os.environ['STBRAIN_WAKE_SECRET']},
         {'keywords': os.environ['STBRAIN_MCP_TOKEN']}, {'title': os.environ['STBRAIN_MCP_TOKEN']},
-        {'content': 'x' * 2001}, {'parent_ref': 'not-a-real-parent'}, {'due_at': 'not-a-time'},
+        {'content': 'x' * 1000001}, {'parent_ref': 'not-a-real-parent'}, {'due_at': 'not-a-time'},
     ]
     for index, metadata in enumerate(bad_inputs):
         before = count()

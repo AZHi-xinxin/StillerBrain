@@ -20,6 +20,7 @@ from runtime.ordinary_access import current_ordinary_access
 
 ORDINARY_REVISION_FIELDS = {
     "emotional_memory": frozenset({
+        "bound_plan_refs",
         "original_text", "memory_type", "source_timestamp", "summary", "primary_emotion",
         "secondary_emotions", "importance", "sensitivity", "context_policy", "origin", "confidence",
         "keywords", "entities", "referent_bindings", "recall_mode", "allow_contexts", "deny_contexts",
@@ -89,6 +90,8 @@ _SAFE_FAILURES = frozenset({
     "invalid_linked_tool_ref", "linked_tool_ref_not_found", "typo_source_mismatch", "not_a_downweight",
     "duplicate_source_ref", "source_ref_required", "self_tool_excluded", "tool_card_content_hash_mismatch",
     "invalid_tool_card_content", "invalid_expires_at", "raw_payload_forbidden", "invalid_related_ref",
+    "invalid_keywords", "keywords_must_be_array", "keywords_too_many",
+    "invalid_bound_plan_refs",
 }) | frozenset(f"{field}_{suffix}" for field in ("title", "summary", "domain", "keywords", "entities", "importance", "reason")
               for suffix in ("required", "too_long", "invalid"))
 
@@ -147,13 +150,24 @@ class DailyRevisionAccessService:
             reasons.extend(result["reason_codes"])
         code = next((value for value in reasons if isinstance(value, str) and value in _SAFE_FAILURES), "revision_rejected")
         details = {"advanced_tool": _ADVANCED[module]} if code == "ordinary_revision_requires_advanced" else {}
+        guidance = None
+        if code == "invalid_bound_plan_refs":
+            details["field"] = "changes.bound_plan_refs"
+            guidance = "绑定的 plan 使用 plan://plan_…@版本 的引用数组；[]/null 解除绑定，省略保持不变。"
+        if code in {"invalid_keywords", "keywords_invalid", "keywords_must_be_array",
+                    "keywords_too_many", "keywords_too_long", "keywords_required"}:
+            details["field"] = "changes.keywords"
+            guidance = (
+                "未修改记忆。changes.keywords 需要非空字符串组成的数组；词条数量和字数没有固定上限。"
+                "修正格式后可重新提交，不需要删除正常关键词。"
+            )
         if module == "tool_guidance" and self.services[module] is not None:
             # Rebuild static repair hints from the known error code, never echo
             # arbitrary backend content, card bodies or private status fields.
             safe = self.services[module]._reject(code, status={}, confidence_authoring=True)
             details.update({key: safe[key] for key in ("repair_guidance", "lookup_guidance") if key in safe})
             details["execution_performed"] = False
-        return self._reject(module, code, **details)
+        return self._reject(module, code, guidance, **details)
 
     def revise(self, target_ref: str, changes: Mapping[str, Any], reason: str | None = None,
                write_context_ref: str | None = None) -> dict[str, Any]:

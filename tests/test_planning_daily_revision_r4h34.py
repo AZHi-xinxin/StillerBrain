@@ -166,11 +166,9 @@ class PlanningDailyRevisionTests(unittest.TestCase):
     def test_invalid_metadata_noop_and_secrets_reject_without_partial_writes(self) -> None:
         initial = self.ordinary(title="Same title")
         cases = [({}, "changes_required"), ({"title": " "}, "invalid_title"),
-                 ({"title": "x" * 121}, "title_too_long"),
-                 ({"summary": "x" * 201}, "summary_too_long"),
+                 ({"title": "x" * 4001}, "title_too_long"),
+                 ({"summary": "x" * 64001}, "summary_too_long"),
                  ({"keywords": "x"}, "invalid_keywords"),
-                 ({"keywords": ["x"] * 17}, "invalid_keywords"),
-                 ({"keywords": ["x" * 161]}, "keywords_too_long"),
                  ({"importance": True}, "invalid_importance"),
                  ({"importance": 101}, "invalid_importance"),
                  ({"importance": -1}, "invalid_importance"),

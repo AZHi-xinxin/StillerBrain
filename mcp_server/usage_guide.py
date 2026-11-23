@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from runtime.facet_recall import RULES as FACET_RECALL_RULES
 from typing import Any
+from .memory_consolidation_service import GUIDE as CONSOLIDATION_GUIDE
 
 from .public_contract import BRAIN_MANUAL_MODULES
 
@@ -89,7 +90,8 @@ def module_usage_guide(module: str, *, simple: bool) -> dict[str, Any]:
             "read": [{"tool": "recall_emotional_memory", "use": "query 搜索；使用返回的 memory_id 查询原文和版本；自动浮现的 #E 短编号可放 query 或 memory_id。"}],
             "write_tools": ["remember_memory", "revise_memory", "remember_emotional_memory",
                             "revise_emotional_memory", "integrate_emotional_memories", "manage_brain_pin", "veto_ephemeral_memory"],
-            "example": {"tool": "remember_memory", "arguments": {"content": "一次值得记住的交流。"}},
+            "example": {"tool": "remember_memory", "arguments": {"content": "一次值得记住的交流。", "bound_plan_refs": []}},
+            "plan_binding": "绑定的 plan：情感记忆可选 bound_plan_refs=[plan://…@版本]，可留空。情感每次实际浮现时连带全部绑定计划的最新原文和状态，不设冷却、次数或专用容量限制，也不以 progress 或完成状态阻止浮现；是否回应由 AI 决定。用 revise_memory 的 changes.bound_plan_refs 改绑，[]/null 解除，计划和历史保留。引用不存在时不编造计划；原有模块开关和所属 AI 范围仍适用。绑定不会自行发起模型请求。",
             "workflow": ["普通新增可用 remember_memory。来源与可信度可省略，分别保存为 unmarked 和 null，表示未标注；填写的来源和0–100可信度保留作者选择。", "普通修订使用 revise_memory，附刚查询到的 target_ref 和 changes；原文用 changes.original_text，类型用 changes.memory_type，来源时间用 changes.source_timestamp，修改后保留旧版本。", "revise_emotional_memory 接收其工具顶层公布的摘要、情绪、来源等字段；原文修改走上述 revise_memory。revise_memory 的 changes.confidence=null 表示清除评分，省略字段保留原值。", "整合、固定条目或否决临时记忆时，使用对应工具 schema 和真实目标。"],
         },
         "learning_memory": {
@@ -207,6 +209,9 @@ def module_usage_guide(module: str, *, simple: bool) -> dict[str, Any]:
         "status_source": "实际状态查询 stbrain_health；self_revision 也可用 query_self_model(view='status')。本页不查询或声明当前已激活状态。",
         "transport": "官端直连省略宿主保留的 execution_ref；网关由宿主填入有效本轮引用。实际工具名称和字段以最新 MCP 工具目录为准。",
         **entry,
+        **({"memory_consolidation": dict(CONSOLIDATION_GUIDE),
+               "associated_recall": "命中记忆沿显式关系带出一跳摘要，关联情感继续带绑定计划原文与状态；内容去重，来源仅一行短关系链。无新增冷却或次数限制，不改正文。"}
+           if module in {"emotional_memory","learning_memory","planning_memory","tool_guidance"} else {}),
     }
 
 
@@ -225,7 +230,7 @@ def simple_usage_guide() -> dict[str, Any]:
             "optional": "只填content即可，module默认auto；没有明确元数据线索时为emotional_memory/unclassified。kind/emotion/importance/keywords可省略、null或留空；moment兼容事件，未知分类保守默认并提示，不猜正文、不编标签。来源与可信度未填为unmarked/null，情绪other、重要度50；明确提供的合法字段保留。",
             "keywords_example": ["学习", "方法"],
             "before_store": "人称与标签提醒只是可选偏好，采用与否由 AI 自选；无需先查 help 或组织标签，普通存入只填 content、一次调用即可。已修改或关闭的人称提醒以最新管理结果为准，客户端缓存工具说明时可刷新 MCP 目录。",
-            "keywords_format": "remember_memory 的 keywords 可省略、留空或 null，不必为了存入编标签；直连与网关均可按其 schema 填短语数组或兼容字符串（单个短语、逗号/顿号/分号/换行分隔文本、合法 JSON 数组字符串）。含分隔标点的完整关键词放在真实数组内。其他专用工具仍按各自 schema，网关要求数组的入口继续填真实数组。",
+            "keywords_format": "四个普通脑的 keywords 不再设置词条数量或字数上限；只接受非空字符串词条，不自动裁剪。添加关键词不会自动增加召回条数或注入预算。remember_memory 的 keywords 可省略、留空或 null，不必为了存入编标签；直连与网关均可按其 schema 填短语数组或兼容字符串（单个短语、逗号/顿号/分号/换行分隔文本、合法 JSON 数组字符串）。含分隔标点的完整关键词放在真实数组内。其他专用工具仍按各自 schema，网关要求数组的入口继续填真实数组。",
         },
         "wording_guide": _recall_wording_guide(),
         "read": {
@@ -237,7 +242,7 @@ def simple_usage_guide() -> dict[str, Any]:
         },
         "revise": {
             "tool": "revise_memory", "required": ["target_ref", "changes"],
-            "instruction": "四个普通脑统一修改：使用刚读到的版本引用，只填要改的作者字段。工具卡用 tool-card:// 引用；reminder、source_ref、expires_at 填 null 清除。工具卡退役用 changes.intent='retire'；恢复用 changes.intent='restore' 和 changes.target_version，均放在 changes 内。原文、摘要、重要度、关键词及各模块作者字段均可修改，旧版本保留。",
+            "instruction": "四个普通脑的关键词无固定条数/字数上限，格式错误会标明字段；词表由作者决定。四个普通脑统一修改：使用刚读到的版本引用，只填要改的作者字段。工具卡用 tool-card:// 引用；reminder、source_ref、expires_at 填 null 清除。工具卡退役用 changes.intent='retire'；恢复用 changes.intent='restore' 和 changes.target_version，均放在 changes 内。原文、摘要、重要度、关键词及各模块作者字段均可修改，旧版本保留。",
             "conflict": "版本冲突时重新读取；当前内容由 AI 判断后再提交。",
             "technical_fields": "ID、owner、版本、hash 和由来源推导的状态由 ST 维护。",
         },
@@ -286,7 +291,7 @@ def usage_guide() -> dict[str, Any]:
         "daily_memory": {
             "tool": "remember_memory", "required": ["content"],
             "modules": ["emotional_memory", "learning_memory", "planning_memory"],
-            "instruction": "仅需真实content，一次调用；module默认auto，元数据不明确时为emotional_memory/unclassified，不猜正文。无需为存入先查目录、open、手填版本或另轮审核；旧直连仍保留其真实上下文授权。",
+            "instruction": "只需content；module默认auto，分类不猜正文。无需为存入先查目录、open、手填版本或另轮审核；旧直连仍保留其真实上下文授权。",
             "result": "真实 stored=保存；回执不完整先核查，不自动重试。",
             "uncertainty": "来源/可信度默认unmarked/null（未标注），不代表已独立核实；情感kind默认unclassified（未分类）。",
             "plan_effect": "计划active，不授权或自动执行外部操作。",
@@ -302,13 +307,13 @@ def usage_guide() -> dict[str, Any]:
             "fields": "keywords内容检索线索；scene_tags/scenario_tags场景；emotion按当前工具schema，中文可入正文或摘要。",
             "effect": "不是固定回复或系统自动扩写；命中只是候选，受已有记录、模式、预算和授权约束。",
         },
-        "read": "StillerBrain（ST）：stbrain_open(view='recall', query=查询词)查四普通脑；空query目录，module选脑，next_cursor续页，detail_lookup详情。各recall_*、学习inventory、query_self_model保留。沿用身份和披露边界；隔离/候选另读。零命中不等于库为空；partial/errors=未完整搜索。",
+        "read": "StillerBrain（ST）：stbrain_open(view='recall', query=查询词)查四普通脑；空query目录按存入时间倒序（created_at），module选脑，next_cursor续页，detail_lookup详情。各recall_*、学习inventory、query_self_model保留。沿用身份和披露边界；隔离/候选另读。零命中不等于库为空；partial/errors=未完整搜索。",
         "ordinary_revision": {
             "tool": "revise_memory", "required": ["target_ref", "changes"],
             "instruction": "四脑统一用已读的精确版本引用改作者字段，保留历史；模块行版本由宿主处理，冲突读回，不自动换最新版。",
             "tool_guidance_help": "字段见stbrain_help(module='tool_guidance')。",
             "allowed_fields": {
-                "emotional_memory": ["original_text", "memory_type", "source_timestamp", "summary", "primary_emotion",
+                "emotional_memory": ["bound_plan_refs", "original_text", "memory_type", "source_timestamp", "summary", "primary_emotion",
                     "secondary_emotions", "importance", "sensitivity", "context_policy", "origin", "confidence",
                     "keywords", "entities", "referent_bindings", "recall_mode", "allow_contexts", "deny_contexts",
                     "default_decision", "explicit_request_override", "disclosure", "lifecycle"],

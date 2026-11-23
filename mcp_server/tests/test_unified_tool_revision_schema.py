@@ -93,7 +93,7 @@ class UnifiedToolRevisionSchemaTests(unittest.TestCase):
     def test_tool_limits_and_other_modules_keep_their_own_branches(self):
         self.assertTrue(self.accepts({'reminder': '字' * 100, 'confidence': 0}))
         for changes in ({'reminder': '字' * 101}, {'confidence': 101}, {'confidence': -1},
-                        {'confidence': True}, {'keywords': ['k' + str(i) for i in range(17)]},
+                        {'confidence': True}, {'keywords': [False]},
                         {'scenario_tags': ['回家\n了']}, {'scenario_tags': [' ']}):
             with self.subTest(changes=changes):
                 self.assertFalse(self.accepts(changes))

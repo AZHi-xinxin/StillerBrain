@@ -40,6 +40,7 @@ BRAIN_MANUAL_MODULES = (
 )
 
 PUBLIC_TOOL_NAMES: tuple[str, ...] = (
+    "memory_timelines", "merge_memories",
     "memory_force_recall",
     "memory_desires",
     "emotion_list", "emotion_manage", "memory_emotions",
@@ -158,7 +159,7 @@ _TOOL_GUIDANCE_SCENARIO_TAGS_INPUT_SCHEMA.update(
         "minItems": 0,
         "description": (
             "可选自然语言场景标签，支持中文或英文，如 回家了、准备睡觉、home.arrival；"
-            "每项 1–128 字符，最多 16 项且不重复。新增可省略；"
+            "每项 1–128 字符，不重复，不限制条数。新增可省略；"
             "修改时省略或 null 保留现有标签，[] 清空。"
         ),
     }
@@ -233,11 +234,11 @@ def _planning_content_input_properties() -> dict[str, Any]:
             "校验父项类型、存在、当前版本与无环。"
         ),
         "dependency_refs": (
-            "已落地、未隔离计划的当前精确版本引用，最多 8 条、不可重复；"
+            "已落地、未隔离计划的当前精确版本引用，不可重复；"
             "没有依赖时省略或填写 []，不要填写 null，也不要填写待审核候选。"
         ),
-        "scene_tags": "可为空的场景标签列表，支持中文；最多 16 条、每条 160 字符、不可重复。",
-        "keywords": "可为空的关键词列表，支持中文；最多 16 条、每条 160 字符、不可重复。",
+        "scene_tags": "可为空的场景标签列表，支持中文；每条 160 字符、不可重复，不限制条数。",
+        "keywords": "可为空的关键词列表，支持中文；不限制词条数量或字数，使用非空字符串且不重复。",
     }
     for field, description in descriptions.items():
         properties[field]["description"] = description
@@ -717,10 +718,10 @@ _LEARNING_CONTRAST_CLAIM_SCHEMA: dict[str, Any] = {
         "confidence", "uncertainties",
     ],
     "properties": {
-        "title": {"type": "string", "minLength": 1, "maxLength": 120},
-        "summary": {"type": "string", "minLength": 1, "maxLength": 240},
+        "title": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 64000},
         "current_understanding": {
-            "type": "string", "minLength": 1, "maxLength": 2000,
+            "type": "string", "minLength": 1, "maxLength": 1000000,
         },
         "source_basis": {
             "enum": ["observed", "reported", "inferred"],
@@ -1259,7 +1260,7 @@ def install_public_tool_input_contracts(mcp: Any) -> None:
     remember_tool.fn_metadata = literal_daily_argument_metadata(remember_tool.fn_metadata)
     remember_memory = remember_tool.parameters
     remember_memory["properties"]["content"]["description"] = (
-        "唯一必填：1–2000字原文，原样保存，不自动截断或改写。"
+        "唯一必填：1–1000000字原文，原样保存，不自动截断或改写。"
     )
     remember_memory["properties"]["module"]["description"] = (
         "默认 auto；省略、null或空使用明确字段线索自动分类，不猜正文。"
@@ -1276,8 +1277,14 @@ def install_public_tool_input_contracts(mcp: Any) -> None:
         "可省略、null或空，默认50；接受0–100整数、数字字符串或整数值小数，不接受布尔或越界值。"
     )
     remember_memory["properties"]["keywords"]["description"] = (
-        "可省略、null或空；支持短语数组、JSON数组字符串或分隔短语，不自动编造检索标签。"
+        "可省略、null或空；支持短语数组、JSON数组字符串或分隔短语，不限制词条数量或字数，不自动编造检索标签。"
     )
+    for name in ("remember_memory", "remember_emotional_memory"):
+        manager.get_tool(name).parameters["properties"]["bound_plan_refs"]["description"] = (
+            "绑定的 plan（情感记忆可选）：plan://…@版本 的数组，省略/null/[]均可。"
+            "情感实际浮现时连带全部绑定计划的当前原文和状态；不限次数，无冷却，无额外槽位/token上限。"
+            "使用 revise_memory 的 changes.bound_plan_refs 修改；[]或null解除绑定，不删除计划。"
+        )
     remember_memory["properties"]["source_basis"]["description"] = (
         "observed=我亲历或观察；reported=转述/引述；inferred=推断。"
         "unmarked=未标注；省略采用 unmarked，按实际来源选择。"
@@ -1320,7 +1327,7 @@ def install_public_tool_input_contracts(mcp: Any) -> None:
         parameters["properties"]["scenario_tags"] = {
                 "anyOf": [tags, {"type": "null"}],
                 "default": None,
-                "description": "可选自然语言场景标签，支持中文或英文，如 回家了、准备睡觉、home.arrival；每项 1–128 字符，最多 16 项且不重复。新增可省略；修改时省略或 null 保留现有标签，[] 清空。",
+                "description": "可选自然语言场景标签，支持中文或英文，如 回家了、准备睡觉、home.arrival；每项 1–128 字符，不重复，不限制条数。新增可省略；修改时省略或 null 保留现有标签，[] 清空。",
             }
         parameters["properties"]["risk_level"]["description"] = (
             "作者可自主填写 low/medium/high/critical，不按动作类别或关键词设存卡下限。"

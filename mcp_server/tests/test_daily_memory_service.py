@@ -409,7 +409,7 @@ class DailyMemoryServiceTests(unittest.TestCase):
     def test_security_fields_unknown_module_and_oversized_body_are_not_compatibility_aliases(self):
         for fields in ({"module": "self"}, {"module": "tool_guidance"}, {"module": "emotional_memroy"},
                        {"source_basis": "obeserved"}, {"track": "interal"}, {"confidence": "100"},
-                       {"content": "x" * 2001}, {"keywords": ["x"] * 17}, {"keywords": ["x" * 161]}):
+                       {"content": "x" * 1000001}, {"keywords": [False]}, {"keywords": [""]}):
             result = self.daily.remember(**{"content": "Synthetic", **fields})
             self.assertFalse(result["stored"], result)
             self.assertFalse(result["state_changed"])

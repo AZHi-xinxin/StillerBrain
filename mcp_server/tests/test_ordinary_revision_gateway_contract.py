@@ -23,10 +23,19 @@ from unittest.mock import patch
 
 
 MODES = ('emotional_memory', 'learning_memory', 'planning_memory',
-         'schema', 'rejections', 'permissions', 'neutral_defaults')
+         'schema', 'rejections', 'permissions', 'neutral_defaults', 'keyword_diagnostics', 'plan_bindings', 'consolidation')
 
 
 class OrdinaryRevisionGatewayContractTests(unittest.TestCase):
+    def test_consolidation_real_host_direct_and_compact_paths(self):
+        self.run_probe('consolidation')
+
+    def test_plan_bindings_create_revise_clear_and_actual_context(self):
+        self.run_probe('plan_bindings')
+
+    def test_keyword_edits_preserve_history_and_return_specific_validation_errors(self):
+        self.run_probe('keyword_diagnostics')
+
     def run_probe(self, mode):
         allowed = {'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'SYSTEMDRIVE', 'PATH',
                    'PATHEXT', 'TEMP', 'TMP', 'OS'}
@@ -110,10 +119,10 @@ class OrdinaryRevisionGatewayContractTests(unittest.TestCase):
         self.assertNotIn('必须以', adoption)
         tags = _TOOL_GUIDANCE_SCENARIO_TAGS_INPUT_SCHEMA
         for phrase in ('自然语言', '中文或英文', '回家了', '准备睡觉', 'home.arrival',
-                       '1–128', '16 项', '不重复', '省略或 null', '[] 清空'):
+                       '1–128', '不限制条数', '不重复', '省略或 null', '[] 清空'):
             self.assertIn(phrase, tags['description'])
         self.assertNotIn('不要填在本字段', tags['description'])
-        self.assertEqual(16, tags['maxItems'])
+        self.assertNotIn('maxItems', tags)
         self.assertTrue(tags['uniqueItems'])
 
 
@@ -148,7 +157,7 @@ async def probe(mode):
 
         common = {'owner_id': server.OWNER_ID, 'model_id': server.MODEL_ID}
         tools = server.mcp._tool_manager.list_tools()
-        assert len(tools) == 62  # Includes three feeling tools and the host-only image transport.
+        assert len(tools) == 64  # Includes three feeling tools and the host-only image transport.
         schemas = {tool.name: copy.deepcopy(tool.parameters) for tool in tools}
         entries = [{'canonical_name': name, 'schema_hash': canonical_hash(schema)}
                    for name, schema in schemas.items()]
@@ -221,6 +230,10 @@ async def probe(mode):
             return result
 
         if mode == 'permissions':
+            early=await call('merge_memories',{'source_refs':['emotion://missing1','emotion://missing2'],'summary':'合成摘要'})
+            assert early.get('reason_code')=='module_one_required',early
+            early_read=await call('memory_timelines',{})
+            assert early_read['groups']==[]
             before = snapshot()
             result = await call('revise_memory', {'target_ref': 'learning://learn_' + 'a' * 32 + '@1',
                 'changes': {'current_understanding': 'Synthetic unopened author revision.'}})
@@ -254,6 +267,7 @@ async def probe(mode):
         body = '  Synthetic new author body\nkept exactly.  '
         changes_by_module = {
             'emotional_memory': {
+                'bound_plan_refs': [originals['planning_memory'][0]['ref']],
                 'original_text': body, 'memory_type': 'shared_event',
                 'source_timestamp': '2026-09-12T00:00:00+00:00', 'summary': 'Synthetic new emotional summary.',
                 'primary_emotion': 'joy', 'secondary_emotions': ['trust'], 'importance': 61,
@@ -319,6 +333,127 @@ async def probe(mode):
                 read = await call('recall_planning_memory', {'plan_ref': result['ref'], 'include_history': True})
             assert len(version_rows) == 2
             assert json.dumps(body, ensure_ascii=False)[1:-1] in json.dumps(read, ensure_ascii=False)
+
+        elif mode == 'consolidation':
+            for module in ('emotional_memory','learning_memory','planning_memory'):
+                refs=[]
+                for i in range(4):
+                    saved=await call('remember_memory', {'module':module,'content':'长正文。'*700,
+                        'summary':'AI长摘要。'*80,'keywords':['共同主题',f'关键词{i}']})
+                    assert saved.get('decision')=='stored',saved
+                    refs.append(saved['ref'])
+                arguments={'source_refs':refs,'summary':'AI重新总结。'*80}
+                execution,bound=issue('merge_memories',arguments)
+                merged=await call('merge_memories',{**arguments,'execution_ref':execution})
+                assert merged.get('decision')=='merged',merged
+                assert len(merged['keywords'])==5
+                edited=await gateway({'target_ref':merged['ref'],'changes':{'summary':'自由修改后的摘要。'*80}})
+                assert edited['decision']=='revised',edited
+                view=await call('stbrain_manage',{'action':'memory_timelines','arguments':{'refs':[merged['ref']], 'include_content':True}})
+                assert view['groups'][0]['source_count']==4,view
+                assert len(view['groups'][0]['timeline'][0]['content'])==2800
+            help_result=await call('stbrain_help',{})
+            assert 'memory_consolidation' in help_result
+            discovery=await call('stbrain_tools',{'category':'organize'})
+            assert 'merge_memories' in json.dumps(discovery)
+
+        elif mode == 'plan_bindings':
+            plan = originals['planning_memory'][0]
+            arguments = {'content': '我们谈起合成绑定场景', 'keywords': ['合成绑定场景'],
+                         'bound_plan_refs': [plan['ref']]}
+            ref, _ = issue('remember_memory', arguments)
+            emotion = await call('remember_memory', {**arguments, 'execution_ref': ref})
+            assert emotion['decision'] == 'stored' and emotion['bound_plan_refs'] == [plan['ref']], emotion
+            for name in ('remember_memory', 'remember_emotional_memory'):
+                assert '绑定的 plan' in schemas[name]['properties']['bound_plan_refs']['description']
+            changed = await gateway({'target_ref': plan['ref'], 'changes': {'original_text': '完整关联计划原文' * 100}})
+            assert changed['decision'] == 'revised', changed
+
+            def new_context(index):
+                current = server.onboarding.issue_wake(**common, host_id='synthetic-schema-host',
+                    thread_id='synthetic-schema-thread', source_kind='human_message',
+                    source_event_id=f'synthetic-binding-{index}')
+                result = server.onboarding.build_pre_generation_context(**common,
+                    wake_id=current['wake_id'], wake_capability=current['wake_capability'],
+                    source_digest=f'synthetic-binding-{index}', host_contract_digest='synthetic-host',
+                    advertised_tools=catalog, source_frame={'query_text': 'unrelated-query-xyz' if index >= 3 else '合成绑定场景',
+                        'keyword_query_text': '合成绑定场景', 'source_event_id': f'synthetic-binding-{index}',
+                        'lineage_stable': False, 'prior_assistant_present': True, 'capture_items': []})
+                assert result['decision'] == 'context_prepared', result
+                server.onboarding.confirm_context_injected(**common, wake_id=current['wake_id'],
+                    wake_capability=current['wake_capability'], context_hash=result['context_hash'])
+                return current, result
+
+            for i in range(3):
+                wake, context = new_context(i)
+                # Check actual compact model content, not only internal diagnostics.
+                actual = json.dumps(context['message'], ensure_ascii=False)
+                assert '完整关联计划原文' * 100 in actual, actual
+                from runtime.recall_projection import short_ref
+                assert short_ref(changed['ref']) in actual
+            # Real force-recall path, with normal lexical path unable to match.
+            arguments = {'action': 'enable', 'target_ref': emotion['ref']}
+            ref, _ = issue('memory_force_recall', arguments)
+            enabled = await call('memory_force_recall', {**arguments, 'execution_ref': ref})
+            assert enabled.get('state_changed') is True, enabled
+            wake, context = new_context(3)
+            dynamic = json.loads(rows('SELECT dynamic_json FROM brain_context_snapshots WHERE wake_id=?', (wake['wake_id'],))[0][0])
+            assert emotion['ref'] in [x['item_ref'] for x in dynamic['force_recall']['items']]
+            assert '完整关联计划原文' * 100 in json.dumps(context['message'], ensure_ascii=False)
+            removed = await gateway({'target_ref': emotion['ref'], 'changes': {'bound_plan_refs': []}})
+            assert removed['decision'] == 'revised', removed
+            wake, context = new_context(4)
+            assert '完整关联计划原文' * 100 not in json.dumps(context['message'], ensure_ascii=False)
+            assert rows('SELECT COUNT(*) FROM planning_items WHERE plan_id=?', (plan['id'],)) == [(1,)]
+            versions = rows('SELECT mutable_json FROM emotion_memory_versions WHERE memory_id=? ORDER BY version', (emotion['id'],))
+            assert [json.loads(v[0])['bound_plan_refs'] for v in versions] == [[plan['ref']], []]
+            wake_count = rows('SELECT COUNT(*) FROM brain_wake_sessions')[0][0]
+
+        elif mode == 'keyword_diagnostics':
+            # A normal edit from eight to seventeen keywords works through the
+            # real advertised schema and host-bound MCP path for all three brains.
+            for module, (saved, _) in originals.items():
+                initial = ['synthetic-tag-' + str(i) for i in range(8)]
+                expanded = initial + ['synthetic-added-' + str(i) for i in range(9)]
+                first = await gateway({'target_ref': saved['ref'], 'changes': {'keywords': initial}})
+                second = await gateway({'target_ref': first['ref'], 'changes': {'keywords': expanded}})
+                assert first.get('decision') == second.get('decision') == 'revised'
+                assert (first['version'], second['version']) == (2, 3)
+                if module == 'planning_memory':
+                    content = rows('SELECT content_json FROM planning_versions WHERE plan_id=? ORDER BY version', (saved['id'],))
+                else:
+                    table, key = ('emotion_memory_versions', 'memory_id') if module == 'emotional_memory' else ('learning_versions', 'learning_id')
+                    content = rows(f'SELECT mutable_json FROM {table} WHERE {key}=? ORDER BY version', (saved['id'],))
+                assert [json.loads(v[0])['keywords'] for v in content][-2:] == [initial, expanded]
+                # Direct MCP's changes dict reaches runtime validation. The
+                # gateway rejects non-string/empty items earlier at its schema layer.
+                invalid = ['']
+                expected = {'planning_memory': 'invalid_keywords',
+                            'emotional_memory': 'keywords_required',
+                            'learning_memory': 'keywords_required'}[module]
+                before = snapshot()
+                result = await call('revise_memory', {'target_ref': second['ref'], 'changes': {'keywords': invalid}})
+                assert result.get('reason_codes') == [expected], (module, result)
+                assert result.get('field') == 'changes.keywords'
+                assert result.get('state_changed') is False and snapshot() == before
+                assert 'synthetic-extra-' not in json.dumps(result)
+                # Correcting the array reuses the unchanged target version.
+                repaired = await gateway({'target_ref': second['ref'], 'changes': {'keywords': ['keyword-' + str(i) + '字' * 600 for i in range(64)]}})
+                assert repaired.get('decision') == 'revised' and repaired['version'] == 4
+
+            many = ['large-cue-' + str(i) + '字' * 600 for i in range(64)]
+            for module in originals:
+                args = {'module': module, 'content': 'Synthetic keyword creation.', 'keywords': many}
+                host_bind('remember_memory', args)
+                made = await call('remember_memory', args)
+                assert made.get('decision') == 'stored', (module, made)
+            card = await call('remember_tool_guidance', {'tool_name': 'SyntheticKeywordTool', 'purpose': 'Synthetic keyword fixture.', 'keywords': many})
+            assert card.get('decision') == 'stored', card
+            assert card['card']['content']['keywords'] == many
+            changed = await gateway({'target_ref': 'tool-card://' + card['card']['card_id'] + '@1', 'changes': {'keywords': many + ['extra']}})
+            assert changed.get('decision') == 'revised' and changed['version'] == 2
+            read = await call('recall_tool_guidance', {'card_id': card['card']['card_id'], 'view': 'card'})
+            assert read['results'][0]['content']['keywords'] == many + ['extra']
 
         elif mode == 'neutral_defaults':
             for module in ('emotional_memory', 'learning_memory'):
@@ -399,10 +534,8 @@ async def probe(mode):
                 ('learning_memory', {'epistemic_status': 'observed'}),
                 ('planning_memory', {'write_mode': 'ordinary_record'}),
                 ('emotional_memory', {'original_hash': 'f' * 64}),
-                ('learning_memory', {'current_understanding': 'x' * 2001}),
-                ('emotional_memory', {'summary': 'x' * 201}),
-                ('planning_memory', {'keywords': ['tag' + str(i) for i in range(17)]}),
-                ('learning_memory', {'scene_tags': ['tag' + str(i) for i in range(13)]}),
+                ('learning_memory', {'current_understanding': 'x' * 1000001}),
+                ('emotional_memory', {'summary': 'x' * 64001}),
                 ('emotional_memory', {'secondary_emotions': ['joy', 'trust']}),
                 ('learning_memory', {'keywords': 'one,two'}),
                 ('planning_memory', {'keywords': None}),

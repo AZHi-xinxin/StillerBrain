@@ -204,7 +204,7 @@ class OrdinaryRevisionTests(unittest.TestCase):
         before = self.snapshot()
         for module in self.refs:
             for changes in ({}, {"importance": True}, {"importance": 101}, {"summary": " "},
-                            {"summary": "x" * 10000}, {"keywords": "not-list"}, {"keywords": [""]}):
+                            {"summary": "x" * 64001}, {"keywords": "not-list"}, {"keywords": [""]}):
                 self.assertFalse(self.revise(module, changes)["revised"])
             self.assertFalse(self.revise(module, {"summary": "Synthetic summary"})["revised"])
         self.assertEqual(before, self.snapshot())

@@ -48,6 +48,7 @@ from .injection_control_service import InjectionControlAccessService
 from .hallucination_service import HallucinationVaultAccessService
 from .planning_service import PlanningMemoryAccessService
 from .daily_memory_service import DailyMemoryAccessService
+from .memory_consolidation_service import MemoryConsolidationAccessService, GUIDE as CONSOLIDATION_GUIDE
 from .daily_revision_service import DailyRevisionAccessService
 from .work_memory_service import WorkMemoryAccessService
 from runtime.work_memory import WorkMemoryStore
@@ -234,7 +235,7 @@ _FIRST_PERSON_MEMORY_PATTERN = (
 )
 MemoryOriginal = Annotated[
     StrictStr,
-    StringConstraints(min_length=1, max_length=2000),
+    StringConstraints(min_length=1, max_length=1000000),
     Field(
         description=(
             "AI 自己选择叙述人称的记忆原文；第一、第二或第三人称均可。"
@@ -244,9 +245,9 @@ MemoryOriginal = Annotated[
 ]
 MemorySummary = Annotated[
     StrictStr,
-    StringConstraints(min_length=1, max_length=200),
+    StringConstraints(min_length=1, max_length=64000),
     Field(
-        description="不超过 200 字、由 AI 自己选择叙述人称的摘要。"
+        description="不超过 64000 字、由 AI 自己选择叙述人称的摘要。"
     ),
 ]
 FirstPersonPinText = Annotated[
@@ -525,6 +526,10 @@ daily_service = DailyMemoryAccessService(
     onboarding, emotional_service, learning_service, planning_service, OWNER_ID, MODEL_ID,
     protected_values=(MCP_TOKEN, WAKE_SECRET),
 )
+consolidation_service = MemoryConsolidationAccessService(
+    {'emotion': emotional_store, 'learning': learning_store, 'plan': planning_store, 'tool-card': tool_store},
+    onboarding=onboarding, owner_id=OWNER_ID, model_id=MODEL_ID, protected_values=(MCP_TOKEN, WAKE_SECRET),
+)
 daily_revision_service = DailyRevisionAccessService(
     onboarding, emotional_service, learning_service, planning_service, OWNER_ID, MODEL_ID,
     tool_guidance_service=tool_guidance_service,
@@ -614,6 +619,33 @@ async def stbrain_health() -> dict[str, Any]:
 
 
 @mcp.tool()
+async def memory_timelines(query: str = '', module: str | None = None,
+                           refs: list[str] | None = None, include_content: bool = False,
+                           offset: int = 0, limit: int = 20, include_archived: bool = False) -> dict[str, Any]:
+    """查询四普通脑相似主题时间线、关联计数和逐条原文；超过三条提示AI可整理。
+
+    query可省略；refs可精确回查已归档来源。事件日期缺失则标明存入时间。
+    首次激活前也可读取已有记录。分组只作候选；AI选择来源，自行重写摘要，再调用merge_memories。
+    """
+    return consolidation_service.call('timelines', query=query, module=module, refs=refs,
+        include_content=include_content, offset=offset, limit=limit, include_archived=include_archived)
+
+
+@mcp.tool()
+async def merge_memories(source_refs: list[str], summary: str,
+                         title: str | None = None, content: str | None = None,
+                         keywords: list[str] | None = None, fields: dict[str, Any] | None = None,
+                         reason: str = 'AI 自主整理记忆') -> dict[str, Any]:
+    """AI选择同一普通脑的来源并重写摘要，一次完成整理，无额外审核或格式模板。
+
+    沿用普通记忆权限；模块一首次激活后即可直接整理。自动合并关键词、转移关联、保留来源时间线，归档旧条目；结果仍是正常可修改和浮现的记忆。
+    content省略则按事件时间串联原文。fields可覆盖本脑其他普通作者字段；不同值可先在时间线查看。
+    """
+    return consolidation_service.call('merge', source_refs=source_refs, summary=summary, title=title,
+        content=content, keywords=keywords, fields=fields, reason=reason)
+
+
+@mcp.tool()
 async def stbrain_help(module: BrainManualModule | None = None) -> dict[str, Any]:
     """Read static usage instructions; module selects detailed ordinary-tool help.
 
@@ -630,6 +662,7 @@ async def stbrain_help(module: BrainManualModule | None = None) -> dict[str, Any
         result = simple_usage_guide()
     else:
         result = usage_guide()
+    result["memory_consolidation"] = CONSOLIDATION_GUIDE
     if module in {None, "emotional_memory", "learning_memory", "tool_guidance",
                   "planning_memory", "shared_person_authoring"}:
         result["person_reference_advisory"] = authoring_rewrite_service.advisory_status()
@@ -799,9 +832,11 @@ async def attach_memory_relation(
     request_id: Annotated[StrictStr, StringConstraints(pattern=r"^[0-9a-f]{32}$")] | None = None,
     write_context_ref: str | None = None,
 ) -> dict[str, Any]:
-    """Explicitly connect two existing current emotion://, learning:// or plan:// refs.
+    """Connect existing emotion://, learning://, plan:// or tool-card:// refs.
 
-    No body rewrite or automatic recall. same_event and related_to are symmetric;
+    Actual recall follows one hop of links and includes linked authored summaries;
+    recalled emotions also bring their bound plans. Bodies stay unchanged.
+    same_event and related_to are symmetric;
     continuation_of/continues and caused_by/causes automatically reverse. Fixed
     types omit labels. custom requires your own label; reverse_label is optional
     and never invented. Edge versions are independent of body versions. Repeated
@@ -991,7 +1026,7 @@ async def memory_emotions(
 
 @mcp.tool()
 async def remember_memory(
-    content: Annotated[StrictStr, StringConstraints(min_length=1, max_length=2000)],
+    content: Annotated[StrictStr, StringConstraints(min_length=1, max_length=1000000)],
     module: StrictStr | None = "auto",
     title: str | None = None, summary: str | None = None, kind: StrictStr | None = None,
     track: str = "internal", keywords: list[StrictStr] | StrictStr | None = None,
@@ -1003,6 +1038,7 @@ async def remember_memory(
     rewrite_receipt: StrictStr | None = None,
     emotions: list[StrictStr] | None = None,
     desire: StrictStr | None = None,
+    bound_plan_refs: list[StrictStr] | None = None,
 ) -> dict[str, Any]:
     """日常存入：remember_memory(content="想留下的原文")，只需 content。
 
@@ -1015,6 +1051,9 @@ async def remember_memory(
     未标注的情绪为 other、重要度为 50，来源 unmarked、可信度 null，
     不表示独立核验或把普通片段判成重要对话。以回执的 module、ref 和 input_warnings 核对结果。
     keywords 可给短语数组或兼容字符串；不必为了存入临时编一组标签。
+    bound_plan_refs 是“绑定的 plan”，可省略、null 或 []；情感记忆可填 plan://…@版本 引用数组。
+    情感每次实际浮现，都会连带这些计划当前原文与状态，不限次数、无冷却；是否使用由 AI 自行判断。
+    以后可用 revise_memory 的 changes.bound_plan_refs 改绑，[] 或 null 解除绑定，原计划不删除。
     desire为可选欲望备注，依附情感记忆、最多200字，空或省略不影响存入。用memory_desires管理/归档，原文保留。
     emotions 是另外可选的自定义感觉名字/id数组，不是旧 emotion 分类字段；
     名称由 AI 自己管理，存入回执返回可用名称，同标签可以在以后命中时连带短摘要。
@@ -1059,6 +1098,7 @@ async def remember_memory(
         source_basis=source_basis, confidence=confidence, reason=reason,
         write_context_ref=write_context_ref, parent_ref=parent_ref,
         due_at=due_at, timezone=timezone, rewrite_receipt=rewrite_receipt,
+        bound_plan_refs=bound_plan_refs,
     ), emotions=emotions), fields_for_desire, desire=desire)
 
 
@@ -1086,6 +1126,8 @@ async def revise_memory(
     internal context and mechanical module row versions; keep target CAS and
     author confirmations wherever the selected operation requires them.
     Supply the versioned target_ref you actually read and changed fields only.
+    Keywords have no fixed count or character limit; use non-empty string items.
+    Invalid keyword formats return a specific reason and field, without editing the record.
     Fields include original_text/current_understanding, summary, keywords,
     importance, and each module's author-defined source/emotion fields.
     Technical IDs, ownership, hashes and derived fields are maintained by ST.
@@ -1141,10 +1183,13 @@ async def stbrain_open(
     """Read ordinary memory with view='recall', or open core-edit/review material.
 
     view='recall' is an authenticated read: no wake, password, write context or
-    author confirmation is needed. Empty query browses a complete paged directory;
+    author confirmation is needed. Empty query browses a complete paged directory
+    newest first by created_at (original storage time, not last edit time);
     a query searches emotional, learning, planning and tool memory. module omitted
     selects all four; select one ordinary module to narrow it. Results are safe
-    summaries with exact references and detail_lookup for original/history reads.
+    summaries with created_at, exact references and detail_lookup for original/history reads.
+    看最近存入：stbrain_open(view="recall", limit=20)，不填 query；按存入时间倒序，
+    需要更多时带 next_cursor 续页，可用 module 只看一个脑；修改旧记录不会刷新其存入时间。
     Automatic recall uses short references such as #E0123456789ab. Pass that
     complete short reference as query to find the current record, detail_lookup
     and its latest automatic-recall diagnostic receipt. It is not a version ID.
@@ -1460,6 +1505,7 @@ async def remember_emotional_memory(
     rewrite_receipt: StrictStr | None = None,
     emotions: list[StrictStr] | None = None,
     desire: StrictStr | None = None,
+    bound_plan_refs: list[StrictStr] | None = None,
 ) -> dict[str, Any]:
     """Advanced emotional-memory creation with explicit policies and context.
 
@@ -1512,6 +1558,7 @@ async def remember_emotional_memory(
         source_timestamp=source_timestamp,
         reason=reason,
         rewrite_receipt=rewrite_receipt,
+        bound_plan_refs=bound_plan_refs,
     ), emotions=emotions), {"write_context_ref": write_context_ref}, desire=desire, tool="remember_emotional_memory")
 
 

@@ -145,19 +145,19 @@ def _contains_secret(*values: Any) -> bool:
     return contains_credential_or_secret(values)
 
 
-def _text(name: str, value: Any, maximum: int, *, allow_empty: bool = False) -> str:
+def _text(name: str, value: Any, maximum: int | None, *, allow_empty: bool = False) -> str:
     if not isinstance(value, str):
         raise PlanningMemoryError(f"invalid_{name}")
     value = value.strip()
     if not value and not allow_empty:
         raise PlanningMemoryError(f"invalid_{name}")
-    if len(value) > maximum:
+    if maximum is not None and len(value) > maximum:
         raise PlanningMemoryError(f"{name}_too_long")
     return value
 
 
-def _string_list(name: str, value: Any, *, maximum: int, item_maximum: int) -> list[str]:
-    if not isinstance(value, list) or len(value) > maximum:
+def _string_list(name: str, value: Any, *, maximum: int | None, item_maximum: int | None) -> list[str]:
+    if not isinstance(value, list) or (maximum is not None and len(value) > maximum):
         raise PlanningMemoryError(f"invalid_{name}")
     result: list[str] = []
     for item in value:
@@ -723,34 +723,34 @@ class PlanningMemoryStore:
                 "ai_adoption_statement", fields.get("ai_adoption_statement"), 500
             )
         original = fields.get("original_text")
-        _text("original_text", original, 2000)
-        if ordinary and len(original) > 2000:
+        _text("original_text", original, 1000000)
+        if ordinary and len(original) > 1000000:
             raise PlanningMemoryError("original_text_too_long")
         parent_ref = fields.get("parent_ref")
         if parent_ref is not None:
             parent_ref = _text("parent_ref", parent_ref, 96)
             _parse_plan_ref(parent_ref)
         dependencies = _string_list(
-            "dependency_refs", fields.get("dependency_refs"), maximum=8, item_maximum=96
+            "dependency_refs", fields.get("dependency_refs"), maximum=100000, item_maximum=96
         )
         for ref in dependencies:
             _parse_plan_ref(ref)
         content = {
             "kind": kind,
             "track": track,
-            "title": _text("title", fields.get("title"), 120),
+            "title": _text("title", fields.get("title"), 4000),
             "original_text": original,
-            "summary": _text("summary", fields.get("summary"), 200),
+            "summary": _text("summary", fields.get("summary"), 64000),
             "reminder": reminder,
             "importance": _integer("importance", fields.get("importance"), 0, 100),
             "presence_mode": _enum(
                 "presence_mode", fields.get("presence_mode"), PRESENCE_MODES
             ),
             "scene_tags": _string_list(
-                "scene_tags", fields.get("scene_tags"), maximum=16, item_maximum=160
+                "scene_tags", fields.get("scene_tags"), maximum=None, item_maximum=160
             ),
             "keywords": _string_list(
-                "keywords", fields.get("keywords"), maximum=16, item_maximum=160
+                "keywords", fields.get("keywords"), maximum=None, item_maximum=None
             ),
             "start_at": _optional_datetime("start_at", fields.get("start_at")),
             "due_at": _optional_datetime("due_at", fields.get("due_at")),
@@ -771,7 +771,7 @@ class PlanningMemoryStore:
         if content["start_at"] and content["due_at"]:
             if _parse_iso(content["due_at"]) < _parse_iso(content["start_at"]):
                 raise PlanningMemoryError("due_before_start")
-        if len(_canonical(content)) > 8000:
+        if len(_canonical({**content, "keywords": []})) > 4000000:
             raise PlanningMemoryError("plan_content_too_long")
         if _contains_secret(content):
             raise PlanningMemoryError("credential_content_rejected")
@@ -1199,8 +1199,8 @@ class PlanningMemoryStore:
         ):
             raise PlanningMemoryError("invalid_expected_planning_version")
         idempotency_key = _text("idempotency_key", idempotency_key, 200)
-        excerpt = _text("original_text", content, 2000)
-        if len(content) > 2000:
+        excerpt = _text("original_text", content, 1000000)
+        if len(content) > 1000000:
             raise PlanningMemoryError("original_text_too_long")
         display_summary = excerpt[:200] if summary is None else summary
         normalized = self._normalize_content(
@@ -1212,7 +1212,7 @@ class PlanningMemoryStore:
                 "original_text": content,
                 "summary": display_summary,
                 "reminder": (
-                    reminder_excerpt(_text("summary", display_summary, 200), 50)
+                    reminder_excerpt(_text("summary", display_summary, 64000), 50)
                     if reminder is None else reminder
                 ),
                 "importance": importance,

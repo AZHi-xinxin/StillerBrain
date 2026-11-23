@@ -26,7 +26,7 @@ class ToolDescriptionConsistencyTests(unittest.TestCase):
         cls.docs = {name: ast.get_docstring(node) or "" for name, node in cls.functions.items()}
 
     def test_tool_inventory_has_61_and_all_descriptions_exist(self):
-        self.assertEqual(61, len(self.docs))  # Includes desires and the host-only transport, not a model action.
+        self.assertEqual(63, len(self.docs))  # Includes desires and the host-only transport, not a model action.
         self.assertIn("memory_desires", self.docs)
         self.assertTrue({"emotion_list", "emotion_manage", "memory_emotions"} <= set(self.docs))
         self.assertTrue(set(ORDINARY_TOOLS) <= set(self.docs))
@@ -38,6 +38,10 @@ class ToolDescriptionConsistencyTests(unittest.TestCase):
         }
         for name in sorted(names):
             with self.subTest(tool=name):
+                if name == 'merge_memories':
+                    self.assertIn('沿用普通记忆权限', self.docs[name])
+                    self.assertIn('摘要', self.docs[name])
+                    continue
                 doc = " ".join(self.docs[name].split())
                 for phrase in ("simple-memory-v1", "read-only", "first", "activation",
                                "direct MCP", "gateway", "internal context", "mechanical module",
@@ -49,7 +53,10 @@ class ToolDescriptionConsistencyTests(unittest.TestCase):
     def test_every_ordinary_read_remains_available_before_first_activation(self):
         for name in sorted(ORDINARY_READ_TOOLS):
             with self.subTest(tool=name):
-                self.assertIn("permits this read before module-one activation", self.docs[name])
+                if name == 'memory_timelines':
+                    self.assertIn('首次激活前也可读取', self.docs[name])
+                else:
+                    self.assertIn("permits this read before module-one activation", self.docs[name])
 
     def test_learning_edits_and_integration_are_not_described_as_new_candidates(self):
         revise = " ".join(self.docs["revise_learning_memory"].split())

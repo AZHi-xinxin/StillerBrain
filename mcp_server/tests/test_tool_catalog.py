@@ -13,6 +13,7 @@ import jsonschema
 
 
 EXPECTED_PUBLIC_TOOLS = {
+    "memory_timelines", "merge_memories",
     "memory_force_recall",
     "memory_desires",
     "emotion_list",

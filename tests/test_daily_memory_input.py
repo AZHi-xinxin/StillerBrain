@@ -73,9 +73,13 @@ class DailyMemoryInputTests(unittest.TestCase):
                                 ('["甲,乙", "甲,乙"]', ["甲,乙", "甲,乙"]),
                                 (["a,b", "a,b"], ["a,b", "a,b"]), ("[]", []), (None, None)):
             self.assertEqual(normalize_daily_memory_input({"keywords": value}).fields["keywords"], expected)
-        for value in ("{" + '"key":1}', "[" * 3000 + "]" * 3000, "[invalid", "x" * 32769):
+        for value in ("{" + '"key":1}', "[" * 3000 + "]" * 3000, "[invalid"):
             with self.assertRaises(DailyMemoryInputError):
                 normalize_daily_memory_input({"keywords": value})
+
+    def test_long_keyword_string_is_preserved(self):
+        value = "长" * 32769
+        self.assertEqual(normalize_daily_memory_input({"keywords": value}).fields["keywords"], [value])
 
     def test_receipt_fields_are_not_normalized_even_when_null_blank_or_aliases(self):
         for value in (None, "", "moment", " JOY ", "50", ["a", "a"]):

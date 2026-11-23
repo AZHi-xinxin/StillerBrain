@@ -145,7 +145,7 @@ class OrdinaryPlanningTests(unittest.TestCase):
             ({"expected_row_version": True}, "invalid_expected_planning_version"),
             ({"idempotency_key": ""}, "invalid_idempotency_key"),
             ({"content": "  "}, "invalid_original_text"),
-            ({"content": " " + "x" * 2000}, "original_text_too_long"),
+            ({"content": " " + "x" * 1000000}, "original_text_too_long"),
             ({"content": "password: synthetic-not-a-real-credential"}, "credential_content_rejected"),
             ({"kind": "unknown"}, "invalid_plan_kind"),
             ({"track": "unknown"}, "invalid_plan_track"),

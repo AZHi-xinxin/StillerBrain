@@ -181,7 +181,7 @@ python -B scripts/stiller_ops.py start --config C:/stiller-private/stiller.env
 
 `remember_work_memory(content=...)` 原样保存碎片或资料，唯一必填项是正文；`tag` 省略为“随手记”，也可明确填写 1–160 字符的标签。正文最多 32768 字符且不超过 128 KiB UTF-8。`recall_work_memory` 按标签字面查询或确切版本读取，每页最多 5 条；`revise_work_memory` 修订并保留历史，也能用 `lifecycle="retired"` 退役、`lifecycle="active"` 恢复。退役内容需显式 `include_retired=true` 才能读回。工作记忆不参与日常自动浮现、四模块混合查询或星图；AI 主动读取时才将原文交给当前模型，不能把它当作自动长期记忆的替代入口。
 
-`attach_memory_relation`、`read_memory_relations`、`detach_memory_relation` 为情感、学习和规划的现有记录建立可追溯关系。一跳查询只给引用、类型和已有标题，不递归读正文；不连接工作记忆或隔离匣，不自动开启联想注入。星图仅展示匿名结构，不展示自定义关系标签或记忆标题。
+`attach_memory_relation`、`read_memory_relations`、`detach_memory_relation` 为情感、学习、规划和工具卡建立可追溯关系。实际浮现的记忆会沿显式关系带出一跳当前摘要；带出的情感记忆继续携带其绑定计划的当前原文与状态。同一记忆去重，关系仅标为 `#E…—同一事件→#E…—绑定→#P…`，不加使用说明。没有新增冷却、次数或审批，也不自动修改、合并记忆；原作者的关闭/披露设置仍生效。主动查关系仍只返回一跳引用、类型和已有标题。工作记忆与隔离匣不参与。星图包含情感绑定计划、同感觉标签、工具卡链接等匿名结构，不展示标签或记忆标题。
 
 这六个工具沿既有身份与权限检查，不创建独立自动任务。日常档可直接调用 `remember_work_memory`；其余工作记录与关系操作通过 `stbrain_tools(category="work")` / `category="relations"` 与 `stbrain_manage` 使用。`simple-memory-v1` 首次激活后无需每次先 `open`，`legacy` 仍需真实授权；完整参数、幂等与恢复规则见 [OPEN_RESPONSE](../mcp_server/OPEN_RESPONSE.md)。
 

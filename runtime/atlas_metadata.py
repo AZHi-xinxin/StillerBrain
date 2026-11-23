@@ -1,7 +1,7 @@
 """Read-only, owner-scoped metadata projection; never initialize an ST store.
 
-Only active emotional/learning/planning records are visible. No body, title,
-summary, evidence, tool card, self-model or quarantine database is read.
+Only active ordinary memory metadata is visible. No body, title, summary,
+evidence, tool instructions, self-model or quarantine database is read.
 """
 
 from __future__ import annotations
@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
+import itertools
+import re
 from pathlib import Path
 import sqlite3
 import time
@@ -48,18 +50,26 @@ class AtlasScope:
 # reads during future edits. sqlite_schema is used only to reject views/absence.
 READ_COLUMNS = {
     "sqlite_master": {"name", "type"},
-    "emotion_memories": {"memory_id", "owner_id", "model_id", "lifecycle", "created_at"},
+    "emotion_memories": {"memory_id", "owner_id", "model_id", "lifecycle", "created_at", "bound_plan_refs_json"},
     "emotion_edges": {"owner_id", "model_id", "from_memory_id", "to_memory_id", "lifecycle"},
     "learning_items": {"learning_id", "owner_id", "model_id", "lifecycle", "current_version", "created_at"},
     "learning_links": {"owner_id", "model_id", "from_ref", "to_ref"},
     "planning_items": {"plan_id", "owner_id", "model_id", "recall_lifecycle", "current_version", "created_at"},
     "planning_edges": {"owner_id", "model_id", "source_plan_id", "target_plan_id", "active", "source_version"},
     "memory_relation_items": {"owner_id", "model_id", "from_module", "from_id", "to_module", "to_id", "active"},
+    "tool_cards": {"card_id", "owner_id", "model_id", "lifecycle", "current_version", "created_at"},
+    "tool_card_versions": {"card_id", "version", "linked_tool_refs_json", "related_refs_json"},
+    "emotion_layer_terms": {"owner_id", "model_id", "emotion_id", "state"},
+    "emotion_layer_tags": {"owner_id", "model_id", "module", "memory_id", "emotion_id"},
 }
 
 # Optional additive store: old installations remain readable. A partially
 # migrated relation store fails closed; the reader never initializes it.
 RELATION_TABLES = {"memory_relation_items", "memory_relation_versions", "memory_relation_requests"}
+TOOL_TABLES = {"tool_cards", "tool_card_versions"}
+TAG_TABLES = {"emotion_layer_terms", "emotion_layer_tags"}
+OPTIONAL_TABLES = RELATION_TABLES | TOOL_TABLES | TAG_TABLES
+REFERENCE = re.compile(r"(emotion|learning|plan|tool-card)://([A-Za-z0-9_-]+)@[1-9][0-9]*\Z")
 
 MODULES = (
     ("emotion", "情感", "emotion_memories", "memory_id", "lifecycle"),
@@ -76,6 +86,8 @@ def _authorize(action: int, first: str | None, second: str | None,
         return (sqlite3.SQLITE_OK if database == "main" and
                 second in READ_COLUMNS.get(first, set()) else sqlite3.SQLITE_DENY)
     if action == sqlite3.SQLITE_SELECT:
+        return sqlite3.SQLITE_OK
+    if action == sqlite3.SQLITE_PRAGMA and first == "table_info" and second == "emotion_memories":
         return sqlite3.SQLITE_OK
     if action == sqlite3.SQLITE_FUNCTION and second == "julianday":
         return sqlite3.SQLITE_OK
@@ -147,19 +159,21 @@ class AtlasMetadataReader:
                 connection.close()
 
     def _snapshot(self, connection: sqlite3.Connection) -> bytes:
-        required = set(READ_COLUMNS) - {"sqlite_master", "memory_relation_items"}
-        inspected = required | RELATION_TABLES
+        required = set(READ_COLUMNS) - {"sqlite_master"} - OPTIONAL_TABLES
+        inspected = required | OPTIONAL_TABLES
         actual = dict(connection.execute(
             "SELECT name,type FROM sqlite_master WHERE name IN (" + ",".join("?" for _ in inspected) + ")",
             tuple(sorted(inspected)),
         ))
         if (any(actual.get(name) != "table" for name in required) or
-                (RELATION_TABLES & actual.keys() and any(actual.get(name) != "table" for name in RELATION_TABLES))):
+                any(group & actual.keys() and any(actual.get(name) != "table" for name in group)
+                    for group in (RELATION_TABLES, TOOL_TABLES, TAG_TABLES))):
             raise AtlasUnavailable("atlas_unavailable")
         scope = self.scope
         candidates = []
         learning_refs = {}
-        for module, category, table, key, lifecycle in MODULES:
+        modules = MODULES + (("tool-card", "工具", "tool_cards", "card_id", "lifecycle"),) if TOOL_TABLES <= actual.keys() else MODULES
+        for module, category, table, key, lifecycle in modules:
             # At most 2,001 per type suffices to find the latest 2,000 globally.
             # julianday orders ISO timestamps with differing offsets correctly.
             rows = connection.execute(
@@ -239,6 +253,62 @@ class AtlasMetadataReader:
                     if len(edges) > MAX_EDGES:
                         truncated = True
                         break
+        # Additional structural links. Read IDs/references only; do not export
+        # labels or use text similarity to invent a relation between two stars.
+        def endpoint(module, identity):
+            return selected_ids.get(("planning" if module == "plan" else module, identity))
+
+        def ref_endpoint(ref):
+            found = REFERENCE.fullmatch(ref) if isinstance(ref, str) else None
+            return endpoint(*found.groups()) if found else None
+
+        def link(a, b):
+            nonlocal truncated
+            if a is None or b is None or a == b:
+                return True
+            pair = tuple(sorted((a, b)))
+            if pair not in edges and len(edges) >= MAX_EDGES:
+                truncated = True
+                return False
+            edges.add(pair)
+            return True
+
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(emotion_memories)")}
+        if "bound_plan_refs_json" in columns:
+            for identity, refs_json in connection.execute(
+                "SELECT memory_id,bound_plan_refs_json FROM emotion_memories "
+                "WHERE owner_id=? AND model_id=? AND lifecycle='active'", (scope.owner_id, scope.model_id)
+            ):
+                a = endpoint("emotion", identity)
+                if a is not None:
+                    for ref in json.loads(refs_json):
+                        if not link(a, ref_endpoint(ref)):
+                            break
+        if TOOL_TABLES <= actual.keys():
+            for identity, linked, related in connection.execute(
+                "SELECT t.card_id,v.linked_tool_refs_json,v.related_refs_json FROM tool_cards t "
+                "JOIN tool_card_versions v ON v.card_id=t.card_id AND v.version=t.current_version "
+                "WHERE t.owner_id=? AND t.model_id=? AND t.lifecycle='active'", (scope.owner_id, scope.model_id)
+            ):
+                a = endpoint("tool-card", identity)
+                if a is not None:
+                    for ref in [*json.loads(linked), *json.loads(related)]:
+                        if not link(a, ref_endpoint(ref)):
+                            break
+        if TAG_TABLES <= actual.keys():
+            groups = {}
+            for term, module, identity in connection.execute(
+                "SELECT t.emotion_id,t.module,t.memory_id FROM emotion_layer_tags t "
+                "JOIN emotion_layer_terms e ON e.owner_id=t.owner_id AND e.model_id=t.model_id AND e.emotion_id=t.emotion_id "
+                "WHERE t.owner_id=? AND t.model_id=? AND e.state='active' ORDER BY t.emotion_id,t.module,t.memory_id",
+                (scope.owner_id, scope.model_id)
+            ):
+                node = endpoint(module, identity)
+                if node is not None:
+                    groups.setdefault(term, set()).add(node)
+            for nodes in groups.values():
+                if not all(link(a, b) for a, b in itertools.combinations(sorted(nodes), 2)):
+                    break
         result = {
             "schema": SCHEMA,
             "generatedAt": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),

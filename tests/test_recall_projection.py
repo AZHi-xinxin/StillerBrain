@@ -83,6 +83,36 @@ class SnapshotTests(unittest.TestCase):
         self.base.setUp(); self.addCleanup(self.base.doCleanups)
         self.base.fixture.seed_tagless_named_learning()
 
+    def test_real_prepare_follows_relation_then_bound_plan_and_reuses_snapshot(self):
+        from runtime.emotional_memory import EmotionalMemoryStore
+        from runtime.planning_memory import PlanningMemoryStore
+        from runtime.memory_relations import MemoryRelationStore
+        b = self.base
+        b.store.emotional_store = emotions = EmotionalMemoryStore(b.database)
+        b.store.planning_store = plans = PlanningMemoryStore(b.database)
+        plans.ensure_state(**b.scope)
+        plan = plans.remember_ordinary(**b.scope, wake_id='synthetic-plan', wake_seq=1,
+            expected_row_version=0, write_context_ref='synthetic-context', idempotency_key='linked-plan',
+            content='保留完整计划正文', title='关联计划', summary='只通过绑定带出的计划', keywords=['xyz-plan'])
+        plan_ref = 'plan://' + plan['plan_id'] + '@1'
+        emotions.ensure_state(**b.scope)
+        emotion = emotions.remember(**b.scope, wake_id='synthetic-emotion', expected_row_version=0,
+            memory_type='shared_event', original_text='未命中的情感正文', summary='只通过关联带出的情感摘要',
+            primary_emotion='calm', keywords=['xyz-emotion'], bound_plan_refs=[plan_ref])
+        emotion_ref = 'emotion://' + emotion['memory']['memory_id'] + '@1'
+        with b.connect() as db:
+            lid = db.execute('SELECT learning_id FROM learning_items').fetchone()[0]
+        MemoryRelationStore(b.database).attach(**b.scope, from_ref='learning://'+lid+'@1',
+            to_ref=emotion_ref, type='same_event')
+        wake = b.issue()
+        result = b.prepare(wake, source_frame={'query_text': '你还记得我们之前读的侍魔嘛？'})
+        projected = json.loads(result['context_bundle']['dynamic_message']['content'])
+        self.assertIn('只通过关联带出的情感摘要', str(projected))
+        self.assertEqual('保留完整计划正文', projected['绑定计划'][0]['计划']['original_text'])
+        self.assertTrue(any('—同一事件→'+short_ref(emotion_ref)+'—绑定→' in x for x in projected['关联']))
+        b.confirm(wake, result['context_hash'])
+        self.assertEqual(result['context_bundle'], b.prepare(wake)['context_bundle'])
+
     def test_internal_receipt_and_compact_wire_are_separate_and_restart_frozen(self):
         b = self.base
         wake = b.issue()

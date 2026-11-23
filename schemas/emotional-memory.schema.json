@@ -30,13 +30,13 @@
     "original_text": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 2000,
+      "maxLength": 1000000,
       "description": "AI-authored narration. The AI may choose first, second, third, or another grammatical-person style; grammar alone never determines authorship."
     },
     "summary": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 200,
+      "maxLength": 64000,
       "description": "AI-authored summary in the grammatical-person style selected by the AI."
     },
     "primary_emotion": {
@@ -89,7 +89,10 @@
       "description": "firsthand=亲历；reported=转述；inferred=推断；unmarked=未标注。创建时省略采用 unmarked，修订时省略保留原值。"
     },
     "confidence": {
-      "type": ["integer", "null"],
+      "type": [
+        "integer",
+        "null"
+      ],
       "minimum": 0,
       "maximum": 100,
       "description": "0–100 为作者评分；null 为未标注。创建时省略为 null；统一修订 changes.confidence=null 清除评分，省略保留原值。"
@@ -112,7 +115,12 @@
       ]
     },
     "keywords": {
-      "$ref": "#/$defs/hints"
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "entities": {
       "$ref": "#/$defs/hints"
@@ -124,6 +132,18 @@
         "$ref": "#/$defs/referentBinding"
       },
       "description": "Optional referent metadata. unresolved and ambiguous are valid non-blocking states and do not change memory confidence, ranking, or recall eligibility."
+    },
+    "bound_plan_refs": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string",
+        "pattern": "^plan://plan_[0-9a-f]{32}@[1-9][0-9]*$"
+      },
+      "default": [],
+      "description": "绑定的 plan，可留空；情感实际浮现时连带当前计划，不设次数或冷却。"
     },
     "recall_mode": {
       "enum": [
@@ -265,6 +285,17 @@
       "minProperties": 1,
       "description": "Only AI-authored fields. Technical identities, versions, hashes and execution permissions are not writable. Existing sensitivity/disclosure and quarantine checks still apply.",
       "properties": {
+        "bound_plan_refs": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string",
+            "pattern": "^plan://plan_[0-9a-f]{32}@[1-9][0-9]*$"
+          },
+          "description": "绑定的 plan，可留空；替换关联列表，[]/null解除绑定，不删除计划。"
+        },
         "memory_type": {
           "enum": [
             "unclassified",
@@ -279,13 +310,13 @@
         "original_text": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 2000,
+          "maxLength": 1000000,
           "description": "AI-authored narration. The AI may choose first, second, third, or another grammatical-person style; grammar alone never determines authorship."
         },
         "summary": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 200,
+          "maxLength": 64000,
           "description": "AI-authored summary in the grammatical-person style selected by the AI."
         },
         "primary_emotion": {
@@ -338,7 +369,10 @@
           "description": "firsthand=亲历；reported=转述；inferred=推断；unmarked=未标注。修订时省略保留原值。"
         },
         "confidence": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0,
           "maximum": 100,
           "description": "0–100 为作者评分；null 清除评分并显示未标注；省略保留原值。"
@@ -361,7 +395,12 @@
           ]
         },
         "keywords": {
-          "$ref": "#/$defs/hints"
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         },
         "entities": {
           "$ref": "#/$defs/hints"

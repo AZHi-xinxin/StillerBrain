@@ -33,6 +33,9 @@ def insert_synthetic(db, table, **overrides):
         if required or primary:
             values[name] = 1 if kind == "INTEGER" else "DO_NOT_PROJECT_PRIVATE_BODY"
     values.update(owner_id="synthetic-owner", model_id="synthetic-model", created_at=STAMP)
+    for name in ("bound_plan_refs_json", "linked_tool_refs_json", "related_refs_json"):
+        if name in values:
+            values[name] = "[]"
     values.update(overrides)
     columns = ",".join(values)
     db.execute(f"INSERT INTO {table}({columns}) VALUES({','.join('?' for _ in values)})", tuple(values.values()))
@@ -70,6 +73,59 @@ class AtlasMetadataTests(unittest.TestCase):
         self.assertEqual("orbis.st.atlas/1", graph["schema"])
         self.assertEqual([], graph["stars"])
         self.assertEqual([], graph["edges"])
+
+    def test_emotion_plan_bindings_follow_current_identity_and_deduplicate(self):
+        self.emotion("e", bound_plan_refs_json='["plan://p@1","plan://p@2","plan://foreign@1","plan://archived@1"]')
+        self.planning("p", current_version=3)
+        self.planning("foreign", owner_id="other")
+        self.seed("planning_items", plan_id="archived", recall_lifecycle="quarantined")
+        graph = self.read()
+        self.assertEqual(1, len(graph["edges"]))
+        self.assertEqual({_opaque(self.scope,"emotion","e"),_opaque(self.scope,"planning","p")},set(graph["edges"][0].values()))
+
+    def test_same_feeling_connects_active_owned_records_across_brains(self):
+        from runtime.emotion_layer import EmotionLayerStore
+        EmotionLayerStore(self.database)
+        self.emotion("e")
+        self.learning("l")
+        self.planning("p")
+        with closing(sqlite3.connect(self.database)) as db:
+            db.execute("INSERT INTO emotion_layer_terms VALUES (?,?,?,'PRIVATE_NAME','PRIVATE_DESCRIPTION','active',?,?)", (*("synthetic-owner","synthetic-model","tag"),STAMP,STAMP))
+            for module, identity in (("emotion","e"),("learning","l"),("plan","p"),("work","not-visible")):
+                db.execute("INSERT INTO emotion_layer_tags VALUES (?,?,?,?,?)", ("synthetic-owner","synthetic-model",module,identity,"tag"))
+            db.commit()
+        graph = self.read()
+        self.assertEqual(3,len(graph["edges"]))
+        self.assertNotIn("PRIVATE_",json.dumps(graph))
+        with closing(sqlite3.connect(self.database)) as db:
+            db.execute("UPDATE emotion_layer_terms SET state='archived'"); db.commit()
+        self.assertEqual([],self.read()["edges"])
+
+    def test_tool_cards_and_their_current_links_are_visible_without_tool_instructions(self):
+        from runtime.tool_guidance import ToolGuidanceStore
+        ToolGuidanceStore(self.database)
+        self.emotion("e")
+        with closing(sqlite3.connect(self.database)) as db:
+            for identity in ("t1","t2"):
+                insert_synthetic(db,"tool_cards",card_id=identity,canonical_tool_name=identity,operation_key=identity,lifecycle="active")
+            # Populate a real version through its authoritative DDL while using
+            # valid enum fields. Only reference columns will be read by atlas.
+            columns=list(db.execute("PRAGMA table_info(tool_card_versions)"))
+            values={r[1]: 1 if r[2]=='INTEGER' else 'PRIVATE_BODY' for r in columns if r[3] or r[5]}
+            values.update(version_id="v1",card_id="t1",version=1,capability_class="READ",risk_level="low",confirmation_policy="never",completion_rule="result",auto_recall_mode="normal",source_type="ai",linked_tool_refs_json='["tool-card://t2@1"]',related_refs_json='["emotion://e@1"]')
+            # Minimal optional metadata tables are enough for atlas; constraints
+            # on tool authorship are exercised separately by tool store tests.
+            db.execute(f"INSERT INTO tool_card_versions({','.join(values)}) VALUES({','.join('?' for _ in values)})",tuple(values.values()))
+            db.commit()
+        graph=self.read()
+        self.assertEqual(2,len([s for s in graph['stars'] if s['type']=='工具']))
+        self.assertEqual(2,len(graph['edges']))
+        self.assertNotIn('PRIVATE_',json.dumps(graph))
+
+    def test_old_schema_without_plan_binding_column_is_still_readable(self):
+        with closing(sqlite3.connect(self.database)) as db:
+            db.execute("ALTER TABLE emotion_memories DROP COLUMN bound_plan_refs_json");db.commit()
+        self.assertEqual([],self.read()['edges'])
 
     def test_three_categories_metadata_only_and_no_database_changes(self):
         self.emotion()

@@ -11,6 +11,7 @@ from typing import Any, Mapping
 MANAGE_TOOL = "stbrain_manage"
 DISCOVERY_TOOL = "stbrain_tools"
 CATEGORIES = {
+    "organize": ("四脑记忆时间线、相似候选与自主合并", ("memory_timelines", "merge_memories")),
     "force_recall": ("关键词必浮现：普通四脑合计10条，由AI自主管理", ("memory_force_recall",)),
     "feelings": ("自定义情绪词表与跨脑情绪标签", ("emotion_list", "emotion_manage", "memory_emotions")),
     "desires": ("欲望：情感记忆上的可选短备注", ("memory_desires",)),

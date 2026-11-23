@@ -213,7 +213,8 @@ async def probe(mode):
                 assert len(boundary) == 32768
                 saved = await save('learning_memory', boundary)
                 assert current_keywords('learning_memory', saved) == []
-                await rejected('remember_memory', {**base, 'keywords': boundary + ' '}, 'invalid_keywords')
+                saved = await save('learning_memory', boundary + ' ')
+                assert current_keywords('learning_memory', saved) == []
 
         elif mode == 'nested_and_tools':
             for module in ('emotional_memory', 'learning_memory', 'planning_memory'):
@@ -303,9 +304,10 @@ async def probe(mode):
                 'event_type': 'pause', 'note': 'Synthetic pause.', 'evidence': marker}, 'invalid_tool_arguments')
             assert {'field': 'evidence', 'issue': 'list_type'} in result['field_errors']
             assert marker not in json.dumps(result)
-            # Compatibility is not permission to exceed unchanged runtime bounds.
+            # Keyword authoring no longer has a count or per-phrase ceiling.
             for value in (','.join('tag' + str(i) for i in range(100)), 'x' * 400):
-                await rejected('remember_memory', {**base, 'keywords': value})
+                saved = await save('learning_memory', value)
+                assert current_keywords('learning_memory', saved) == value.split(',')
 
         elif mode == 'gateway_raw_claim':
             # Issue a real ledger entry directly to isolate the receiving MCP's
@@ -350,7 +352,7 @@ async def probe(mode):
 
         elif mode == 'canonical_schema':
             tools = server.mcp._tool_manager.list_tools()
-            assert len(tools) == 62  # Includes three feeling tools and the host-only image transport.
+            assert len(tools) == 64  # Includes three feeling tools and the host-only image transport.
             def schema_types(value):
                 if isinstance(value, dict):
                     return ({value['type']} if isinstance(value.get('type'), str) else set()).union(

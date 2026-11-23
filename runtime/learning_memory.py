@@ -106,10 +106,10 @@ class LearningMemoryError(RuntimeError):
 
 @dataclass(frozen=True)
 class LearningLimits:
-    title: int = 120
-    summary: int = 240
-    understanding: int = 2000
-    total_json: int = 8000
+    title: int = 4000
+    summary: int = 64000
+    understanding: int = 1000000
+    total_json: int = 4000000
     evidence_summary: int = 2000
 
 
@@ -178,7 +178,7 @@ def _review_safe_value(value: Any) -> Any:
 
 
 def _text(
-    name: str, value: Any, maximum: int, *, optional: bool = False,
+    name: str, value: Any, maximum: int | None, *, optional: bool = False,
     preserve_original_text: bool = False,
 ) -> str:
     if value is None and optional:
@@ -186,15 +186,15 @@ def _text(
     if not isinstance(value, str) or (not optional and not value.strip()):
         raise LearningMemoryError(f"{name}_required")
     cleaned = value if preserve_original_text is True else value.strip()
-    if len(cleaned) > maximum:
+    if maximum is not None and len(cleaned) > maximum:
         raise LearningMemoryError(f"{name}_too_long")
     return cleaned
 
 
-def _strings(name: str, value: Any, maximum: int, item_chars: int) -> list[str]:
+def _strings(name: str, value: Any, maximum: int | None, item_chars: int | None) -> list[str]:
     if value is None:
         return []
-    if not isinstance(value, list) or len(value) > maximum:
+    if not isinstance(value, list) or (maximum is not None and len(value) > maximum):
         raise LearningMemoryError(f"{name}_invalid")
     return [_text(name, item, item_chars) for item in value]
 
@@ -1314,18 +1314,18 @@ class LearningMemoryStore:
                 "current_understanding", fields.get("current_understanding"), self.limits.understanding,
                 preserve_original_text=preserve_original_text,
             ),
-            "steps": _strings("steps", fields.get("steps"), 12, 300),
+            "steps": _strings("steps", fields.get("steps"), None, None),
             "application_contexts": _strings(
-                "application_contexts", fields.get("application_contexts"), 8, 160
+                "application_contexts", fields.get("application_contexts"), None, None
             ),
-            "scene_tags": _strings("scene_tags", fields.get("scene_tags"), 12, 80),
+            "scene_tags": _strings("scene_tags", fields.get("scene_tags"), None, None),
             "preceding_context_summary": _text(
                 "preceding_context_summary", fields.get("preceding_context_summary", ""), 240, optional=True
             ),
-            "uncertainties": _strings("uncertainties", fields.get("uncertainties"), 8, 300),
+            "uncertainties": _strings("uncertainties", fields.get("uncertainties"), None, None),
             "domain": _text("domain", fields.get("domain", ""), 160, optional=True),
-            "keywords": _strings("keywords", fields.get("keywords"), 24, 200),
-            "entities": _strings("entities", fields.get("entities"), 24, 200),
+            "keywords": _strings("keywords", fields.get("keywords"), None, None),
+            "entities": _strings("entities", fields.get("entities"), None, None),
             # Deprecated compatibility projection.  It is server-derived for
             # all 0.3 writes; callers choose the two independent axes below.
             "epistemic_status": epistemic_status,
@@ -1341,8 +1341,8 @@ class LearningMemoryStore:
                 "context_policy", fields.get("context_policy", "normal"), CONTEXT_POLICIES
             ),
             "recall_mode": _enum("recall_mode", fields.get("recall_mode", "normal"), RECALL_MODES),
-            "allow_contexts": _strings("allow_contexts", fields.get("allow_contexts"), 12, 160),
-            "deny_contexts": _strings("deny_contexts", fields.get("deny_contexts"), 12, 160),
+            "allow_contexts": _strings("allow_contexts", fields.get("allow_contexts"), None, None),
+            "deny_contexts": _strings("deny_contexts", fields.get("deny_contexts"), None, None),
             "default_decision": _enum(
                 "default_decision", fields.get("default_decision", "background_reference"), DEFAULT_DECISIONS
             ),
@@ -1377,7 +1377,7 @@ class LearningMemoryStore:
         )
         if _claim_review_status(content) in {"challenged", "rejected"}:
             content["lifecycle"] = "quarantined"
-        if len(_canonical(content)) > self.limits.total_json:
+        if len(_canonical({**content, "keywords": []})) > self.limits.total_json:
             raise LearningMemoryError("learning_content_too_large")
         if _contains_secret(content):
             raise LearningMemoryError("credential_or_secret_detected")
@@ -3723,7 +3723,7 @@ class LearningMemoryStore:
     ) -> dict[str, Any]:
         expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
         self.ensure_state(owner_id=owner_id, model_id=model_id)
-        if not isinstance(source_learning_ids, list) or not 2 <= len(source_learning_ids) <= 20:
+        if not isinstance(source_learning_ids, list) or len(source_learning_ids) < 2:
             raise LearningMemoryError("source_learning_ids_invalid")
         if any(not isinstance(source, str) for source in source_learning_ids):
             raise LearningMemoryError("source_learning_ids_invalid")
@@ -3837,6 +3837,8 @@ class LearningMemoryStore:
                     (source_id,),
                 ).fetchall()
             }
+            from .memory_consolidation import unique
+            content['keywords'] = unique([*(word for row in source_rows for word in json.loads(row['current_json']).get('keywords', [])), *content['keywords']])
             _validate_challenge_evidence_refs(content, available_challenge_refs)
             new_row_version = self._advance_state(
                 connection, owner_id=owner_id, model_id=model_id,

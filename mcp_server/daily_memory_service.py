@@ -38,6 +38,7 @@ _SAFE_FAILURES = frozenset({
     "invalid_plan_ref", "plan_not_found", "stale_plan_ref", "quarantined_plan_ref",
     "invalid_plan_hierarchy", "planning_graph_cycle", "idempotency_key_reused",
     "due_before_start", "invalid_datetime", "invalid_direct_context",
+    "invalid_bound_plan_refs",
     "rewrite_receipt_required_for_exposed_suggestion", "rewrite_receipt_invalid",
     "rewrite_receipt_binding_mismatch", "rewrite_receipt_final_mismatch",
     "rewrite_receipt_replay_conflict", "rewrite_receipt_not_ready",
@@ -86,7 +87,10 @@ class DailyMemoryAccessService:
     @staticmethod
     def _reject(module: str, code: str, guidance: str | None = None, **details: Any) -> dict[str, Any]:
         if guidance is None:
-            if "credential" in code:
+            if code == "invalid_bound_plan_refs":
+                guidance = "绑定的 plan 使用 plan://plan_…@版本 的引用数组；可省略或填 []/null。"
+                details["field"] = "bound_plan_refs"
+            elif "credential" in code:
                 guidance = "移除凭据或密钥后再保存；不要把它们放入记忆正文。"
             elif "version_conflict" in code or code == "idempotency_key_reused":
                 guidance = "本次未写入；请重新发起一次存入请求，服务会读取当前版本，不要并行重复提交。"
@@ -121,14 +125,16 @@ class DailyMemoryAccessService:
                  source_basis: str = "unmarked", confidence: int | None = None, reason: str | None = None,
                  write_context_ref: str | None = None, parent_ref: str | None = None,
                  due_at: str | None = None, timezone: str = "UTC",
-                 rewrite_receipt: str | None = None) -> dict[str, Any]:
+                 rewrite_receipt: str | None = None,
+                 bound_plan_refs: list[str] | None = None) -> dict[str, Any]:
         # Keep raw persistence input for both the process-only protection gate
         # and the later exact-context, stored-capability gate. Defaulting a
         # label must never discard a secret before either protection check.
         original_fields = dict(module=module, content=content, title=title, summary=summary,
                                kind=kind, track=track, keywords=keywords, importance=importance,
                                emotion=emotion, source_basis=source_basis, confidence=confidence,
-                               reason=reason, parent_ref=parent_ref, due_at=due_at, timezone=timezone)
+                               reason=reason, parent_ref=parent_ref, due_at=due_at, timezone=timezone,
+                               bound_plan_refs=bound_plan_refs)
         if self._configured_protected(original_fields):
             return self._reject("unknown", "credential_or_secret_detected")
         try:
@@ -164,9 +170,9 @@ class DailyMemoryAccessService:
                     "规划脑暂未接入这套转换流程；AI 可自行确定计划正文后，省略 rewrite_receipt 直接保存。",
                     field="rewrite_receipt", supported_modules=["emotional_memory", "learning_memory"],
                 )
-        if not isinstance(content, str) or not content.strip() or len(content) > 2000:
-            return self._reject(module, "invalid_content", "提供 1–2000 字的真实原文；服务不会截断原文。", field="content")
-        for name, value, limit in (("title", title, 120), ("summary", summary, 200), ("reason", reason, 2000)):
+        if not isinstance(content, str) or not content.strip() or len(content) > 1000000:
+            return self._reject(module, "invalid_content", "提供 1–1000000 字的真实原文；服务不会截断原文。", field="content")
+        for name, value, limit in (("title", title, 4000), ("summary", summary, 64000), ("reason", reason, 2000)):
             if value is not None and (not isinstance(value, str) or not value.strip() or len(value) > limit):
                 return self._reject(module, "invalid_" + name, f"填写非空的 {name}，最多 {limit} 字，或省略该可选字段。", field=name)
         selected_kind = _DEFAULT_KINDS[module] if kind is None else kind
@@ -179,9 +185,9 @@ class DailyMemoryAccessService:
                 continue
             if type(value) is not int or not 0 <= value <= 100:
                 return self._reject(module, "invalid_" + name, f"将 {name} 设为 0–100 的整数。", field=name)
-        if keywords is not None and (not isinstance(keywords, list) or len(keywords) > 16
-                                    or any(not isinstance(item, str) or not item.strip() or len(item) > 160 for item in keywords)):
-            return self._reject(module, "invalid_keywords", "keywords 使用最多 16 个非空短语，每项不超过 160 字；也可省略。", field="keywords")
+        if keywords is not None and (not isinstance(keywords, list)
+                                    or any(not isinstance(item, str) or not item.strip() for item in keywords)):
+            return self._reject(module, "invalid_keywords", "keywords 使用非空字符串数组，不限制词条数量或字数；也可省略。", field="keywords")
         if module != "planning_memory" and (parent_ref is not None or due_at is not None):
             return self._reject(module, "planning_fields_require_planning_module", "有父项或截止时间的计划请选择 planning_memory；其他记忆省略这两个字段。")
         for name, value, limit in (("parent_ref", parent_ref, 96), ("due_at", due_at, 80), ("timezone", timezone, 80)):
@@ -257,6 +263,7 @@ class DailyMemoryAccessService:
                             "unmarked": "unmarked"}[source_basis],
                     confidence=confidence, reason=audit_reason, preserve_original_text=True,
                     rewrite_receipt=rewrite_receipt,
+                    bound_plan_refs=bound_plan_refs,
                 )
             elif module == "learning_memory":
                 result = component.remember(
@@ -310,5 +317,9 @@ class DailyMemoryAccessService:
                 "id": item_id, "ref": item_ref, "version": item_version,
                 "state_changed": result.get("state_changed") is True,
                 "idempotent_replay": result.get("idempotent_replay") is True,
-                "input_warnings": list(normalized.warnings),
+                "input_warnings": [*normalized.warnings, *(
+                    [{"code": "bound_plans_emotion_only", "field": "bound_plan_refs",
+                      "message": "正文已存入；绑定的 plan 适用于情感记忆，本次其他模块未建立此绑定。"}]
+                    if module != "emotional_memory" and bound_plan_refs else [])],
+                **({"bound_plan_refs": record.get("bound_plan_refs", [])} if module == "emotional_memory" else {}),
                 "message": "已存入 1 条日常记忆；未执行核心自我修改或候选审核。"}

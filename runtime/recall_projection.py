@@ -14,6 +14,50 @@ from typing import Mapping
 PREFIXES = {'emotion': 'E', 'learning': 'L', 'plan': 'P', 'tool-card': 'T'}
 SHORT_REF = re.compile(r'#[ELPT][0-9a-f]{12}\Z')
 
+RELATION_LABELS = {
+    'same_event': '同一事件', 'same_person': '同一人', 'same_place': '同一地点',
+    'continuation_of': '延续自', 'continues': '后续', 'continuation': '延续',
+    'caused_by': '源于', 'causes': '导致', 'cause': '原因', 'consequence': '结果',
+    'related_to': '相关', 'related': '相关', 'custom': '相关',
+    'emotional_echo': '情绪呼应', 'contradiction': '矛盾', 'supports': '支持',
+    'contrast': '对照', 'difference': '差异', 'prerequisite': '前提',
+    'generalizes': '概括', 'specializes': '细化', 'analogy': '类比', 'applies_to': '适用于',
+    'parent': '上级计划', 'dependency': '依赖', 'bound_plan': '绑定',
+    'tool_context': '工具关联', 'learning_context': '学习关联', 'emotional_context': '情感关联',
+    'linked_tool_refs': '工具关联', 'related_refs': '相关',
+}
+
+
+def relation_lines(paths):
+    """Render each edge once; join unbranched edges without repeating the middle ID."""
+    edges, seen = [], set()
+    for path in paths:
+        label = path.get('label') or RELATION_LABELS.get(path['type'], path['type'])
+        edge = (short_ref(path['from_ref']), label, short_ref(path['to_ref']))
+        if edge not in seen:
+            seen.add(edge); edges.append(edge)
+    incoming, outgoing = {}, {}
+    for i, (left, _, right) in enumerate(edges):
+        outgoing.setdefault(left, []).append(i)
+        incoming.setdefault(right, []).append(i)
+    starts = [i for i, (left, _, _) in enumerate(edges)
+              if len(incoming.get(left, [])) != 1 or len(outgoing[left]) != 1]
+    used, lines = set(), []
+    for start in [*starts, *range(len(edges))]:
+        if start in used:
+            continue
+        i, line = start, edges[start][0]
+        while i not in used:
+            used.add(i)
+            _, label, right = edges[i]
+            line += f'—{label}→{right}'
+            next_edges = outgoing.get(right, [])
+            if len(next_edges) != 1 or len(incoming[right]) != 1:
+                break
+            i = next_edges[0]
+        lines.append(line)
+    return lines
+
 
 def short_ref(ref: str) -> str:
     module, separator, identity = ref.partition('://')
@@ -107,11 +151,52 @@ def project_dynamic(dynamic: Mapping, *, include_sources: bool = False) -> dict:
             add(item)
     for item in dynamic.get('emotion_layer', {}).get('memories', []):
         add(item)
+    for item in dynamic.get('associated_recall', {}).get('items', []):
+        add(item)
+        if item.get('state'):
+            ref = short_ref(item['item_ref'])
+            for row in memories:
+                if row['编号'] == ref:
+                    row['状态'] = {'active': '进行中', 'paused': '暂停', 'completed': '完成',
+                                 'abandoned': '放弃', 'archived': '归档'}.get(item['state'], item['state'])
     continuity = dynamic.get('session_continuity', {})
     for item in continuity.get('recent_memories', []):
         add(item)
     if memories:
         output['记忆'] = memories
+    paths = list(dynamic.get('associated_recall', {}).get('paths', []))
+    linked_plans = dynamic.get('emotion_bound_plans', {}).get('items', [])
+    if linked_plans:
+        if 'associated_recall' in dynamic:
+            # Old saved snapshots keep their exact previous model-facing format.
+            output['绑定计划'] = []
+            for item in linked_plans:
+                ref = short_ref(item['item_ref'])
+                # The full bound plan replaces its ordinary summary this turn.
+                memories[:] = [m for m in memories if m['编号'] != ref]
+                state = item['state']
+                row = {'编号': ref, '计划': item['content'], '状态': {
+                    'active': '进行中', 'paused': '暂停', 'completed': '完成',
+                    'abandoned': '放弃', 'archived': '归档',
+                }.get(state['state'], state['state'])}
+                if state.get('progress_summary'):
+                    row['进展'] = state['progress_summary']
+                output['绑定计划'].append(row)
+                paths.extend({'from_ref': source, 'to_ref': item['item_ref'], 'type': 'bound_plan'}
+                             for source in item['source_emotion_refs'])
+            if not memories:
+                output.pop('记忆', None)
+        else:
+            output['情感绑定的计划'] = [
+                {'编号': short_ref(item['item_ref']), '引用': item['item_ref'],
+                 '关联情感': [short_ref(ref) for ref in item['source_emotion_refs']],
+                 '计划': item['content'], '状态': item['state']}
+                for item in linked_plans
+            ]
+    if paths:
+        output['关联'] = relation_lines(paths)
+    if dynamic.get('memory_consolidation_notice'):
+        output['整理提示'] = dynamic['memory_consolidation_notice']['message']
     omitted = dynamic.get('force_recall', {}).get('omitted_count', 0)
     if omitted:
         output['必浮现省略'] = f'{omitted}条未放下，可查询必浮现回执。'

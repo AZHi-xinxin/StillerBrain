@@ -25,6 +25,7 @@ from .execution_binding import assert_bound_execution, expected_execution_wake
 from .lexical_retrieval import LexicalQuery, alias_candidate_score, alias_query_families
 from .lexical_retrieval import explicit_alias_match, prepare_explicit_alias_query
 from . import semantic_retrieval as dense
+from .emotion_plan_bindings import normalize_bound_plan_refs
 
 from .authoring import (
     AuthoringError,
@@ -41,12 +42,12 @@ class EmotionalMemoryError(RuntimeError):
 
 @dataclass(frozen=True)
 class EmotionalLimits:
-    original_chars: int = 2000
-    summary_chars: int = 200
-    max_keywords: int = 24
-    max_entities: int = 24
+    original_chars: int = 1000000
+    summary_chars: int = 64000
+    max_keywords: int | None = None
+    max_entities: int = 100000
     max_secondary_emotions: int = 1
-    max_associations: int = 16
+    max_associations: int = 100000
     max_query_results: int = 50
     max_pins: int = 5
     max_pin_chars: int = 150
@@ -196,17 +197,17 @@ def _json(value: str | None, default: Any) -> Any:
 
 
 def _text(
-    name: str, value: Any, maximum: int, *, preserve_original_text: bool = False,
+    name: str, value: Any, maximum: int | None, *, preserve_original_text: bool = False,
 ) -> str:
     if not isinstance(value, str) or not value.strip():
         raise EmotionalMemoryError(f"{name}_required")
     result = value if preserve_original_text is True else value.strip()
-    if len(result) > maximum:
+    if maximum is not None and len(result) > maximum:
         raise EmotionalMemoryError(f"{name}_too_long")
     return result
 
 
-def _strings(name: str, values: Any, maximum: int, *, item_chars: int = 200) -> list[str]:
+def _strings(name: str, values: Any, maximum: int | None, *, item_chars: int | None = 200) -> list[str]:
     if values is None:
         return []
     if not isinstance(values, list):
@@ -219,7 +220,7 @@ def _strings(name: str, values: Any, maximum: int, *, item_chars: int = 200) -> 
         if key not in seen:
             seen.add(key)
             result.append(item)
-    if len(result) > maximum:
+    if maximum is not None and len(result) > maximum:
         raise EmotionalMemoryError(f"{name}_too_many")
     return result
 
@@ -777,6 +778,11 @@ class EmotionalMemoryStore:
                     "ALTER TABLE emotion_memories "
                     "ADD COLUMN referent_bindings_json TEXT NOT NULL DEFAULT '[]'"
                 )
+            if "bound_plan_refs_json" not in memory_columns:
+                connection.execute(
+                    "ALTER TABLE emotion_memories "
+                    "ADD COLUMN bound_plan_refs_json TEXT NOT NULL DEFAULT '[]'"
+                )
             connection.execute(
                 "UPDATE emotion_module_state SET module_version = 'emotional-memory/2' "
                 "WHERE module_version <> 'emotional-memory/2'"
@@ -832,6 +838,7 @@ class EmotionalMemoryStore:
     @staticmethod
     def _mutable(row: sqlite3.Row) -> dict[str, Any]:
         return {
+            "bound_plan_refs": _json(row["bound_plan_refs_json"], []),
             "summary": row["summary"],
             "primary_emotion": row["primary_emotion"],
             "secondary_emotions": _json(row["secondary_emotions_json"], []),
@@ -867,6 +874,7 @@ class EmotionalMemoryStore:
             ]
         result = {
             "memory_id": row["memory_id"],
+            "bound_plan_refs": _json(row["bound_plan_refs_json"], []),
             "memory_type": row["memory_type"],
             "summary": row["summary"],
             "primary_emotion": row["primary_emotion"],
@@ -1028,12 +1036,12 @@ class EmotionalMemoryStore:
             "context_policy": _enum("context_policy", context_policy, CONTEXT_POLICIES),
             "origin": _enum("origin", origin, ORIGINS),
             "confidence": _optional_confidence(confidence),
-            "keywords": _strings("keywords", keywords, self.limits.max_keywords),
+            "keywords": _strings("keywords", keywords, self.limits.max_keywords, item_chars=None),
             "entities": _strings("entities", entities, self.limits.max_entities),
             "referent_bindings": _referent_bindings(referent_bindings),
             "recall_mode": _enum("recall_mode", recall_mode, RECALL_MODES),
-            "allow_contexts": _strings("allow_contexts", allow_contexts, 16, item_chars=300),
-            "deny_contexts": _strings("deny_contexts", deny_contexts, 16, item_chars=300),
+            "allow_contexts": _strings("allow_contexts", allow_contexts, None, item_chars=300),
+            "deny_contexts": _strings("deny_contexts", deny_contexts, None, item_chars=300),
             "default_decision": _enum(
                 "default_decision", default_decision, DEFAULT_DECISIONS
             ),
@@ -1208,8 +1216,13 @@ class EmotionalMemoryStore:
         reason: str = "我认为这件事值得作为一条长期情感记忆保存。",
         rewrite_receipt: str | None = None,
         preserve_original_text: bool = False,
+        bound_plan_refs: list[str] | None = None,
     ) -> dict[str, Any]:
         expected_execution_wake(owner_id=owner_id, model_id=model_id, explicit=wake_id)
+        try:
+            bound_plan_refs = normalize_bound_plan_refs(bound_plan_refs)
+        except ValueError as exc:
+            raise EmotionalMemoryError(str(exc)) from exc
         if type(preserve_original_text) is not bool:
             raise EmotionalMemoryError("preserve_original_text_invalid")
         self.ensure_state(owner_id=owner_id, model_id=model_id)
@@ -1250,6 +1263,7 @@ class EmotionalMemoryStore:
             self._state_row(connection, owner_id, model_id)
             request_payload = {
                 **fields,
+                "bound_plan_refs": bound_plan_refs,
                 "associations": associations or [],
                 "source_timestamp": source_timestamp,
                 "reason": reason,
@@ -1321,6 +1335,8 @@ class EmotionalMemoryStore:
                     now,
                 ),
             )
+            connection.execute("UPDATE emotion_memories SET bound_plan_refs_json=? WHERE memory_id=?",
+                               (_canonical(bound_plan_refs), memory_id))
             row = self._memory_row(connection, owner_id, model_id, memory_id)
             mutable = self._mutable(row)
             self._insert_version(
@@ -1427,6 +1443,7 @@ class EmotionalMemoryStore:
         if not isinstance(changes, Mapping) or (not changes and not associations):
             raise EmotionalMemoryError("changes_required")
         allowed = {
+            "bound_plan_refs",
             "original_text", "memory_type", "source_timestamp",
             "summary",
             "primary_emotion",
@@ -1498,6 +1515,10 @@ class EmotionalMemoryStore:
             if after["primary_emotion"] in after["secondary_emotions"]:
                 raise EmotionalMemoryError("primary_emotion_repeated_in_secondary")
             after["importance"] = _percent("importance", after["importance"])
+            try:
+                after["bound_plan_refs"] = normalize_bound_plan_refs(after["bound_plan_refs"])
+            except ValueError as exc:
+                raise EmotionalMemoryError(str(exc)) from exc
             after["sensitivity"] = _enum(
                 "sensitivity", after["sensitivity"], SENSITIVITY_LEVELS
             )
@@ -1511,7 +1532,7 @@ class EmotionalMemoryStore:
             after["origin"] = _enum("origin", after["origin"], ORIGINS)
             after["confidence"] = _optional_confidence(after["confidence"])
             after["keywords"] = _strings(
-                "keywords", after["keywords"], self.limits.max_keywords
+                "keywords", after["keywords"], self.limits.max_keywords, item_chars=None
             )
             after["entities"] = _strings(
                 "entities", after["entities"], self.limits.max_entities
@@ -1525,10 +1546,10 @@ class EmotionalMemoryStore:
             )
             after["recall_mode"] = _enum("recall_mode", after["recall_mode"], RECALL_MODES)
             after["allow_contexts"] = _strings(
-                "allow_contexts", after["allow_contexts"], 16, item_chars=300
+                "allow_contexts", after["allow_contexts"], None, item_chars=300
             )
             after["deny_contexts"] = _strings(
-                "deny_contexts", after["deny_contexts"], 16, item_chars=300
+                "deny_contexts", after["deny_contexts"], None, item_chars=300
             )
             after["default_decision"] = _enum(
                 "default_decision", after["default_decision"], DEFAULT_DECISIONS
@@ -1593,6 +1614,8 @@ class EmotionalMemoryStore:
                     expected_memory_version,
                 ),
             )
+            connection.execute("UPDATE emotion_memories SET bound_plan_refs_json=? WHERE memory_id=?",
+                               (_canonical(after["bound_plan_refs"]), memory_id))
             self._insert_version(
                 connection,
                 memory_id=memory_id,
@@ -1665,8 +1688,8 @@ class EmotionalMemoryStore:
         if not isinstance(source_memory_ids, list):
             raise EmotionalMemoryError("source_memory_ids_must_be_array")
         source_ids = list(dict.fromkeys(_text("source_memory_id", item, 200) for item in source_memory_ids))
-        if not 2 <= len(source_ids) <= 20:
-            raise EmotionalMemoryError("integration_requires_2_to_20_sources")
+        if len(source_ids) < 2:
+            raise EmotionalMemoryError("integration_requires_at_least_2_sources")
         fields = self._validate_memory_fields(
             memory_type="integration",
             original_text=original_text,
@@ -1699,6 +1722,9 @@ class EmotionalMemoryStore:
             if any(source["lifecycle"] == "quarantined" for source in sources):
                 raise EmotionalMemoryError("quarantine_restore_required")
             ordered = sorted(sources, key=lambda row: (row["source_timestamp"], row["memory_id"]))
+            from .memory_consolidation import unique
+            fields["keywords"] = unique([*(word for source in sources for word in _json(source["keywords_json"], [])), *fields["keywords"]])
+            inherited_plans = normalize_bound_plan_refs([ref for source in sources for ref in _json(source["bound_plan_refs_json"], [])])
             now = _iso()
             connection.execute(
                 "INSERT INTO emotion_memories "
@@ -1733,6 +1759,7 @@ class EmotionalMemoryStore:
                     now,
                 ),
             )
+            connection.execute("UPDATE emotion_memories SET bound_plan_refs_json=? WHERE memory_id=?", (_canonical(inherited_plans), aggregate_id))
             aggregate = self._memory_row(connection, owner_id, model_id, aggregate_id)
             self._insert_version(
                 connection,

@@ -1,106 +1,114 @@
 {
   "format": "stiller-source-release-state/1",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "release_channel": "stable",
   "distribution": "source-available-stable-release",
   "license": "PolyForm-Noncommercial-1.0.0",
-  "base_public_commit": "1c3bc84cfd470dc9370fa9b3f35336d17cd838ca",
-  "historical_public_state": "source-release-state-0.2.4.json",
-  "implemented_revisions": "AI-managed ten-item keyword force recall; compact recall with short reference reads; free-form self-definition content with retained three-wake activation; direct governance reminder authoring; invalid tool JSON recovery",
+  "base_public_commit": "c3c38c5266ceb14ce7b36c64c330f47a25c2b791",
+  "historical_public_state": "source-release-state-0.2.5.json",
+  "implemented_revisions": "Emotion-bound plans; explicit one-hop associated recall; four-brain timelines and AI-authored consolidation; newest-created recall; open keyword authoring; anonymous atlas links",
   "publication_real_model_calls": 0,
   "publication_live_service_changes": false,
   "production_readiness_certified": false,
   "human_acceptance": {
-    "scope": "Maintainer and their AI verified ten keyword-bound force-recall memories in real conversation on 2026-11-22",
-    "ten_keyword_force_recall_accepted": true,
+    "scope": "Maintainer reported their AI used the current deployed runtime without problems and explicitly authorized stable publication on 2026-11-23",
     "current_deployment_in_use": true,
     "all_clients_models_and_existing_windows_certified": false,
     "private_test_content_published": false
   },
   "database_upgrade": {
     "schema_changed_since_previous_public_release": true,
-    "initialization_adds_columns": [],
-    "existing_memory_rows_rewritten": false,
-    "preserve_private_config_and_identity": true,
-    "stop_writes_and_backup_before_upgrade": true,
-    "upgrade_from_0_2_2_adds_columns": [
-      "brain_context_snapshots.current_tools_json"
+    "initialization_adds_columns": [
+      "emotion_memories.bound_plan_refs_json (default empty list)"
     ],
     "initialization_adds_tables": [
-      "memory_force_recall",
-      "memory_force_recall_history",
-      "memory_force_recall_receipts"
-    ]
+      "memory_consolidations",
+      "memory_consolidation_sources"
+    ],
+    "existing_memory_rows_rewritten": false,
+    "preserve_private_config_and_identity": true,
+    "stop_writes_and_backup_before_upgrade": true
   },
   "automated_regressions_use_synthetic_state": true,
   "frozen_candidate_regression": {
-    "unique_tests": 2879,
-    "passed": 2878,
+    "tests": 2919,
+    "passed": 2918,
     "skipped": 1,
     "failures": 0,
     "errors": 0,
     "groups": [
       {
-        "suite": "runtime",
-        "total": 1034,
-        "passed": 1034,
-        "skipped": 0,
-        "failed": 0,
+        "group": "tests",
+        "tests": 1070,
+        "failures": 0,
         "errors": 0,
-        "seconds": 28.85,
+        "skipped": 0,
+        "seconds": 47.185,
+        "skip_reasons": [],
         "failed_tests": [],
-        "skip_reasons": []
+        "python": "3.12.15 (main, Oct 21 2026, 17:47:06) [Clang 23.1.3 ]",
+        "uid": 1000,
+        "network": "isolated namespace; loopback only",
+        "timestamp": "2026-11-23T06:10:07.061633-08:00"
       },
       {
-        "suite": "mcp",
-        "total": 629,
-        "passed": 629,
-        "skipped": 0,
-        "failed": 0,
+        "group": "mcp_server/tests",
+        "tests": 633,
+        "failures": 0,
         "errors": 0,
-        "seconds": 198.26,
+        "skipped": 0,
+        "seconds": 286.011,
+        "skip_reasons": [],
         "failed_tests": [],
-        "skip_reasons": []
+        "python": "3.12.15 (main, Oct 21 2026, 17:47:06) [Clang 23.1.3 ]",
+        "uid": 1000,
+        "network": "isolated namespace; loopback only",
+        "timestamp": "2026-11-23T06:14:05.662551-08:00"
       },
       {
-        "suite": "gateway",
-        "total": 964,
-        "passed": 963,
+        "group": "rikkahub_gateway/tests",
+        "tests": 964,
+        "failures": 0,
+        "errors": 0,
         "skipped": 1,
-        "failed": 0,
-        "errors": 0,
-        "seconds": 141.58,
-        "failed_tests": [],
+        "seconds": 220.39,
         "skip_reasons": [
           {
             "test": "test_windows_private_acl_real_create_save_and_reopen (rikkahub_gateway.tests.test_route_management.PathGuardTests.test_windows_private_acl_real_create_save_and_reopen)",
             "reason": "Windows DACL and durable replacement test"
           }
-        ]
+        ],
+        "failed_tests": [],
+        "python": "3.12.15 (main, Oct 21 2026, 17:47:06) [Clang 23.1.3 ]",
+        "uid": 1000,
+        "network": "isolated namespace; loopback only",
+        "timestamp": "2026-11-23T06:12:59.193152-08:00"
       },
       {
-        "suite": "packaging",
-        "total": 252,
-        "passed": 252,
-        "skipped": 0,
-        "failed": 0,
+        "group": "packaging_tests",
+        "tests": 252,
+        "failures": 0,
         "errors": 0,
-        "seconds": 2.85,
+        "skipped": 0,
+        "seconds": 8.664,
+        "skip_reasons": [],
         "failed_tests": [],
-        "skip_reasons": []
+        "python": "3.12.15 (main, Oct 21 2026, 17:47:06) [Clang 23.1.3 ]",
+        "uid": 1000,
+        "network": "isolated namespace; loopback only",
+        "timestamp": "2026-11-23T06:09:27.027922-08:00"
       }
     ],
-    "explicit_checks": [
-      "35-second stream enabled in gateway suite",
-      "Two local service smoke cases enabled separately and counted once"
-    ],
-    "python": "3.14.4",
-    "platform": "Linux x86_64; network namespaces with loopback only"
+    "python": "CPython 3.12.15 existing isolated dependency environment",
+    "synthetic_state": true,
+    "real_model_calls": 0,
+    "long_stream_test_enabled": true,
+    "local_service_smoke_enabled": true
   },
   "validation_details": "docs/UPDATE-VALIDATION.md",
   "integrity_manifest": "SOURCE-PACKAGE-MANIFEST.json",
   "core_dependencies_changed": false,
   "github_publication_authorized": true,
   "stable_release_authorized": true,
-  "notes": "Maintainer explicitly requested the accepted deployed runtime as stable 0.2.5. Python source matches the verified main snapshot; version metadata, public release notes and source manifest updated. No production restart or private state publication."
+  "notes": "Stable publication of the accepted L92 delta against the current public main; public configurable routes preserved. No restart of the already-current ST production service, private state publication or real model calls."
 }

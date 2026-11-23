@@ -1,8 +1,8 @@
-"""Explicit owner-scoped relationships; never rewrite or automatically recall a body.
+"""Explicit owner-scoped relationships; following links never rewrites a body.
 
 Endpoint identity survives body revisions. Pair state has its own append-only
 versions, and a disabled pair never resurrects when an old request is retried.
-Only emotion/learning/plan are supported; work memory remains unchanged.
+Emotion, learning, plan and tool-card are supported; work memory stays separate.
 """
 from __future__ import annotations
 
@@ -21,12 +21,12 @@ from .execution_binding import assert_bound_execution, expected_execution_wake
 from .work_memory import ATLAS_TOKEN
 
 CONTRACT = "memory-relations/1"
-REF = re.compile(r"(emotion|learning|plan)://([A-Za-z0-9_-]{1,256})@([1-9][0-9]{0,9})\Z")
+REF = re.compile(r"(emotion|learning|plan|tool-card)://([A-Za-z0-9_-]{1,256})@([1-9][0-9]{0,9})\Z")
 EDGE_REF = re.compile(r"relation://([0-9a-f]{32})@([1-9][0-9]{0,9})\Z")
 TYPES = {"same_event", "continuation_of", "continues", "caused_by", "causes", "related_to", "custom"}
 REVERSE = {"same_event": "same_event", "continuation_of": "continues", "continues": "continuation_of",
            "caused_by": "causes", "causes": "caused_by", "related_to": "related_to", "custom": "custom"}
-SCOPES = {"emotion": "emotional_memory", "learning": "learning_memory", "plan": "planning_memory"}
+SCOPES = {"emotion": "emotional_memory", "learning": "learning_memory", "plan": "planning_memory", "tool-card":"tool_guidance"}
 ITEM_SQL = """CREATE TABLE IF NOT EXISTS memory_relation_items (
     owner_id TEXT NOT NULL, model_id TEXT NOT NULL, relation_id TEXT NOT NULL,
     relation_key TEXT NOT NULL, from_module TEXT NOT NULL, from_id TEXT NOT NULL,
@@ -178,7 +178,7 @@ class MemoryRelationStore:
     def _endpoint(db, scope, endpoint, *, current=False):
         module, identity, version = endpoint
         tables = {"emotion": ("emotion_memories",), "learning": ("learning_items",),
-                  "plan": ("planning_items", "planning_versions")}[module]
+                  "plan": ("planning_items", "planning_versions"), "tool-card": ("tool_cards", "tool_card_versions")}[module]
         for table in tables:
             row = db.execute("SELECT type FROM sqlite_master WHERE name=?", (table,)).fetchone()
             if row is None or row[0] != "table":
@@ -191,6 +191,10 @@ class MemoryRelationStore:
             row = db.execute("SELECT current_version,lifecycle,json_extract(current_json,'$.title') AS title,"
                 "json_extract(current_json,'$.sensitivity') AS sensitivity,kind FROM learning_items "
                 "WHERE owner_id=? AND model_id=? AND learning_id=?", (*scope, identity)).fetchone()
+        elif module == 'tool-card':
+            row = db.execute("SELECT i.current_version,i.lifecycle,json_extract(v.content_json,'$.display_label') AS title,"
+                "'private' AS sensitivity,'tool_guidance' AS kind FROM tool_cards i JOIN tool_card_versions v "
+                "ON v.card_id=i.card_id AND v.version=i.current_version WHERE i.owner_id=? AND i.model_id=? AND i.card_id=?",(*scope,identity)).fetchone()
         else:
             row = db.execute("SELECT i.current_version,i.recall_lifecycle AS lifecycle,"
                 "json_extract(v.content_json,'$.title') AS title,"
@@ -201,7 +205,7 @@ class MemoryRelationStore:
             raise MemoryRelationError("relation_endpoint_unavailable")
         if type(row["current_version"]) is not int or version > row["current_version"] or (current and version != row["current_version"]):
             raise MemoryRelationError("memory_version_conflict")
-        if row["title"] is not None and (not isinstance(row["title"], str) or len(row["title"]) > 120):
+        if row["title"] is not None and (not isinstance(row["title"], str) or len(row["title"]) > 4000):
             raise MemoryRelationError("relation_endpoint_unavailable")
         if (module != "emotion" and row["title"] is None) or not isinstance(row["kind"], str) or len(row["kind"]) > 80:
             raise MemoryRelationError("relation_endpoint_unavailable")
@@ -229,7 +233,7 @@ class MemoryRelationStore:
     def _result(row, *, changed, replay=False):
         return {"decision": "attached" if row["active"] else "detached", "state_changed": changed,
                 "edge_ref": f"relation://{row['relation_id']}@{row['current_version']}",
-                "active": bool(row["active"]), "idempotent_replay": replay, "automatic_recall_eligible": False}
+                "active": bool(row["active"]), "idempotent_replay": replay, "automatic_recall_eligible": bool(row["active"])}
 
     def _replay(self, db, scope, key, operation):
         if key is None:
@@ -359,4 +363,4 @@ class MemoryRelationStore:
                     "type": kind, "label": None if restricted else (row["label"] if forward else row["reverse_label"]),
                     "direction": "outgoing" if forward else "incoming", "stored_at": row["created_at"], **target})
             return {"decision": "read", "state_changed": False, "source_ref": source["target_ref"], "relations": results,
-                    "next_offset": offset + limit if len(rows) > limit else None, "automatic_recall_eligible": False}
+                    "next_offset": offset + limit if len(rows) > limit else None, "automatic_recall_eligible": True}

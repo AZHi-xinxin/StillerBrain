@@ -1,6 +1,6 @@
 {
   "format": "stiller-source-package/1",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "distribution": "source-available-stable-release",
   "files": [
     {
@@ -17,7 +17,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "322ee1360e65cf5d2dce5e73e62bb89327675577ae08b04d897ad93949036bdc"
+      "sha256": "d6ba913926dbfccf5e12fb66455a0f7528d9a249df473a5421a73acb443854b8"
     },
     {
       "path": "COMMERCIAL-LICENSE.md",
@@ -41,7 +41,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "b09e6570ad107213eef4a71bff29062609c5cb95fd44f813d5f0098c60d8eacf"
+      "sha256": "b683e16903e257750ad3931e6647cf209ee678519bc0599d661d6cc7f3ab2351"
     },
     {
       "path": "RELEASE-NOTES-0.2.0-preview.1.md",
@@ -100,6 +100,10 @@
       "sha256": "ca2df0effc26aaea277350fd30d292b5036350d930456a86f45676f9313d6b69"
     },
     {
+      "path": "RELEASE-NOTES-0.2.6.md",
+      "sha256": "898a324b22987c95d6f573f9bf3b0ed4caf77332acb090b60e73799636f977f4"
+    },
+    {
       "path": "RELEASE-NOTES-preview.3.md",
       "sha256": "e3a19379b7dccb2a479d856c5e11901284d029c30607a61e46254bdd3e220aef"
     },
@@ -129,7 +133,7 @@
     },
     {
       "path": "docs/ATLAS.md",
-      "sha256": "ecb8d355297e8af5404d5c92767ee17643f7f7022c2587c9ad7ec64eeb58d744"
+      "sha256": "c928655403c72caa8a121c118733b742e8ff1c60e684f4142fdeed3a04f35c9b"
     },
     {
       "path": "docs/CACHE-TROUBLESHOOTING.md",
@@ -169,7 +173,7 @@
     },
     {
       "path": "docs/GUIDE.md",
-      "sha256": "e91a7a716adf50279f644d12a6832daabecbbedc72509b14a4bae160d8325fd9"
+      "sha256": "e613ddcae18b2ee988583110a2465dcdd131735f08decbaeb5ed76b359886af7"
     },
     {
       "path": "docs/INSTALL.md",
@@ -190,6 +194,10 @@
     {
       "path": "docs/LOCAL_SEMANTIC_RETRIEVAL.md",
       "sha256": "2576feef77d1785931272b56d475a28b869afa9a4e2973c8c17cc35b56b2e0db"
+    },
+    {
+      "path": "docs/MEMORY-CONSOLIDATION.md",
+      "sha256": "0ccc333a9ee2ba080c321f63bb1133668bcbdc331891e8535334cc0ca6d59d31"
     },
     {
       "path": "docs/MEMORY-DECAY-DESIGN.md",
@@ -277,7 +285,7 @@
     },
     {
       "path": "docs/UPDATE-VALIDATION.md",
-      "sha256": "4dc04a9cad382e0ab40580e319a7c3a4378fdfdf1cd3de500850564bbeb04d38"
+      "sha256": "a6eeb16a71019462dc51b2d8af33d01dc28b4aef70e5fb14444d23d7f65ad3c5"
     },
     {
       "path": "docs/assets/stiller-cover.svg",
@@ -321,7 +329,7 @@
     },
     {
       "path": "mcp_server/compact_catalog_schema.py",
-      "sha256": "917874a1805d930405387d6341874abcb29fac13c85ada6725bdbf156b43d506"
+      "sha256": "57baa2390eaa4519ea1e0da36d4d6d23a6525983adc8a52dc0bbbb9a2d673248"
     },
     {
       "path": "mcp_server/compact_tool_dispatch.py",
@@ -337,11 +345,11 @@
     },
     {
       "path": "mcp_server/daily_memory_service.py",
-      "sha256": "33eb4d704ae43b2839e0dc382e98ac47d29441fb886d8022523e1f7614237251"
+      "sha256": "4daed969a789421e104fa2a0b59d4949e8daa997be5b6aa96f595aecc3224c62"
     },
     {
       "path": "mcp_server/daily_revision_service.py",
-      "sha256": "59644b5c8c3dcadbb3278c3ccf6c2254c9019672a0e33437729db29e9b4e2c0e"
+      "sha256": "107d5a8b1c6d14d19628894aa7d9f484dc8324ecf96b22951edb611a5181014f"
     },
     {
       "path": "mcp_server/emotion_layer_service.py",
@@ -353,7 +361,7 @@
     },
     {
       "path": "mcp_server/execution_guard.py",
-      "sha256": "444bc6aee1217653106a559923991ed3748f906d65ec73319126dc29e5f8fd58"
+      "sha256": "070d19e142447b6f3ae243626ac44cdf79473c44ea23d2f3ecdff918df0b4d33"
     },
     {
       "path": "mcp_server/force_recall_service.py",
@@ -373,11 +381,15 @@
     },
     {
       "path": "mcp_server/keyword_arguments.py",
-      "sha256": "a67390a12a739322c20d405e09ee051a4a989e84673486fc3ea434b2772136fd"
+      "sha256": "cee4560617209fb9a6255249d9ef1bd51b2b458d235ef0fde194c3e131a0166c"
     },
     {
       "path": "mcp_server/learning_service.py",
       "sha256": "1d34969de64dd65f564b44cc2781f954e17df245eadfb4e5d50ac9c579ddec49"
+    },
+    {
+      "path": "mcp_server/memory_consolidation_service.py",
+      "sha256": "0ab74dbb0c8e05e1462df140c9061bd739651e9bcd6c533745598d9abc3961ba"
     },
     {
       "path": "mcp_server/memory_desire_service.py",
@@ -413,7 +425,7 @@
     },
     {
       "path": "mcp_server/public_contract.py",
-      "sha256": "6df18bdcf358b3411cf2746643ca504885f99876fbe372fad990292005c7ab42"
+      "sha256": "fc578973cfdb5d6cc30e23dd57e5120e375184116f716b3f047125afb7d1b8dd"
     },
     {
       "path": "mcp_server/requirements.txt",
@@ -425,7 +437,7 @@
     },
     {
       "path": "mcp_server/server.py",
-      "sha256": "30c8b8020f415059d233f30cedfcee4dfe0d8301cda67274c585f77098f52339"
+      "sha256": "db54721c825964870775c108133736ba7231cceb20c1a588a518867a547f9432"
     },
     {
       "path": "mcp_server/service.py",
@@ -477,7 +489,7 @@
     },
     {
       "path": "mcp_server/tests/test_daily_content_only_schema.py",
-      "sha256": "38c9288992af159ace128b59cb45fa604275151503ca24e39cade1ce1aee591e"
+      "sha256": "c9ca92c05bb55f13e9d381a16cd7a053ec80f8f6ae1db5db419e0b10bccb8462"
     },
     {
       "path": "mcp_server/tests/test_daily_memory_during_self_edit.py",
@@ -485,15 +497,15 @@
     },
     {
       "path": "mcp_server/tests/test_daily_memory_ease_transport.py",
-      "sha256": "8b2d4bb12af1c05c72c3a6f2f20db46ffcdac720d80d42f47ef572d6b6280178"
+      "sha256": "42f0efeeaacf2e91c8f6deba185418cc70a2bcaa9c7598d53703bd76b1f7279f"
     },
     {
       "path": "mcp_server/tests/test_daily_memory_service.py",
-      "sha256": "18dc624648babd9879ed4c084e1de2c98816272c63f7b340a26a3b46b865a968"
+      "sha256": "26b741cddd64a76bb07294d4c3c7b6082f901260c462edceb77bec1df9097f5e"
     },
     {
       "path": "mcp_server/tests/test_daily_native_transport.py",
-      "sha256": "02a389ab6e2e0e3868ff5f00bed5ef682dcfc8c28419aeedbbf929f9e7f3312f"
+      "sha256": "f472cc360088e29e5046f0e8fac282a6cdab7a66b82e5dd67295d240f1cf6753"
     },
     {
       "path": "mcp_server/tests/test_emotion_layer_transport.py",
@@ -537,7 +549,7 @@
     },
     {
       "path": "mcp_server/tests/test_keyword_string_compat.py",
-      "sha256": "3dceb7e73a247c441210a74ff9c8a4cc2a4b33ec3e55539f42c852157adb8727"
+      "sha256": "3ba0ef31d3825daa35dfdfac2ccb3fbf392d7b29fb6622bb27c3530a3e00a8fb"
     },
     {
       "path": "mcp_server/tests/test_keyword_type_guidance.py",
@@ -561,7 +573,7 @@
     },
     {
       "path": "mcp_server/tests/test_memory_image_transport.py",
-      "sha256": "a8b0509491ebb46ba032594fd090b3111073bb8f03bb3bc621a5d3058ad9d8c8"
+      "sha256": "f27706cb1efb7715cdcb06956c3ed027d8833e3a67b6a36e28f4db74b3bac4c1"
     },
     {
       "path": "mcp_server/tests/test_memory_image_upload_service.py",
@@ -573,11 +585,11 @@
     },
     {
       "path": "mcp_server/tests/test_memory_relation_transport.py",
-      "sha256": "be05cab1f2dfe4704ef402554280f86cd3723090309ea083d3e939b645cd211d"
+      "sha256": "20c1d9e558fe796e13f9fb7683909a6b9c02e295fac05b8eb3936c793480f6e0"
     },
     {
       "path": "mcp_server/tests/test_native_modules_no_sandbox.py",
-      "sha256": "754563e3e48e6890045490bd9d05f40bc0e93495156e7c5da6e54573c6cc3e7f"
+      "sha256": "ab1bcec31789ff73b66c5b66941bd96cd67bbb467dcf1c41adb14af58113cf72"
     },
     {
       "path": "mcp_server/tests/test_neutral_memory_defaults.py",
@@ -605,7 +617,7 @@
     },
     {
       "path": "mcp_server/tests/test_ordinary_revision_gateway_contract.py",
-      "sha256": "79ee8483ca0ad590febc650b97635b12412e656533a9554d1f4209279cef6f74"
+      "sha256": "b413274b03c19cd867988135f90ef99d1f25d2a758465f7abfa4f778e214fdd4"
     },
     {
       "path": "mcp_server/tests/test_ordinary_tool_candidate_review.py",
@@ -613,11 +625,11 @@
     },
     {
       "path": "mcp_server/tests/test_person_advisory_surface.py",
-      "sha256": "579798b1cc5a035b17aad67228ee5e86dfb99679c3ed946d440bb2a94d2ac78d"
+      "sha256": "ec494f3e6d3e699fc15e22e048934379b06f885a1c0d120226db2862c29fc477"
     },
     {
       "path": "mcp_server/tests/test_person_rewrite_ai_directed.py",
-      "sha256": "4c92769fe68adca3cc3dfc3e98723cbd9ec64f71358767fab33a3afa69ce283a"
+      "sha256": "e8f0f869bc9bf585a8b99e4bfa4c360fc303f7c3fcd0e61d43e93ced554ea40e"
     },
     {
       "path": "mcp_server/tests/test_person_rewrite_field_guidance.py",
@@ -649,7 +661,7 @@
     },
     {
       "path": "mcp_server/tests/test_public_tool_compatibility.py",
-      "sha256": "f1c6c83b8069ebf2de817e2e99b25fb66fbeba8a59834ef96245fd7a5fba5322"
+      "sha256": "22addf7c0c59570f3932a6277fe1bb22d7384fe1d44acc043735db212ce01fad"
     },
     {
       "path": "mcp_server/tests/test_public_tools_v5.py",
@@ -693,7 +705,7 @@
     },
     {
       "path": "mcp_server/tests/test_simple_profile_transport.py",
-      "sha256": "11a59454b1c3cbc82915ffecebec4a96c7e1a3e6f76d230e7f38fe2ca2d52a90"
+      "sha256": "c600f549dbf487cb679192db77ed6602cb5d07b0e2fb01491708cd9de6fc5f26"
     },
     {
       "path": "mcp_server/tests/test_simple_tool_catalog.py",
@@ -701,15 +713,15 @@
     },
     {
       "path": "mcp_server/tests/test_static_module_help.py",
-      "sha256": "02140affed5ca0b622c912095c85fc31a6ccbc267cfbbdc190b64fa691ba4a37"
+      "sha256": "55d68450a825fef68f07a743395c8a630b33d220c2ea8fcc039d5b7c2de72b87"
     },
     {
       "path": "mcp_server/tests/test_tool_catalog.py",
-      "sha256": "b8fdd89f288ba5750ab5c6bf876edd5cd466712ff8fa13bd62d8bc9de1609978"
+      "sha256": "a91bfb9c2dd4e08afd0b789d9d166701f052c76695fa776a2c3b6c56edd095ef"
     },
     {
       "path": "mcp_server/tests/test_tool_catalog_diagnostic_guidance.py",
-      "sha256": "1fa35d7060bf31f8721ea3b303a1ae81655ed05ee12f20544f10be7e683f21be"
+      "sha256": "a6c117e5af911918da41e54cbf77cdfac71bb48d066db3e6ca3a312a63d6cbae"
     },
     {
       "path": "mcp_server/tests/test_tool_catalog_profile.py",
@@ -721,7 +733,7 @@
     },
     {
       "path": "mcp_server/tests/test_tool_description_consistency.py",
-      "sha256": "d3b3143912e979d039032fe4544c3687020ce568d874322ef4eda36cee7c2cfc"
+      "sha256": "13f348c9ded181ec7a2914474aa41d5db7f948049f5f87a8ff42146ea29f6d0f"
     },
     {
       "path": "mcp_server/tests/test_tool_experience_confidence_transport.py",
@@ -729,7 +741,7 @@
     },
     {
       "path": "mcp_server/tests/test_tool_experience_readback.py",
-      "sha256": "670db04585a952d16f35417675ce741b2a59f3660c31972e838b582581491341"
+      "sha256": "3eb39616b36483ea0477d4942c644e116c89034ef611130daa37aec6c42cb28d"
     },
     {
       "path": "mcp_server/tests/test_tool_guidance_service.py",
@@ -749,7 +761,7 @@
     },
     {
       "path": "mcp_server/tests/test_unified_recall_transport.py",
-      "sha256": "d8ff87d84dcb2694f8334987aa56279599cca4ef51ea6a6633f1d9c12e75bdfe"
+      "sha256": "d86fec7c451b3f4c3057284b072401e6958008297e05efa886f6c148b369fb13"
     },
     {
       "path": "mcp_server/tests/test_unified_tool_revision.py",
@@ -757,7 +769,7 @@
     },
     {
       "path": "mcp_server/tests/test_unified_tool_revision_schema.py",
-      "sha256": "b887515c747b5b662fd9cdb05062cbb05547b4eccbe60b2d2097309f3eb10972"
+      "sha256": "fcd0ab689532ed50bbf898189aff6fb32c8ae7a12b09ded500729726016775e1"
     },
     {
       "path": "mcp_server/tests/test_work_memory_service.py",
@@ -765,7 +777,7 @@
     },
     {
       "path": "mcp_server/tests/test_work_memory_transport.py",
-      "sha256": "cf9a7180398aa6e0a07151301257970a5f655bf985c2fbb7fefc4fef26ab007e"
+      "sha256": "f69d47f3f2a83d4e6f238b97d72ccc71b86f837ff84bd982381dfc91bc742214"
     },
     {
       "path": "mcp_server/tool_catalog_profile.py",
@@ -777,11 +789,11 @@
     },
     {
       "path": "mcp_server/unified_recall_service.py",
-      "sha256": "d859a80b6e25274af8cfbb88b5fa021155aac48a94a6cd65dbc2a97e3a7b8451"
+      "sha256": "82c668415b90c9f770cd0615040d27455f5a8708ae78c8e348e333fb25d21f1d"
     },
     {
       "path": "mcp_server/usage_guide.py",
-      "sha256": "b5142c0345532d4969d21c90ab28bf9225af19c2251fc5214487a8962b40d84d"
+      "sha256": "879b6842403e97fc5057dbbbd3b5694f9a10d3fbdbbde93a97ce10a2a53617e2"
     },
     {
       "path": "mcp_server/work_memory_service.py",
@@ -865,7 +877,7 @@
     },
     {
       "path": "packaging_tests/test_operations_local_smoke.py",
-      "sha256": "09dd0f38338badf424e4febda11f5e997fd3314b1b46467068de44ae0cbf8337"
+      "sha256": "5f990291e25655111e73a547946344888ef380fd65e4f46ee0a451950f5aefbf"
     },
     {
       "path": "packaging_tests/test_phone_storage.py",
@@ -901,7 +913,7 @@
     },
     {
       "path": "release-state.json",
-      "sha256": "39ebd7d2d028affce546c0d6106881ef41411b172ac661a47ddc88236422b285"
+      "sha256": "5cf93d1e9d51a582587dfba5fc51a97181d79c4313086b3ef226d1a466bd6f21"
     },
     {
       "path": "requirements-linux-arm64-py312.lock",
@@ -945,7 +957,7 @@
     },
     {
       "path": "rikkahub_gateway/cache_layout.py",
-      "sha256": "eab394232ea0b8054c44500f7dd1fcbf960333559a2a1204565e99ee520150dd"
+      "sha256": "f0d49cb340c79fada3d41d499f701c2a25260f162476689f0c6eb7faca232764"
     },
     {
       "path": "rikkahub_gateway/catalog_diagnostics.py",
@@ -1324,12 +1336,16 @@
       "sha256": "7784c1aca749f509b5d9ccc52410089170535a771194bddfbfb7f6afb756ad37"
     },
     {
+      "path": "runtime/associated_recall.py",
+      "sha256": "b6d5abe94d1c338139cabd89959109114be36e975eb73d45e3467fce077b2f54"
+    },
+    {
       "path": "runtime/atlas_device_grants.py",
       "sha256": "24b8b69d61418993c5448148e646d254281ca4aac3a4670295ffc64deedcb799"
     },
     {
       "path": "runtime/atlas_metadata.py",
-      "sha256": "2ea21cf2dac68fb3c984e87fe24fa5030571eee69a4a774650387776ae0f37ec"
+      "sha256": "9612eb02bd94e44e3ad13d8a9fbe5d6608113bff13e2af5c62c727f4a8f71029"
     },
     {
       "path": "runtime/authoring.py",
@@ -1337,7 +1353,7 @@
     },
     {
       "path": "runtime/compact_tool_routes.py",
-      "sha256": "023213b9680e47304b894a6ba9d5cdde718f893ef36b3edba033df718b59d7a2"
+      "sha256": "e8a97832057f3a3e6db1b51773c6330897d89cc653d54982deafa238658bf587"
     },
     {
       "path": "runtime/credential_guard.py",
@@ -1345,23 +1361,27 @@
     },
     {
       "path": "runtime/daily_memory_input.py",
-      "sha256": "a16ea3fc7c5d558c147aca45fccabbbcc12b52beed98f5042cf61bb3ab89be4e"
+      "sha256": "4e2889cf2569e420533705ae6a8f3da4859f33321950fdbae59c594deae4d2e3"
     },
     {
       "path": "runtime/emotion_layer.py",
       "sha256": "82a26b4499eea75d378c25ca6c582e48e2680e62e8505d51578265e7ef9d91c5"
     },
     {
+      "path": "runtime/emotion_plan_bindings.py",
+      "sha256": "f62f37024b5e4e2a90fcb68bca71b2646296e61bcd7d9851efa362ad2b659e45"
+    },
+    {
       "path": "runtime/emotional_memory.py",
-      "sha256": "5455ef3fed723f7c742e1cfd80423c87abe0aed00bb71c39b4f5b188afa1ea45"
+      "sha256": "790a8abef0916d22d1be1732b5603d278c8d85fface37b9ad823317f934f7f53"
     },
     {
       "path": "runtime/execution_binding.py",
-      "sha256": "c965f95f41864db2f1b8361a7a6e8b87cdd465f8be80436f980be6e2fcf828db"
+      "sha256": "33a7f189b4045521ca7efc0563729515751ea6f3b627fd257759619c1168249b"
     },
     {
       "path": "runtime/execution_profiles.py",
-      "sha256": "8a328bde9653835f67c460d85a91ec4dbb3a13d912a876a3eb68989a8ee3a768"
+      "sha256": "82cb54d2042e67c0da42dc234558ab05cafa24d8ffbaaaa7fd33f53d4f47c97e"
     },
     {
       "path": "runtime/facet_recall.py",
@@ -1389,11 +1409,15 @@
     },
     {
       "path": "runtime/learning_memory.py",
-      "sha256": "b811cf46df45f72b5f6738ac7408481f7412ae40c3d2d4770f436599b7e65033"
+      "sha256": "867c201d740a8d386ddbf92af13ad221fb0792f2a252a68dffe5f58003e15200"
     },
     {
       "path": "runtime/lexical_retrieval.py",
       "sha256": "52a07cde88fc50408ae7e603bc06b7ed861c659fb2987df4459e8a167066b050"
+    },
+    {
+      "path": "runtime/memory_consolidation.py",
+      "sha256": "c5d05baa8ac742625ba27fa839fed0045c4796169ef69f3cdfe68420883d8517"
     },
     {
       "path": "runtime/memory_desires.py",
@@ -1413,7 +1437,7 @@
     },
     {
       "path": "runtime/memory_relations.py",
-      "sha256": "5f718441ad14dca830a55f8ea35de7c8ddf33950beecd3a016be7be6843c285d"
+      "sha256": "7fe8d17faacdd35452863ae88ab3b253b46a9b72ea78977da6878b4f49d19bdb"
     },
     {
       "path": "runtime/mixed_recall.py",
@@ -1421,11 +1445,11 @@
     },
     {
       "path": "runtime/onboarding.py",
-      "sha256": "7069f5c191ae656bf763f0188dd0df93cad7c620c9ae5a38b2170a161ac2eb21"
+      "sha256": "a3f05b938e864f4c4eb217df584b2a9d997b7b2f8402be201bbc7204784ce97f"
     },
     {
       "path": "runtime/ordinary_access.py",
-      "sha256": "dc7944fb5e7c905bee818c46246f9101ef9e0dceead5c86f3712f1345b6fa985"
+      "sha256": "c25d0625880683ac8a45a6c0a009207d1370595ab4842c13765a972fadf360ee"
     },
     {
       "path": "runtime/person_reference_advisory.py",
@@ -1433,11 +1457,11 @@
     },
     {
       "path": "runtime/planning_memory.py",
-      "sha256": "e2a9ffd966db5802c0b7650ca7b7d3e6c3462d655a4b35025d1cc7abe3dc0587"
+      "sha256": "9fbece1dc265e1cfb9f3d9ac62e6594bce5c838d64920642ee8cb8bc07e5c03e"
     },
     {
       "path": "runtime/recall_projection.py",
-      "sha256": "b2b5058dd66379f22ea01c1523fd4fe6b0dbdca5febb180ca66e459e34251e8c"
+      "sha256": "883a2671e6a5954537b2b5c67d2f4138d47b9eb58b26c37a5b4d389569bd829b"
     },
     {
       "path": "runtime/reminder_excerpt.py",
@@ -1469,7 +1493,7 @@
     },
     {
       "path": "runtime/tool_guidance.py",
-      "sha256": "6bd41bb89d7cdc842519b39495a836d2a30b780ea5624585e90db41c9b255c33"
+      "sha256": "96cd8385db17acf8dc90eed93eb9b0a7fa7e9100a18b60c9df74fec987186154"
     },
     {
       "path": "runtime/work_memory.py",
@@ -1477,7 +1501,7 @@
     },
     {
       "path": "schemas/emotional-memory.schema.json",
-      "sha256": "9e7c26001ece6158e0fb5419880afd211a63db39c4c9b981edc526a8ab4b5515"
+      "sha256": "a5de46e6199d890d9e7f7ab240c4e60c08b872d66c98eea4f7025d4f9cc63861"
     },
     {
       "path": "schemas/gate-decision.schema.json",
@@ -1497,7 +1521,7 @@
     },
     {
       "path": "schemas/learning-memory.schema.json",
-      "sha256": "82085aca6d6976a01d140a83b5577bb85ce54e75f020edaa43bdb0853fcb2786"
+      "sha256": "63b720e63f6c075c1b2e88e4b71cebea7f0299fb49ff4d1cc0a9a4897be2b840"
     },
     {
       "path": "schemas/memory-record.schema.json",
@@ -1505,7 +1529,7 @@
     },
     {
       "path": "schemas/planning-memory.schema.json",
-      "sha256": "7467143e894bdfa89bc917389212421fcdf323a671c6b27aaf1c7bb02167a1fc"
+      "sha256": "36458f4e64a28bdea655728eef0c17c8e7b8919049e14eb8e2d1908b3b941161"
     },
     {
       "path": "schemas/self-governance-profile.schema.json",
@@ -1525,7 +1549,7 @@
     },
     {
       "path": "schemas/tool-guidance.schema.json",
-      "sha256": "934f86d88230c351bb4ddf0b7908909ded2b6fa96194d543f1e706ffbf9b5e29"
+      "sha256": "d5d08fb544cfeadef14d2cdde3524b1a6bb89c957bbd8962b6e89ee427f4983a"
     },
     {
       "path": "scripts/atlas_config.py",
@@ -1644,12 +1668,16 @@
       "sha256": "45d0d65def9197a19df2d55df5a5a4c3d96907799d99abadb6fc368304dbf0be"
     },
     {
+      "path": "source-release-state-0.2.5.json",
+      "sha256": "df84b8b1f9432dd5cd894140d37d09b438c5714748de2634add27c08e59dc947"
+    },
+    {
       "path": "source-release-state-preview.5.json",
       "sha256": "5f21cbf24d9d098a1ee1522268d5763e179958a48fa638eb2a162e9cb5848ab7"
     },
     {
       "path": "source-release-state.json",
-      "sha256": "df84b8b1f9432dd5cd894140d37d09b438c5714748de2634add27c08e59dc947"
+      "sha256": "ac81bb045654910e46edbc55df3c3ced760898e24cf2fd1b95bdaf97c0834b60"
     },
     {
       "path": "tests/__init__.py",
@@ -1676,12 +1704,16 @@
       "sha256": "1bf21c58dac914f45694e3a75834c1baf3b1397ad1a8f2a02147a19a4233b947"
     },
     {
+      "path": "tests/test_associated_recall.py",
+      "sha256": "81ffb9d1a271d03bcadd40e17a18edb56e3b18dd8ceff8375eed383754617854"
+    },
+    {
       "path": "tests/test_atlas_device_grants.py",
       "sha256": "0bd5018ed8456d7d793f8bf41d9a3e67e8b067aedc454c47899f26f176b94736"
     },
     {
       "path": "tests/test_atlas_metadata.py",
-      "sha256": "53ca18f032656dd8d735fc93434e9fbd35281b60a764c4905c7329e7d6bfe34a"
+      "sha256": "b4a5d327e8eb3cf415f97f4d1cfc93d625c11103043807746907c31a91d76f4d"
     },
     {
       "path": "tests/test_authoring.py",
@@ -1705,11 +1737,11 @@
     },
     {
       "path": "tests/test_daily_memory_input.py",
-      "sha256": "aa4128c7190bb5224769b2b8b47543ec531ec61208f8f3806f02357688f2015e"
+      "sha256": "912c5e667e2e60e9037cb09199ce181bc51404a24d1eee673e9129fe09fb5ddd"
     },
     {
       "path": "tests/test_daily_revision_r4h34.py",
-      "sha256": "5b1f393b28d62fac6bb4dcf3b25324ee1e39a622a6c8118761e734d21de87a87"
+      "sha256": "3a406c9b5864956d34e3ced2bd56c49fe7a0050ed12b00103f0f75f268d92309"
     },
     {
       "path": "tests/test_daily_text_preservation.py",
@@ -1726,6 +1758,10 @@
     {
       "path": "tests/test_dynamic_tools_runtime.py",
       "sha256": "8574b475533a31b0e57048fa06745e8e51894a6bb726b1b2b0942892b276cf4d"
+    },
+    {
+      "path": "tests/test_emotion_plan_bindings.py",
+      "sha256": "837627863a641dc6123ac777c5ab41b2132b3f1f2e8b0da1fa0c4fbedcdbad5c"
     },
     {
       "path": "tests/test_emotional_memory.py",
@@ -1790,6 +1826,10 @@
     {
       "path": "tests/test_learning_scene_boundaries.py",
       "sha256": "ea200b877c93931b00c2b527bbaa310f5b5692658c2d10be15e45ce8cf438369"
+    },
+    {
+      "path": "tests/test_memory_consolidation.py",
+      "sha256": "376de568c072c3c6ceb79f675f714f6e2fd451d3d2f9dcc5cc1126f45ab81e15"
     },
     {
       "path": "tests/test_memory_desire_pins.py",
@@ -1857,7 +1897,7 @@
     },
     {
       "path": "tests/test_planning_daily_revision_r4h34.py",
-      "sha256": "b597b7be5faf04214727c04f7a4ff6a915a6dd53db1ad2b9f440085fd52f3a6d"
+      "sha256": "b94140cb38165b4376c53542fd681b3c66c902d346c25ff8c595184c5640d3fc"
     },
     {
       "path": "tests/test_planning_direct_general7808.py",
@@ -1869,7 +1909,7 @@
     },
     {
       "path": "tests/test_planning_ordinary.py",
-      "sha256": "ca3196d2b85d2453ef9e09a4ca2dab9a34ff8a1640f000041eaf8e487a5cef0c"
+      "sha256": "edd78ff0a3c9f1744b272bfad887943adb5809713bede3aaaddfa3322d2d3b9a"
     },
     {
       "path": "tests/test_planning_persistent_r4h34.py",
@@ -1885,7 +1925,7 @@
     },
     {
       "path": "tests/test_recall_projection.py",
-      "sha256": "8d5e67c3af5a5a8c6954b3d04c98e0341a93a4698b2f78d213581f9ef7f96ca6"
+      "sha256": "9bb8b016d89dce02c5118464f2e8b49725cde23cfe93a2ce37c6cd4801ef2f94"
     },
     {
       "path": "tests/test_reminder_excerpt_boundaries.py",
@@ -1929,7 +1969,7 @@
     },
     {
       "path": "tests/test_st_entry_help_r4h38.py",
-      "sha256": "d5348167451aa2120f12187850184d50c0c297c98a6e25fda21a09dbf85bd404"
+      "sha256": "762187e582bbd8a6b304d84d835dd203ff85d2d56ca063ee0fda75b322944fba"
     },
     {
       "path": "tests/test_tail_context_v2_runtime.py",
@@ -1965,7 +2005,7 @@
     },
     {
       "path": "tests/test_usage_consistency_r4h34.py",
-      "sha256": "53cf5aa36192cb3be648568857f342b6ce26b3a0661afd485f1bf2e65907662c"
+      "sha256": "52ff55fea5acc447722b85cfeebbe7c5469cbaa63d3f667597b7aecb95d39825"
     },
     {
       "path": "tests/test_work_memory.py",

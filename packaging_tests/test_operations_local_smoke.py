@@ -75,8 +75,8 @@ class LocalServicesSmokeTests(unittest.TestCase):
         self.request("MCP", "/mcp", {"jsonrpc": "2.0", "method": "notifications/initialized"}, "STBRAIN_MCP_TOKEN")
         tools = self.request("MCP", "/mcp", {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}, "STBRAIN_MCP_TOKEN")
         names = {tool["name"] for tool in tools["result"]["tools"]}
-        self.assertEqual(60, len(names))
-        self.assertIn("memory_force_recall", names)
+        self.assertEqual(62, len(names))
+        self.assertTrue({"memory_force_recall", "memory_timelines", "merge_memories"} <= names)
         self.assertIn("memory_desires", names)
         self.assertTrue({"emotion_list", "emotion_manage", "memory_emotions"} <= names)
         self.assertIn("stage_memory_image_upload", names)

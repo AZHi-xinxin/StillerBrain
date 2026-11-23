@@ -14,6 +14,7 @@ ACTIVE_PROFILE = "consultation-active-readonly"
 ARCHIVING_PROFILE = "consultation-archiving"
 CONSULTATION_PROFILES = (ACTIVE_PROFILE, ARCHIVING_PROFILE)
 READ_TOOLS = frozenset({
+    "memory_timelines",
     "read_memory_relations", "recall_work_memory", "query_self_model",
     "recall_emotional_memory", "recall_learning_memory", "preview_learning_recall",
     "recall_tool_guidance", "query_self_governance_profile",

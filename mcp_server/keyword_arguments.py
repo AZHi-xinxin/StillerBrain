@@ -12,7 +12,6 @@ from typing import Any, Mapping
 from runtime.credential_guard import contains_credential_or_secret
 
 
-MAX_KEYWORD_STRING = 32_768
 _SEPARATORS = re.compile(r"\r\n|[,，、;；\r\n]")
 _NESTED_TOOLS = frozenset({"revise_memory", "revise_planning_memory"})
 
@@ -22,8 +21,6 @@ class KeywordCredentialError(ValueError):
 
 
 def _keyword_list(value: str) -> list[str]:
-    if len(value) > MAX_KEYWORD_STRING:
-        raise ValueError("keyword_string_too_long")
     # Keep complete assignment/reference context before delimiter splitting.
     if contains_credential_or_secret(value):
         raise KeywordCredentialError("credential_or_secret_detected")
@@ -48,7 +45,7 @@ def _keyword_list(value: str) -> list[str]:
             raise ValueError("keyword_empty_item")
     if contains_credential_or_secret(result):
         raise KeywordCredentialError("credential_or_secret_detected")
-    # Runtime keeps the existing per-tool count/length limits and semantics.
+    # Runtime validates array items without keyword count/length ceilings.
     # In particular, do not truncate, deduplicate, sort or split array elements.
     return result
 

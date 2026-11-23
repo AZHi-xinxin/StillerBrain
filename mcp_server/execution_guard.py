@@ -10,6 +10,7 @@ from runtime.execution_binding import (
 from .daily_revision_service import parse_revision_target
 
 READ_ONLY_TOOLS = frozenset({
+    "memory_timelines",
     "list_memory_images", "read_memory_image",
     "read_memory_relations",
     "recall_work_memory",
@@ -18,6 +19,7 @@ READ_ONLY_TOOLS = frozenset({
     "query_injection_control", "recall_planning_memory", "open_hallucination_vault",
 })
 _DIRECT_SCOPES = {
+    "merge_memories": "memory_consolidation",
     'emotion_list': 'emotion_layer', 'emotion_manage': 'emotion_layer',
     **dict.fromkeys(("attach_memory_relation", "detach_memory_relation"), "memory_relations"),
     **dict.fromkeys(("remember_work_memory", "revise_work_memory"), "learning_memory"),

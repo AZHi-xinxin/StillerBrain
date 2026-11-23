@@ -79,7 +79,7 @@ _DESCRIPTIONS = {
 
 _FIELD_DESCRIPTIONS = {
     "remember_memory": {
-        "content": "唯一必填：1–2000字原文，原样保存，不自动截断或改写。",
+        "content": "唯一必填：1–1000000字原文，原样保存，不自动截断或改写。",
         "module": "默认 auto（也可省略、null或空）：按明确字段线索选模块；可指定 emotional_memory / learning_memory / planning_memory。",
         "source_basis": "observed=亲历/观察；reported=转述；inferred=推断；unmarked=未标注。",
         "confidence": "AI 自填0–100；省略或 null 为未标注。",
@@ -96,7 +96,7 @@ _FIELD_DESCRIPTIONS = {
         "tag": "可选检索标签；省略用“随手记”，显式标签需1–160字符。",
     },
     "remember_tool_guidance": {
-        "scenario_tags": "自然场景词句，如 [\"回家了\",\"到家了\"]；每项1–128字符，最多16项。",
+        "scenario_tags": "自然场景词句，如 [\"回家了\",\"到家了\"]；每项1–128字符，不限制条数。",
         "tool_name": "工具或 MCP 服务的名称，可绑定服务级大名字。",
         "confidence": "由 AI 自填0–100；不代表独立核验或真实执行权限。",
         "expires_at": "可选带时区 ISO 时间；省略/null 无固定到期。",

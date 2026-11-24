@@ -1,4 +1,4 @@
-# 生成前记忆注入网关
+# StillerBrain 网关
 
 0.2 提供内存短期交接、`ST_SOURCE_V1` 来源变化说明及无记忆辅助模型；本次更新补充多模型路由、可选人类路由管理、非人类消息来源标记及独立工具尾段预算。配置、会话请求头、客户端快速模型选择和合成验收见 [短期换窗指南](../docs/SHORT-TERM-MEMORY.md)。短期功能本身不增加 MCP 工具，不监视屏幕，也不等于所有前端已适配。
 
@@ -121,7 +121,7 @@ Orbis 的本机记忆、身体资料需由配套客户端用标准消息名称 `
 推荐先按 [GUIDE](../docs/GUIDE.md) 配置独立空白实例，再通过 [OPERATIONS](../docs/OPERATIONS.md) 启动。私有环境已经加载时可运行：
 
 ```powershell
-python -m rikkahub_gateway.server
+python -m stillerbrain_gateway.server
 ```
 
 常用配置示例：

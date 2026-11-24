@@ -11,7 +11,7 @@ import sys
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
-COMPONENTS = {"mcp": "mcp_server.server", "control": "mcp_server.control_server", "gateway": "rikkahub_gateway.server"}
+COMPONENTS = {"mcp": "mcp_server.server", "control": "mcp_server.control_server", "gateway": "stillerbrain_gateway.server"}
 SECRET_KEYS = ("STBRAIN_MCP_TOKEN", "STBRAIN_WAKE_SECRET", "STBRAIN_HOST_TOKEN", "STBRAIN_HUMAN_TOKEN", "STBRAIN_GATEWAY_TOKEN")
 DB_KEYS = ("STBRAIN_DB_PATH", "STBRAIN_LEARNING_IDEA_DB_PATH", "STBRAIN_HALLUCINATION_VAULT_DB_PATH")
 

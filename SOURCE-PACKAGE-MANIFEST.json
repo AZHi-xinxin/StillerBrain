@@ -41,7 +41,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "6b496eb6b5da85ad63ca93d29454dcff819eb42665bd5099ba35c2d5c4f31940"
+      "sha256": "12435e712e8b089994f0023547f189ac7ddc2148d06c12303ee0a16de644eb89"
     },
     {
       "path": "RELEASE-NOTES-0.2.0-preview.1.md",
@@ -864,6 +864,10 @@
       "sha256": "b7575c4829f457e63ec483074b7d529696d27325422fab901d88696fda625a9f"
     },
     {
+      "path": "packaging_tests/test_gateway_entrypoints.py",
+      "sha256": "db86763f55017c639df616b3d7b632840035ab65b6a9b2836aaf473534e5e08e"
+    },
+    {
       "path": "packaging_tests/test_install_phone.py",
       "sha256": "d453b978f5b593c0e417187ba0f78991869593c14f9a581586b1491110351df1"
     },
@@ -941,7 +945,7 @@
     },
     {
       "path": "rikkahub_gateway/README.md",
-      "sha256": "fe66b5396c5cd8df780f09bde24bd8a1446ba6928402101274078468c78bfbab"
+      "sha256": "0d9c69a0a83a12da6a72301e3b467cebb902d9e524db94becdb9675f3d8f966a"
     },
     {
       "path": "rikkahub_gateway/ROUTE_MANAGEMENT.md",
@@ -1001,7 +1005,7 @@
     },
     {
       "path": "rikkahub_gateway/server.py",
-      "sha256": "e7af4dab99ba0ebd2b2e24786da7e32d3ba868612184077bd503c37dea4e14c9"
+      "sha256": "7a9e83471e8afa842bf190a3ab6ee19b2784ecd14ebe08df2bec4d87d356586e"
     },
     {
       "path": "rikkahub_gateway/short_term.py",
@@ -1609,7 +1613,7 @@
     },
     {
       "path": "scripts/run_component.py",
-      "sha256": "e743093b4dc144e5222a2191149ebdd05b68c971d2a7c4bd86804599844d2fb4"
+      "sha256": "6ffc242e39e1232c5f1fad6d620b9ada2864e295648594fc7d28ad1d7a3b1234"
     },
     {
       "path": "scripts/stiller_ops.py",
@@ -1686,6 +1690,22 @@
     {
       "path": "source-release-state.json",
       "sha256": "089b8808631de3490e382a77f819a4507321a8295d84cb2fd5ea0e05c7534494"
+    },
+    {
+      "path": "stillerbrain_gateway/README.md",
+      "sha256": "c20475cb00ac0b22fbc4ecd11f8fef9fa630837ef29a0105c8cce68294b726d7"
+    },
+    {
+      "path": "stillerbrain_gateway/__init__.py",
+      "sha256": "85ba0f1939b4bd0d82c8ebf9339a4ac7aacb2b826b5dc3a81e8be7727d759136"
+    },
+    {
+      "path": "stillerbrain_gateway/__main__.py",
+      "sha256": "917c0647487823fd4176a4efd5857a7fce8d2ccd4ec2e91b3911027cf73d38f8"
+    },
+    {
+      "path": "stillerbrain_gateway/server.py",
+      "sha256": "891da9f8e693e37e9b55bba15dc3119dd75feade05974deff93d72eccc3cf5a9"
     },
     {
       "path": "tests/__init__.py",

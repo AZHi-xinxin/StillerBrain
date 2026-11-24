@@ -285,7 +285,7 @@ python3.12 -B scripts/install_stiller.py
 
 ### 正在开发宿主适配
 
-单独连接 MCP 可以主动查询和调用记忆工具；生成前自动浮现需要网关或等价宿主能力。完整接入按协议传递真实轮次、上下文快照和工具结果，参见 [架构](docs/ARCHITECTURE.md) 与 [网关说明](rikkahub_gateway/README.md)。
+单独连接 MCP 可以主动查询和调用记忆工具；生成前自动浮现需要网关或等价宿主能力。完整接入按协议传递真实轮次、上下文快照和工具结果，参见 [架构](docs/ARCHITECTURE.md) 与 [StillerBrain 网关](stillerbrain_gateway/README.md)。
 
 ## 当前状态与后续方向
 

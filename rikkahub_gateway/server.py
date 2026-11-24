@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OpenAI-compatible RikkaHub gateway with authenticated ST context injection.
+"""StillerBrain gateway with OpenAI-compatible, authenticated context injection.
 
 The gateway is a host adapter, not an LLM and not an MCP server.  It opens a
 real ST wake for a new user turn and confirms either the legacy exact message
@@ -5125,7 +5125,8 @@ class _GatewayHandler(BaseHTTPRequestHandler):
                 self._json(exc.status, exc.payload())
             return
         if route == "/health":
-            self._json(200, {"ok": True, "service": "stiller-rikkahub-gateway"})
+            self._json(200, {"ok": True, "service": "stillerbrain-gateway",
+                             "display_name": "StillerBrain 网关"})
             return
         headers = _normalize_headers(dict(self.headers.items()))
         if not self.app.authorized(headers):

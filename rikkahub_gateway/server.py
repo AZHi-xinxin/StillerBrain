@@ -43,6 +43,7 @@ from .atlas import AtlasGateway, handle_atlas_request
 from .routes import GatewayRoute, MAX_EXTRA_ROUTES, routes_from_env, validate_route
 from .reasoning_control import apply_upstream_reasoning_control
 from .responses_adapter import ResponsesAdapter, ResponsesTurnState
+from .google_stream import GoogleStreamResponse, is_google_chat_route, google_chat_payload
 from .protocol_diagnostics import normalize_protocol_diagnostic, protocol_error_detail
 from .cache_layout import (USER_DATA_CONTEXT_LAYOUT_CONTRACT, USER_DATA_RULE,
                            apply_user_data_layout, append_host_data,
@@ -3887,22 +3888,36 @@ class GatewayApplication:
     @contextmanager
     def upstream_stream(self, route: GatewayRoute, *, content, timeout=None, responses_state=None):
         adapter = None
+        google_stream = False
+        if is_google_chat_route(route):
+            payload = json.loads(content)
+            google_stream = payload.get("stream") is True
+            adapted = google_chat_payload(payload)
+            if adapted is not payload:
+                content = json.dumps(adapted, ensure_ascii=False, separators=(",", ":")).encode()
+        def wrap(response):
+            if adapter is not None:
+                return adapter.wrap(response)
+            if google_stream:
+                return GoogleStreamResponse(response, _SSEEventBuffer(max_event_bytes=32 * 1024 * 1024),
+                                            _parse_sse_event)
+            return response
         if route.api_mode == "responses":
             adapter = ResponsesAdapter(json.loads(content), responses_state, upstream_limits_only=self.config.upstream_limits_only)
             content = json.dumps(adapter.request(), ensure_ascii=False, separators=(",", ":")).encode()
-        if route.api_mode == "responses" and route.proxy_url:
+        if route.proxy_url:
             with httpx.Client(proxy=route.proxy_url, timeout=timeout or self.config.timeout_seconds,
                               trust_env=False, follow_redirects=False) as proxy_client:
-                with proxy_client.stream("POST", route.completion_url, headers={
-                        "Authorization": "Bearer " + route.api_key, "Content-Type": "application/json"},
+                with proxy_client.stream("POST", route.completion_url,
+                        headers=self.upstream_headers(route),
                         content=content) as response:
-                    yield adapter.wrap(response)
+                    yield wrap(response)
             return
         if route.managed:
             try:
                 with managed_stream(route, content=content,
                                     timeout=timeout or self.config.timeout_seconds) as response:
-                    yield adapter.wrap(response) if adapter is not None else response
+                    yield wrap(response)
             except ManagementError:
                 raise GatewayError(502, "upstream_unavailable") from None
         else:
@@ -3911,7 +3926,7 @@ class GatewayApplication:
                 arguments["timeout"] = timeout
             with self.upstream.stream("POST", self.upstream_url(route), headers=self.upstream_headers(route),
                                       **arguments) as response:
-                yield adapter.wrap(response) if adapter is not None else response
+                yield wrap(response)
 
     def upstream_headers(self, route: GatewayRoute | None = None) -> dict[str, str]:
         return {

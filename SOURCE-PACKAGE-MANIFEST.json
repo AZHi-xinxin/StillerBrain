@@ -1,6 +1,6 @@
 {
   "format": "stiller-source-package/1",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "distribution": "source-available-stable-release",
   "files": [
     {
@@ -17,7 +17,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "5f7d02d167b588b03518cc3078b1c602b48b3cd0d3473da4a659caf21e5a5d49"
+      "sha256": "4c64077d7a5af4494863921d2c77966db5c85f6b35f951daef699526157b26f1"
     },
     {
       "path": "COMMERCIAL-LICENSE.md",
@@ -41,7 +41,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "12435e712e8b089994f0023547f189ac7ddc2148d06c12303ee0a16de644eb89"
+      "sha256": "ea3555149657a834fdcb2eae83e44c007e248a59ad0b4b30c7e13b7b9672175e"
     },
     {
       "path": "RELEASE-NOTES-0.2.0-preview.1.md",
@@ -106,6 +106,10 @@
     {
       "path": "RELEASE-NOTES-0.2.7.md",
       "sha256": "9ab4b691266493efc18f34f9d3d7ae2aa7c054f5b13427c6f66f2c4a805bde6b"
+    },
+    {
+      "path": "RELEASE-NOTES-0.2.8.md",
+      "sha256": "fede0badf1cd5a9bc12756fb4977e7a15bd3bc4122e34711ebb65062694d47a0"
     },
     {
       "path": "RELEASE-NOTES-preview.3.md",
@@ -174,6 +178,10 @@
     {
       "path": "docs/GATEWAY-UPDATE-20261107.md",
       "sha256": "8f2e7edd52cfa6a7733efd51db3caa83299e7242ef1d0e218f6810bb6ac059f8"
+    },
+    {
+      "path": "docs/GEMINI-COMPATIBILITY.md",
+      "sha256": "ec8861fa59df8f0a5b1bec847cb56d2473b70e4f6b2be3cd3ecd12dd31492242"
     },
     {
       "path": "docs/GUIDE.md",
@@ -289,7 +297,7 @@
     },
     {
       "path": "docs/UPDATE-VALIDATION.md",
-      "sha256": "e8e293d9e4b66657956348f9545a7849c333da351c5a79e1ba6f2c7a2015920a"
+      "sha256": "3608df9588389c279bb9b9c06e6b947d4d77cbc7b65c10e955acf192adf7b187"
     },
     {
       "path": "docs/assets/stiller-cover.svg",
@@ -921,7 +929,7 @@
     },
     {
       "path": "release-state.json",
-      "sha256": "8bb3d910be2fa6ee1359ec4c659a3dbe94ee37d8cfe5d992b4d9d99d270f01a3"
+      "sha256": "437e9bb473e2667455e527ed96aef25568d809216884df586580417a076b75bc"
     },
     {
       "path": "requirements-linux-arm64-py312.lock",
@@ -976,6 +984,10 @@
       "sha256": "ad3f85f2014ab3d6fc667380cff2522afb7e814be0b025fa8d50624bd32e77d3"
     },
     {
+      "path": "rikkahub_gateway/google_stream.py",
+      "sha256": "33a22a814ddf1c40b58848518d5793f768d7928fd89be5ead975cc1b5595dd20"
+    },
+    {
       "path": "rikkahub_gateway/image_files.py",
       "sha256": "04ae0f191fdf1165654fe0fdad7e06c9a5c8e01fe868e31927b2bfbb0b996ab9"
     },
@@ -989,7 +1001,7 @@
     },
     {
       "path": "rikkahub_gateway/reasoning_control.py",
-      "sha256": "6b4dcdf73b99a60274077ec9537b65fd3d6e49462e47844eae2fe5ef660352e4"
+      "sha256": "c9fbc973f6c495d0b72291cb687fac7ec84eb4251324020b9310eaea03b0069c"
     },
     {
       "path": "rikkahub_gateway/responses_adapter.py",
@@ -1005,7 +1017,7 @@
     },
     {
       "path": "rikkahub_gateway/server.py",
-      "sha256": "7a9e83471e8afa842bf190a3ab6ee19b2784ecd14ebe08df2bec4d87d356586e"
+      "sha256": "2afb23a42283e5105705e405c0788a61f14803194f300dfd2187242e28f09dfa"
     },
     {
       "path": "rikkahub_gateway/short_term.py",
@@ -1244,6 +1256,14 @@
       "sha256": "eb9d02fa61d633d05cff7c8f5064424f6dea8842a30691601139128f8b9993af"
     },
     {
+      "path": "rikkahub_gateway/tests/test_google_gateway_source_boundary.py",
+      "sha256": "5a10a80fa5ec789ac04d1b5ffdd2da15a25f5389f63b0027c979dfc4a245f302"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_google_stream.py",
+      "sha256": "b9d38030d4d6291646e98ba0bf2d34924b0e2bd2183986a188f8e13130edb408"
+    },
+    {
       "path": "rikkahub_gateway/tests/test_image_files.py",
       "sha256": "707c67890ad4e2dee11ff6f28ead5e7c19de643839837dc32045ec32c39fd4c5"
     },
@@ -1254,6 +1274,10 @@
     {
       "path": "rikkahub_gateway/tests/test_manual_routes.py",
       "sha256": "9aa9bee80cda066fa87a78e4b28614f253d440aa45ab3d976e4a1784e68d4ab3"
+    },
+    {
+      "path": "rikkahub_gateway/tests/test_operator_proxy_routes.py",
+      "sha256": "c259d0e04f38345d25f5fc7d817971c48a8a0f314c463bef9467e46ea7777d11"
     },
     {
       "path": "rikkahub_gateway/tests/test_orbis_body_wire.py",
@@ -1285,7 +1309,7 @@
     },
     {
       "path": "rikkahub_gateway/tests/test_reasoning_control.py",
-      "sha256": "d76485ff42f86622cd5d454520878d531b5f72d3eee06c68e2b163d8843d56ba"
+      "sha256": "b05b371f82477bcd71921d875d71879192e5b6e3668c7fa284dd2f6ed39dc999"
     },
     {
       "path": "rikkahub_gateway/tests/test_request_message_digests.py",
@@ -1684,12 +1708,16 @@
       "sha256": "ac81bb045654910e46edbc55df3c3ced760898e24cf2fd1b95bdaf97c0834b60"
     },
     {
+      "path": "source-release-state-0.2.7.json",
+      "sha256": "089b8808631de3490e382a77f819a4507321a8295d84cb2fd5ea0e05c7534494"
+    },
+    {
       "path": "source-release-state-preview.5.json",
       "sha256": "5f21cbf24d9d098a1ee1522268d5763e179958a48fa638eb2a162e9cb5848ab7"
     },
     {
       "path": "source-release-state.json",
-      "sha256": "089b8808631de3490e382a77f819a4507321a8295d84cb2fd5ea0e05c7534494"
+      "sha256": "d4f70e0b0326ad63344a9fabac94401eb07452ffeb1854894e81ea6b5195f8ec"
     },
     {
       "path": "stillerbrain_gateway/README.md",

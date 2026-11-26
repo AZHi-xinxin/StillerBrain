@@ -165,5 +165,49 @@ class ReasoningControlTests(unittest.TestCase):
         self.assertEqual("auto", wire["tool_choice"])
 
 
+    def test_argon_summary_on_main_and_auxiliary_uses_native_levels_without_changing_source(self):
+        route = GatewayRoute("argon-alias", "https://generativelanguage.googleapis.com/v1beta/openai",
+                             "gemini-4-argon", "synthetic-key")
+        for stream in (True, False):
+            for auxiliary in (True, False):
+                for effort in (None, "low", "medium", "high"):
+                    app = self.app(extra_routes=(route,))
+                    extra = {} if effort is None else {"reasoning_effort": effort}
+                    sent = self.post(app, model=route.auxiliary_model if auxiliary else route.public_model,
+                                     stream=stream, **extra)
+                    thinking = sent["extra_body"]["google"]["thinking_config"]
+                    self.assertTrue(thinking["include_thoughts"])
+                    self.assertEqual(effort, thinking.get("thinking_level"))
+                    self.assertNotIn("reasoning_effort", sent)
+                    self.assertEqual("synthetic", sent["messages"][-1]["content"])
+                    if auxiliary:
+                        self.assertEqual([], self.controls[-1].calls)
+
+    def test_argon_summary_does_not_mutate_nested_custom_data_or_override_explicit_controls(self):
+        route = GatewayRoute("argon-alias", "https://generativelanguage.googleapis.com/v1beta/openai",
+                             "gemini-4-argon", "synthetic-key")
+        extra = {"google": {"thinking_config": {"include_thoughts": False}}, "synthetic": 7}
+        original = copy.deepcopy(extra)
+        payload = {"extra_body": extra, "reasoning_effort": "high",
+                   "messages": [{"role": "assistant", "content": "synthetic",
+                                 "extra_content": {"google": {"thought_signature": "opaque"}}}]}
+        history = copy.deepcopy(payload["messages"])
+        apply_upstream_reasoning_control(payload, route)
+        self.assertEqual(original, extra)
+        self.assertEqual(history, payload["messages"])
+        self.assertFalse(payload["extra_body"]["google"]["thinking_config"]["include_thoughts"])
+        self.assertEqual("high", payload["extra_body"]["google"]["thinking_config"]["thinking_level"])
+        for custom in ({"reasoning_effort": "none"}, {"extra_body": None},
+                       {"reasoning_effort": "low", "extra_body": {"google": {"thinking_config": {"thinking_level": "high"}}}}):
+            before = copy.deepcopy(custom)
+            apply_upstream_reasoning_control(custom, route)
+            self.assertEqual(before, custom)
+        for base in ("https://relay.invalid/v1", "https://generativelanguage.googleapis.com.evil.invalid/v1",
+                     "http://generativelanguage.googleapis.com/v1beta/openai"):
+            custom = {"reasoning_effort": "low"}
+            apply_upstream_reasoning_control(custom, replace(route, upstream_base_url=base))
+            self.assertEqual({"reasoning_effort": "low"}, custom)
+
+
 if __name__ == "__main__":
     unittest.main()

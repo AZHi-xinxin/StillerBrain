@@ -1,6 +1,6 @@
 # Stiller Brain（ST）
 
-> 当前正式版 **0.2.7**：修复工具脑星点导致 ST 星图整体返回503的问题；保留0.2.6的关联回忆与自主整理功能。[下载正式版](https://github.com/AZHi-xinxin/StillerBrain/releases/tag/v0.2.7) · [更新说明](RELEASE-NOTES-0.2.7.md)。
+> 当前正式版 **0.2.8**：同步 Gemini 官方接口的图片、工具流与思考摘要兼容，保留关联回忆、自主整理和星图修复。[下载正式版](https://github.com/AZHi-xinxin/StillerBrain/releases/tag/v0.2.8) · [更新说明](RELEASE-NOTES-0.2.8.md)。
 
 昕昕 & 阿止
 
@@ -18,7 +18,7 @@ ST 是面向 LLM 的长期记忆后端。它接住 AI 自己写下的经历、�
 
 我们把这样的交流方式叫作：“我想起了。”
 
-[开始使用](#开始使用) · [安装向导](docs/INSTALL.md) · [手机本地部署（实验）](docs/PHONE-LOCAL.md) · [两种接入](#两种接入一份记忆) · [模块地图](#一份大脑各有所长) · [浮现机制](#记忆怎样浮现) · [架构](#把经历接回对话的架构) · [设计理念](#设计理念) · [本版更新](RELEASE-NOTES-0.2.6.md) · [网关命中率排查](docs/CACHE-TROUBLESHOOTING.md)
+[开始使用](#开始使用) · [安装向导](docs/INSTALL.md) · [手机本地部署（实验）](docs/PHONE-LOCAL.md) · [两种接入](#两种接入一份记忆) · [模块地图](#一份大脑各有所长) · [浮现机制](#记忆怎样浮现) · [架构](#把经历接回对话的架构) · [设计理念](#设计理念) · [本版更新](RELEASE-NOTES-0.2.8.md) · [网关命中率排查](docs/CACHE-TROUBLESHOOTING.md)
 
 **ST 0.2.2 · 给还想做的事，一个位置。** 情感记忆可以附上可选心愿，自主改写、归档与独立置顶；当往事符合浮现条件时，心愿可随它回来。增加所选记忆的图片线索，合入手机实验路线升级/回退、下载代理与写入上下文诊断。[本次更新与升级](RELEASE-NOTES-0.2.2.md) · [欲望层用法](docs/MEMORY-DESIRES.md)
 

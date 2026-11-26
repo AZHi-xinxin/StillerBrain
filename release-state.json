@@ -1,6 +1,6 @@
 {
   "format": "stiller-public-release-state/1",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "scope": "extended-general-deployment-readiness-not-product-release-channel",
   "product_release_channel": "stable",
   "source_frozen": true,
@@ -11,5 +11,5 @@
   "privacy_review_complete": false,
   "user_acceptance_complete": false,
   "publication_authorized": true,
-  "notes": "0.2.7 is the authorized stable atlas hotfix; scoped tests and real-phone verification are recorded separately, while historical deployment audit flags retain their original scope."
+  "notes": "0.2.8 synchronizes already deployed Gemini compatibility. Scoped regression and usage evidence are recorded separately; historical general-deployment audit flags retain their original scope."
 }
